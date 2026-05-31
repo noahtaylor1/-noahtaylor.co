@@ -58,9 +58,9 @@ nav {
 .project-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: 12px;
   padding: 24px 48px;
-  max-width: 1100px;
+  max-width: 760px;
   margin: 0 auto;
 }
 .project-card {
