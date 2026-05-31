@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nodes — Noah Taylor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <nav>
+    <a href="index.html" class="nav-logo">Noah Taylor</a>
+    <ul class="nav-links">
+      <li><a href="work.html">Work</a></li>
+      <li><a href="index.html" class="active">Design Concepts</a></li>
+      <li><a href="resume.html">Resume</a></li>
+      <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+    </ul>
+  </nav>
+
+  <main class="project-page">
+    <div class="project-header">
+      <h1>Nodes</h1>
+      <p class="tagline">Systems in complexity</p>
+    </div>
+
+    <div class="project-body">
+      <p>The power of conventional 3d printing is limited by scale and the power of mass timber is limited by complexity. Combining the two creates a system capable of quickly making complex structures. Inspired by molecular construction, the prints create atoms, and timber creates bonds over distance.</p>
+      <p><em>Script inputs: Any intersecting curves</em></p>
+
+      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/9cef928c-9e03-4d3e-876e-05a618c13b14/IMG_6811_VSCO.jpg" alt="Nodes structure" /></div>
+
+      <div class="img-grid-2">
+        <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/fea77317-26f9-48f4-91a9-459e9ca9c9ce/Screenshot+2024-08-07+at+11.14.05%E2%80%AFPM.png" alt="Nodes diagram" />
+        <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/85022dc0-0df3-4d86-b45d-b0e52bdd5142/Screenshot+2024-08-07+at+9.37.16%E2%80%AFPM.png" alt="Nodes render" />
+      </div>
+
+      <h2>Ease of Assembly</h2>
+      <p>Upon import, the curves are sorted by their midpoints on the Z-axis. This will output the lowest numbers at the base of the structure, and create comprehensive tagging inputs.</p>
+
+      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/19399af7-91f9-4976-9c96-01d321e95c23/Screenshot+2024-08-07+at+9.29.47%E2%80%AFPM.png" alt="Assembly diagram" /></div>
+
+      <h3>Cut Sheet</h3>
+      <p>A key output for manufacturing is a list of dowel lengths, which are provided along with their tag code. This table can be output automatically from Grasshopper to programs like Microsoft Excel. Each dowel will have a 1/2 X 1" hole drilled into its base to interface with the nodes.</p>
+
+      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/ec044ce6-fedd-457d-8ea7-0e6034fa3889/Screenshot+2024-08-07+at+9.39.59%E2%80%AFPM.png" alt="Cut sheet" /></div>
+
+      <h3>Node Tags</h3>
+      <p>Using the text object module, the Dowel number is engraved into the end of the node via a boolean difference. This completes the system, allowing for assembly without installation drawings.</p>
+
+      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/b18ac190-5887-47d6-be24-26280038d118/Screenshot+2024-08-07+at+9.53.22%E2%80%AFPM.png" alt="Node tags" /></div>
+
+      <h2>Material Optimization</h2>
+      <p>Clash detection is used to divide the input curves. Sections inside collisions will create nodes, and leftover curves outside will define the dowel lengths.</p>
+
+      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/aef28f6f-68a8-406a-9394-e153ac66584f/IMG_6851_VSCO.jpg" alt="Material optimization" /></div>
+
+      <h3>Transitions</h3>
+      <p>Clash detection allows the dowels to get as close to the intersection points as possible, minimizing printed material at shallow angles. Saving printed material cuts down on production time and maximizes strength. The longer the span of a 3d print, the weaker it is.</p>
+
+      <h2>Process</h2>
+      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/d59cd686-9380-4131-a8cb-a53b203aec99/Screenshot+2024-08-07+at+10.34.38%E2%80%AFPM.png" alt="Process diagram" /></div>
+
+      <p>V1: To put the concept to the test, the script relied on a set basic sphere radius at intersections to create the nodes. While the generated nodes were aesthetically very organic, they took a long time to print. Collision detection was added after this version for adaptive length finding.</p>
+      <p>Another drawback of this version is that the thin walls of the nodes caused cracking under load. The method of inserting the nodes into the dowels was added to reduce the points of failure and print material yield. Print time is also cut down to 10 hours instead of 2 days for the same structure.</p>
+      <p>Aesthetically, V2 allows the wood to take center stage and gives a floating look to each node transition. The next step is to print the nodes in a flexible material such as TPU. This offers stronger and more durable properties. Under load, they could act as a suspension system with stretch and resilience.</p>
+
+      <div class="img-grid-2">
+        <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/bca2f186-5467-4609-89b9-29d3c83ca8b7/Screenshot+2024-08-07+at+11.28.24%E2%80%AFPM.png" alt="Process V1" />
+        <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/1f59e824-aceb-4c20-ad9f-1e7152cab65c/Screenshot+2024-08-07+at+11.41.20%E2%80%AFPM.png" alt="Process V2" />
+      </div>
+    </div>
+
+    <div class="project-nav">
+      <div></div>
+      <a href="growpod.html">
+        <span class="label">Next</span>
+        <span class="title">Growpod →</span>
+      </a>
+    </div>
+  </main>
+
+  <footer>© 2026 Noah Taylor</footer>
+</body>
+</html>
