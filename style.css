@@ -70,10 +70,12 @@ nav {
   display: block;
   text-decoration: none;
   color: inherit;
+  aspect-ratio: 4/3;
 }
 .project-card img {
   width: 100%;
-  height: auto;
+  height: 100%;
+  object-fit: cover;
   display: block;
   transition: transform 0.4s ease;
 }
