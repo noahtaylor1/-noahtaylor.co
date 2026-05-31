@@ -133,7 +133,7 @@ nav {
 
 /* PROJECT pages */
 .project-page {
-  max-width: 900px;
+  max-width: 700px;
   margin: 0 auto;
   padding: 64px 48px 120px;
 }
@@ -223,8 +223,8 @@ nav {
 
 /* Slideshow / gallery */
 .gallery {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   margin: 32px 0;
 }
@@ -282,5 +282,4 @@ footer {
   .project-grid { grid-template-columns: 1fr; }
   .work-page, .project-page, .resume-page { padding: 40px 20px 80px; }
   .img-grid-2 { grid-template-columns: 1fr; }
-  .gallery { grid-template-columns: 1fr; }
 }
