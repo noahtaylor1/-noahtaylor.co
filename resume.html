@@ -5,6 +5,91 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Resume — Noah Taylor</title>
   <link rel="stylesheet" href="style.css" />
+  <style>
+    .resume-body {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 64px 48px 120px;
+    }
+    .resume-name {
+      font-size: 28px;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .resume-contact {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 56px;
+    }
+    .resume-contact a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .resume-contact a:hover { color: var(--text); }
+    .resume-section {
+      margin-bottom: 48px;
+    }
+    .resume-section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      margin-bottom: 20px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .resume-entry {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0 24px;
+      margin-bottom: 28px;
+    }
+    .resume-entry:last-child { margin-bottom: 0; }
+    .resume-entry-left {}
+    .resume-entry-title {
+      font-size: 15px;
+      font-weight: 500;
+      margin-bottom: 2px;
+    }
+    .resume-entry-org {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .resume-entry-date {
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+      text-align: right;
+      padding-top: 2px;
+    }
+    .resume-entry ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .resume-entry ul li {
+      font-size: 14px;
+      color: #444;
+      line-height: 1.6;
+      padding-left: 14px;
+      position: relative;
+      margin-bottom: 3px;
+    }
+    .resume-entry ul li::before {
+      content: '—';
+      position: absolute;
+      left: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 768px) {
+      .resume-body { padding: 40px 20px 80px; }
+      .resume-entry { grid-template-columns: 1fr; }
+      .resume-entry-date { text-align: left; margin-bottom: 8px; order: -1; }
+    }
+  </style>
 </head>
 <body>
   <nav>
@@ -17,8 +102,127 @@
     </ul>
   </nav>
 
-  <main class="resume-page">
-    <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/8bbe1bbf-1247-43b8-b3ee-00e47ba2f876/Screen+Shot+2023-06-14+at+8.28.49+PM.png" alt="Noah Taylor Resume" />
+  <main class="resume-body">
+    <h1 class="resume-name">Noah Taylor</h1>
+    <p class="resume-contact">
+      noahjtaylor42@gmail.com &nbsp;·&nbsp;
+      Chicago, IL &nbsp;·&nbsp;
+      <a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a>
+    </p>
+
+    <!-- EXPERIENCE -->
+    <section class="resume-section">
+      <h2 class="resume-section-title">Experience</h2>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">Industrial Product Designer</div>
+          <div class="resume-entry-org">Turf (Architectural and Interior Acoustics) · Full-time</div>
+          <ul>
+            <li>Ideating and developing new standard product lines</li>
+            <li>Directing the development of designer-centered parametric tools</li>
+            <li>Product testing and functionality verification for mass production</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Sep 2024 – Present</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">Designer 1</div>
+          <div class="resume-entry-org">Turf (Architectural and Interior Acoustics) · Full-time</div>
+          <ul>
+            <li>Working with clients to create bespoke products and high-complexity installations</li>
+            <li>Working closely with fabricators to develop those designs for mass production</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Dec 2023 – Sep 2024</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">CAD Coordinator</div>
+          <div class="resume-entry-org">Turf (Architectural and Interior Acoustics) · Full-time</div>
+          <ul>
+            <li>Working with client drawings to develop installation guides for acoustic ceiling and wall systems</li>
+            <li>Developing production-ready CNC content based on client drawings</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Aug 2022 – Dec 2023</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">Design Assistant</div>
+          <div class="resume-entry-org">Cody Norman LLC · Internship</div>
+          <ul>
+            <li>Designing software and hardware for fabrication with industrial robots</li>
+            <li>Engineering structural pieces for outdoor sculpture installation</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Jan 2022 – May 2022</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">Footwear and Accessories Collaborator</div>
+          <div class="resume-entry-org">Nick Cave · Freelance</div>
+          <ul>
+            <li>Designing a fully 3D printed shoe for production, product testing of new-to-market 3D printed rubbers</li>
+            <li>Generative design and topology optimization for footwear</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Dec 2021 – May 2022</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">Advanced Instructional Associate</div>
+          <div class="resume-entry-org">School of the Art Institute of Chicago · Part-time</div>
+          <ul>
+            <li>3D print shop management and design consulting</li>
+            <li>Instructing shop staff and students on the operation and maintenance of 3D printers, CNCs, and laser cutters</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Jan 2021 – May 2022</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">CAD Designer</div>
+          <div class="resume-entry-org">Dawit Petros Studio · Freelance</div>
+          <ul>
+            <li>Working with Chicago-based artists utilizing 3D modeling, 3D printing, and CNC milling to develop contracted designs</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Sep 2020 – Dec 2021</div>
+      </div>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">Sales Associate</div>
+          <div class="resume-entry-org">Crate and Barrel · Part-time</div>
+          <ul>
+            <li>Customer service in design and home goods</li>
+            <li>Deep product knowledge and sales</li>
+          </ul>
+        </div>
+        <div class="resume-entry-date">Jun 2021 – Aug 2021</div>
+      </div>
+    </section>
+
+    <!-- EDUCATION -->
+    <section class="resume-section">
+      <h2 class="resume-section-title">Education</h2>
+
+      <div class="resume-entry">
+        <div class="resume-entry-left">
+          <div class="resume-entry-title">School of the Art Institute of Chicago</div>
+          <div class="resume-entry-org">Bachelor of Fine Arts — Industrial and Product Design</div>
+        </div>
+        <div class="resume-entry-date">2018 – 2022</div>
+      </div>
+    </section>
   </main>
 
   <footer>© 2026 Noah Taylor</footer>
