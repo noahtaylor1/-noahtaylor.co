@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Nodes Configurator — Noah Taylor</title>
+  <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    .configurator-wrap { display: flex; flex-direction: column; }
+
+    #canvas-container {
+      width: 100%;
+      height: 65vh;
+      min-height: 400px;
+      background: #f8f7f5;
+      cursor: grab;
+      position: relative;
+      user-select: none;
+    }
+    #canvas-container:active { cursor: grabbing; }
+    #three-canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    .canvas-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 18px;
+      font-size: 11px;
+      color: #bbb;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    .project-label {
+      position: absolute;
+      top: 20px;
+      left: 28px;
+      pointer-events: none;
+    }
+    .project-label h1 {
+      font-size: 20px;
+      font-weight: 400;
+      letter-spacing: -0.01em;
+      color: #1a1a1a;
+      margin-bottom: 3px;
+    }
+    .project-label p {
+      font-size: 12px;
+      color: #aaa;
+      letter-spacing: 0.03em;
+    }
+
+    /* Controls */
+    .controls-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid #e5e5e5;
+      flex-wrap: wrap;
+    }
+    .ctrl {
+      flex: 1;
+      min-width: 180px;
+      padding: 20px 32px;
+      border-right: 1px solid #e5e5e5;
+    }
+    .ctrl:last-child { border-right: none; }
+    .ctrl-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #aaa;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .ctrl-label span {
+      font-size: 14px;
+      color: #1a1a1a;
+      letter-spacing: 0;
+      text-transform: none;
+      font-variant-numeric: tabular-nums;
+    }
+    input[type="range"] {
+      width: 100%;
+      height: 2px;
+      appearance: none;
+      background: #e0e0e0;
+      outline: none;
+      cursor: pointer;
+      border-radius: 2px;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #1a1a1a;
+      cursor: pointer;
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #1a1a1a;
+      cursor: pointer;
+      border: none;
+    }
+
+    /* Cut sheet */
+    .cutsheet {
+      padding: 40px 48px 80px;
+    }
+    .cutsheet h2 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #aaa;
+      margin-bottom: 24px;
+    }
+    .cut-table {
+      width: 100%;
+      max-width: 640px;
+      border-collapse: collapse;
+    }
+    .cut-table th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #aaa;
+      font-weight: 400;
+      text-align: left;
+      padding: 0 20px 10px 0;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    .cut-table td {
+      padding: 13px 20px 13px 0;
+      border-bottom: 1px solid #f2f2f2;
+      font-size: 14px;
+      color: #333;
+    }
+    .tag-dot {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #1a1a1a;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    .cut-len { font-variant-numeric: tabular-nums; color: #555; }
+    .cut-qty { color: #aaa; }
+    .total-row td {
+      border-bottom: none;
+      border-top: 1px solid #e5e5e5;
+      padding-top: 16px;
+      color: #888;
+      font-size: 13px;
+    }
+
+    @media (max-width: 768px) {
+      .ctrl { padding: 16px 20px; min-width: 140px; }
+      .cutsheet { padding: 28px 20px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li><a href="work.html">Work</a></li>
+    <li><a href="index.html" class="active">Design Concepts</a></li>
+    <li><a href="resume.html">Resume</a></li>
+    <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+  </ul>
+</nav>
+
+<div class="configurator-wrap">
+
+  <div id="canvas-container">
+    <canvas id="three-canvas"></canvas>
+    <div class="project-label">
+      <h1>Nodes</h1>
+      <p>Parametric Configurator</p>
+    </div>
+    <div class="canvas-hint">Drag to rotate &nbsp;·&nbsp; Scroll to zoom</div>
+  </div>
+
+  <div class="controls-bar">
+    <div class="ctrl">
+      <div class="ctrl-label">Length <span><span id="val-L">120</span> cm</span></div>
+      <input type="range" id="sl-L" min="40" max="240" value="120" step="1"/>
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-label">Width <span><span id="val-W">60</span> cm</span></div>
+      <input type="range" id="sl-W" min="20" max="120" value="60" step="1"/>
+    </div>
+    <div class="ctrl">
+      <div class="ctrl-label">Height <span><span id="val-H">75</span> cm</span></div>
+      <input type="range" id="sl-H" min="20" max="120" value="75" step="1"/>
+    </div>
+  </div>
+
+  <div class="cutsheet">
+    <h2>Cut Sheet — Dowel Lengths</h2>
+    <table class="cut-table">
+      <thead>
+        <tr>
+          <th>Tag</th>
+          <th>Member</th>
+          <th>Length</th>
+          <th>Qty</th>
+        </tr>
+      </thead>
+      <tbody id="cut-tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<footer>© 2026 Noah Taylor &nbsp;·&nbsp; <a href="nodes.html" style="color:inherit;text-decoration:none;">← Back to Nodes</a></footer>
+
+<script>
+// ─── Three.js Scene ────────────────────────────────────────────────────────
+const container = document.getElementById('canvas-container');
+const canvas    = document.getElementById('three-canvas');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0xf8f7f5);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 20000);
+
+// Lights
+const amb = new THREE.AmbientLight(0xffffff, 0.65);
+scene.add(amb);
+
+const key = new THREE.DirectionalLight(0xfff8f0, 0.9);
+key.position.set(300, 500, 400);
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0xf0f4ff, 0.35);
+fill.position.set(-200, 150, -300);
+scene.add(fill);
+
+// ─── Materials ─────────────────────────────────────────────────────────────
+const dowelMat = new THREE.MeshLambertMaterial({ color: 0xc2955f }); // wood
+const nodeMat  = new THREE.MeshLambertMaterial({ color: 0xeeeae4 }); // printed plastic
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+function v3(x, y, z) { return new THREE.Vector3(x, y, z); }
+
+function makeDowel(p1, p2) {
+  const dir = new THREE.Vector3().subVectors(p2, p1);
+  const len = dir.length();
+  if (len < 0.01) return null;
+  const geo  = new THREE.CylinderGeometry(1.0, 1.0, len, 12, 1);
+  const mesh = new THREE.Mesh(geo, dowelMat);
+  mesh.position.addVectors(p1, p2).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  return mesh;
+}
+
+function makeNode(p) {
+  const geo  = new THREE.SphereGeometry(1.85, 16, 12);
+  const mesh = new THREE.Mesh(geo, nodeMat);
+  mesh.position.copy(p);
+  return mesh;
+}
+
+// ─── Structure ─────────────────────────────────────────────────────────────
+const group = new THREE.Group();
+scene.add(group);
+
+function buildStructure(L, W, H) {
+  // Dispose old geometry
+  group.children.forEach(c => { if (c.geometry) c.geometry.dispose(); });
+  group.clear();
+
+  // Corner vertices
+  const b0 = v3(0, 0, 0),  b1 = v3(L, 0, 0),  b2 = v3(L, W, 0),  b3 = v3(0, W, 0);
+  const t0 = v3(0, 0, H),  t1 = v3(L, 0, H),  t2 = v3(L, W, H),  t3 = v3(0, W, H);
+
+  // X-brace intersection midpoints on each face
+  const cf = v3(L/2, 0,   H/2);  // front face
+  const cb = v3(L/2, W,   H/2);  // back face
+  const cl = v3(0,   W/2, H/2);  // left face
+  const cr = v3(L,   W/2, H/2);  // right face
+
+  // Dowel pairs  [from, to]
+  const pairs = [
+    // ── Legs
+    [b0, t0], [b1, t1], [b2, t2], [b3, t3],
+    // ── Top rails
+    [t0, t1], [t1, t2], [t2, t3], [t3, t0],
+    // ── Front face X  (split at cf)
+    [b0, cf], [b1, cf], [cf, t0], [cf, t1],
+    // ── Back face X   (split at cb)
+    [b3, cb], [b2, cb], [cb, t3], [cb, t2],
+    // ── Left face X   (split at cl)
+    [b0, cl], [b3, cl], [cl, t0], [cl, t3],
+    // ── Right face X  (split at cr)
+    [b1, cr], [b2, cr], [cr, t1], [cr, t2],
+  ];
+
+  // Node positions (every connection point)
+  const nodes = [b0, b1, b2, b3, t0, t1, t2, t3, cf, cb, cl, cr];
+
+  pairs.forEach(([a, b]) => {
+    const m = makeDowel(a, b);
+    if (m) group.add(m);
+  });
+  nodes.forEach(p => group.add(makeNode(p)));
+
+  // Centre group at origin for clean orbit
+  group.position.set(-L / 2, -H / 2, -W / 2);
+}
+
+// ─── Cut sheet ─────────────────────────────────────────────────────────────
+function updateCutSheet(L, W, H) {
+  const hyp = (a, b) => Math.sqrt(a * a + b * b);
+
+  const rows = [
+    { tag:'A', desc:'Leg — vertical',            len: H,                qty: 4  },
+    { tag:'B', desc:'Top rail — long',            len: L,                qty: 2  },
+    { tag:'C', desc:'Top rail — short',           len: W,                qty: 2  },
+    { tag:'D', desc:'Cross brace — front / back', len: hyp(L/2, H/2),   qty: 8  },
+    { tag:'E', desc:'Cross brace — left / right', len: hyp(W/2, H/2),   qty: 8  },
+  ];
+
+  const totalLen = rows.reduce((s, r) => s + r.len * r.qty, 0);
+  const totalQty = rows.reduce((s, r) => s + r.qty, 0);
+
+  document.getElementById('cut-tbody').innerHTML =
+    rows.map(r => `
+      <tr>
+        <td><span class="tag-dot">${r.tag}</span></td>
+        <td>${r.desc}</td>
+        <td class="cut-len">${r.len.toFixed(1)} cm</td>
+        <td class="cut-qty">${r.qty}×</td>
+      </tr>
+    `).join('') +
+    `<tr class="total-row">
+      <td></td>
+      <td>Total</td>
+      <td class="cut-len">${(totalLen / 100).toFixed(2)} m</td>
+      <td class="cut-qty">${totalQty} pieces</td>
+    </tr>`;
+}
+
+// ─── Camera orbit ──────────────────────────────────────────────────────────
+let theta = -0.55, phi = 1.05, camR = 300;
+let autoRotate = true;
+
+function positionCamera(L, W, H) {
+  camR = Math.max(camR, Math.max(L, W, H) * 2.0);
+  camR = Math.min(camR, Math.max(L, W, H) * 5.0);
+  camera.position.set(
+    camR * Math.sin(phi) * Math.sin(theta),
+    camR * Math.cos(phi),
+    camR * Math.sin(phi) * Math.cos(theta)
+  );
+  camera.lookAt(0, 0, 0);
+}
+
+// Drag
+let dragging = false, lx = 0, ly = 0;
+container.addEventListener('mousedown', e => {
+  dragging = true; autoRotate = false;
+  lx = e.clientX; ly = e.clientY;
+  e.preventDefault();
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  theta += (e.clientX - lx) * 0.008;
+  phi   -= (e.clientY - ly) * 0.008;
+  phi = Math.max(0.1, Math.min(1.45, phi));
+  lx = e.clientX; ly = e.clientY;
+  positionCamera(curL, curW, curH);
+});
+window.addEventListener('mouseup', () => dragging = false);
+
+// Touch
+container.addEventListener('touchstart', e => {
+  dragging = true; autoRotate = false;
+  lx = e.touches[0].clientX; ly = e.touches[0].clientY;
+}, { passive: true });
+window.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  theta += (e.touches[0].clientX - lx) * 0.01;
+  phi   -= (e.touches[0].clientY - ly) * 0.01;
+  phi = Math.max(0.1, Math.min(1.45, phi));
+  lx = e.touches[0].clientX; ly = e.touches[0].clientY;
+  positionCamera(curL, curW, curH);
+}, { passive: true });
+window.addEventListener('touchend', () => dragging = false);
+
+// Scroll zoom
+container.addEventListener('wheel', e => {
+  camR += e.deltaY * 0.5;
+  camR = Math.max(80, Math.min(3000, camR));
+  positionCamera(curL, curW, curH);
+  e.preventDefault();
+}, { passive: false });
+
+// ─── Sliders ────────────────────────────────────────────────────────────────
+let curL = 120, curW = 60, curH = 75;
+
+function onSliderChange() {
+  curL = +document.getElementById('sl-L').value;
+  curW = +document.getElementById('sl-W').value;
+  curH = +document.getElementById('sl-H').value;
+  document.getElementById('val-L').textContent = curL;
+  document.getElementById('val-W').textContent = curW;
+  document.getElementById('val-H').textContent = curH;
+  camR = Math.max(curL, curW, curH) * 2.4;
+  buildStructure(curL, curW, curH);
+  positionCamera(curL, curW, curH);
+  updateCutSheet(curL, curW, curH);
+}
+
+['sl-L', 'sl-W', 'sl-H'].forEach(id =>
+  document.getElementById(id).addEventListener('input', onSliderChange)
+);
+
+// ─── Resize ─────────────────────────────────────────────────────────────────
+function onResize() {
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+
+// ─── Animate ────────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  if (autoRotate && !dragging) {
+    theta += 0.003;
+    positionCamera(curL, curW, curH);
+  }
+  renderer.render(scene, camera);
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+onResize();
+camR = Math.max(curL, curW, curH) * 2.4;
+buildStructure(curL, curW, curH);
+positionCamera(curL, curW, curH);
+updateCutSheet(curL, curW, curH);
+animate();
+</script>
+</body>
+</html>
