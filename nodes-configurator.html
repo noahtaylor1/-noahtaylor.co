@@ -35,7 +35,7 @@
       letter-spacing: 0.06em;
       text-transform: uppercase;
       z-index: 10;
-      transition: opacity 0.4s;
+      transition: opacity 0.6s;
     }
     #loading.hidden { opacity: 0; pointer-events: none; }
     .spinner {
@@ -66,7 +66,6 @@
     .project-label h1 { font-size: 20px; font-weight: 400; letter-spacing: -0.01em; color: #1a1a1a; margin-bottom: 3px; }
     .project-label p  { font-size: 12px; color: #aaa; letter-spacing: 0.03em; }
 
-    /* Controls */
     .controls-bar {
       display: flex;
       border-bottom: 1px solid #e5e5e5;
@@ -103,7 +102,6 @@
       border-radius: 50%; background: #1a1a1a; cursor: pointer;
     }
 
-    /* Cut sheet */
     .cutsheet { padding: 40px 48px 80px; }
     .cutsheet h2 {
       font-size: 11px; text-transform: uppercase;
@@ -121,10 +119,7 @@
       width: 22px; height: 22px; border-radius: 50%;
       background: #111; color: #fff; font-size: 11px; font-weight: 600;
     }
-    .total-row td {
-      border-bottom: none; border-top: 1px solid #e5e5e5;
-      padding-top: 16px; color: #888; font-size: 13px;
-    }
+    .divider-row td { border-top: 1px solid #e5e5e5; border-bottom: none; padding-top: 16px; color: #888; font-size: 13px; }
 
     @media (max-width: 768px) {
       .ctrl { padding: 16px 20px; }
@@ -147,39 +142,31 @@
 <div class="configurator-wrap">
   <div id="canvas-container">
     <canvas id="three-canvas"></canvas>
-
-    <div id="loading">
-      <div class="spinner"></div>
-      <span>Loading model</span>
-    </div>
-
-    <div class="project-label">
-      <h1>Nodes</h1>
-      <p>Parametric Configurator</p>
-    </div>
+    <div id="loading"><div class="spinner"></div><span>Loading model</span></div>
+    <div class="project-label"><h1>Nodes</h1><p>Parametric Configurator</p></div>
     <div class="canvas-hint">Drag to rotate &nbsp;·&nbsp; Scroll to zoom</div>
   </div>
 
   <div class="controls-bar">
     <div class="ctrl">
-      <div class="ctrl-label">Length <span><span id="val-L">120</span> cm</span></div>
-      <input type="range" id="sl-L" min="50" max="240" value="120" step="1"/>
+      <div class="ctrl-label">Length <span><span id="val-L">80</span> cm</span></div>
+      <input type="range" id="sl-L" min="40" max="200" value="80" step="1"/>
     </div>
     <div class="ctrl">
-      <div class="ctrl-label">Width <span><span id="val-W">60</span> cm</span></div>
-      <input type="range" id="sl-W" min="30" max="120" value="60" step="1"/>
+      <div class="ctrl-label">Width <span><span id="val-W">80</span> cm</span></div>
+      <input type="range" id="sl-W" min="40" max="150" value="80" step="1"/>
     </div>
     <div class="ctrl">
-      <div class="ctrl-label">Height <span><span id="val-H">75</span> cm</span></div>
-      <input type="range" id="sl-H" min="30" max="120" value="75" step="1"/>
+      <div class="ctrl-label">Height <span><span id="val-H">70</span> cm</span></div>
+      <input type="range" id="sl-H" min="40" max="120" value="70" step="1"/>
     </div>
   </div>
 
   <div class="cutsheet">
-    <h2>Scaled Dimensions</h2>
+    <h2>Cut Sheet</h2>
     <table class="cut-table">
       <thead>
-        <tr><th>Axis</th><th>Default</th><th>Current</th><th>Scale</th></tr>
+        <tr><th>Tag</th><th>Component</th><th>Length</th><th>Qty</th></tr>
       </thead>
       <tbody id="cut-tbody"></tbody>
     </table>
@@ -191,7 +178,73 @@
 </footer>
 
 <script>
-// ─── Renderer + Scene ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PARAMETRIC DATA
+// Normalized node positions (u,v,w) derived from OBJ bounding box.
+// Bounding box from corner node positions:
+//   X: 228.7 → 249.8  (XR = 21.1)
+//   Y: 294.1 → 309.9  (YR = 15.8)
+//   Z: -247.7 → -226.7 (ZR = 21.0)  [w=0=back, w=1=front]
+// ─────────────────────────────────────────────────────────────────────────────
+const XMIN=228.7, XR=21.1;
+const YMIN=294.1, YR=15.8;
+const ZMIN=-247.7, ZR=21.0;
+
+// OBJ-unit → cm scale at default dimensions (for node mesh geometry)
+// Default W=80cm spans XR=21.1 OBJ units → scale = 80/21.1
+const DEFAULT_W = 80, DEFAULT_L = 80, DEFAULT_H = 70;
+const OBJ_TO_CM = DEFAULT_W / XR; // ≈ 3.79
+
+function uvw(x, y, z) {
+  return { u:(x-XMIN)/XR, v:(y-YMIN)/YR, w:(z-ZMIN)/ZR };
+}
+
+// All nodes: component index → {u,v,w,type}
+const NODES = {};
+[
+  [1,  232.6, 294.7, -244.6, 'diffuse'],
+  [2,  245.0, 300.1, -234.7, 'diffuse'],
+  [3,  244.8, 300.4, -237.2, 'diffuse'],
+  [4,  242.0, 300.1, -234.6, 'diffuse'],
+  [5,  242.5, 302.1, -237.6, 'diffuse'],
+  [6,  245.1, 302.5, -237.4, 'diffuse'],
+  [7,  248.1, 294.2, -245.8, 'paint'],
+  [8,  231.1, 294.6, -245.5, 'paint'],
+  [9,  247.9, 294.1, -228.4, 'paint'],
+  [10, 231.1, 294.9, -228.2, 'paint'],
+  [11, 235.9, 301.9, -232.8, 'paint'],
+  [12, 243.2, 301.3, -236.1, 'paint'],
+  [13, 249.8, 309.9, -247.7, 'paint'],
+  [14, 228.8, 309.9, -247.5, 'paint'],
+  [15, 238.1, 303.6, -241.3, 'paint'],
+  [16, 228.7, 309.5, -227.2, 'paint'],
+  [40, 249.6, 309.9, -226.7, 'paint'],
+].forEach(([id, x, y, z, type]) => {
+  NODES[id] = { ...uvw(x, y, z), type };
+});
+
+// Top corner node IDs (for tabletop positioning)
+const TOP_CORNERS = [13, 14, 16, 40];
+// Bottom corner node IDs
+const BOTTOM_CORNERS = [7, 8, 9, 10];
+
+// Dowel connections: [plasterCompIdx, nodeA, nodeB]
+const CONNECTIONS = [
+  [17, 10, 11], [18,  1,  8], [19,  4,  2], [20,  4, 11],
+  [21, 15,  1], [22,  2,  9], [23,  3,  7], [24, 11,  4],
+  [25,  1,  8], [26,  7,  5], [27,  5, 12], [28, 13,  7],
+  [29, 14,  8], [30, 40,  9], [31, 10, 16], [32, 15, 14],
+  [33, 40,  4], [34, 16, 11], [35,  6, 13], [36, 13, 15],
+  [37, 14, 15], [38,  6, 12], [39, 11, 16],
+];
+
+// Leg connections (vertical posts)
+const LEG_CONN = [[28,13,7],[29,14,8],[30,40,9],[31,10,16]];
+const LEG_LABELS = ['A','B','C','D'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THREE.JS SETUP
+// ─────────────────────────────────────────────────────────────────────────────
 const container = document.getElementById('canvas-container');
 const canvas    = document.getElementById('three-canvas');
 const loadingEl = document.getElementById('loading');
@@ -200,278 +253,374 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = false;
 
-const scene  = new THREE.Scene();
+const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf9f8f6);
 
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100000);
+camera.position.set(0, 60, 180);
 
 // Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.65));
-const key = new THREE.DirectionalLight(0xfff6e8, 0.95);
-key.position.set(1, 2, 1.5);
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const key = new THREE.DirectionalLight(0xfff8f0, 1.0);
+key.position.set(1.5, 2.5, 2);
 scene.add(key);
-const fill = new THREE.DirectionalLight(0xe8f0ff, 0.4);
-fill.position.set(-1.5, 0.5, -1);
+const fill = new THREE.DirectionalLight(0xf0f4ff, 0.45);
+fill.position.set(-2, 1, -1);
 scene.add(fill);
 const rim = new THREE.DirectionalLight(0xffffff, 0.2);
-rim.position.set(0, -1, -2);
+rim.position.set(0, -1, -3);
 scene.add(rim);
 
-// ─── Materials ────────────────────────────────────────────────────────────
-const MATS = {
-  'Paint':               new THREE.MeshLambertMaterial({ color: 0xb07840 }),  // wood dowels
-  'diffuse_0_0_0_255':   new THREE.MeshLambertMaterial({ color: 0x111111 }),  // black nodes
-  'Plastic':             new THREE.MeshLambertMaterial({ color: 0xd0e4f0, transparent: true, opacity: 0.35, side: THREE.DoubleSide }), // glass top
-  'Plaster':             new THREE.MeshLambertMaterial({ color: 0xe8e0d8 }),  // off-white elements
-  '__default__':         new THREE.MeshLambertMaterial({ color: 0xcccccc }),
-};
+// Materials
+const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0x111111 });         // 3D-printed nodes: black
+const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xc8a876 });         // wood dowels: warm oak
+const MAT_SMALL = new THREE.MeshLambertMaterial({ color: 0x111111 });         // small diffuse nodes: black
+const MAT_TOP   = new THREE.MeshLambertMaterial({ color: 0xd8eaf5, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
 
-// ─── OBJ Parser ───────────────────────────────────────────────────────────
+const DOWEL_RADIUS = 1.4 * OBJ_TO_CM;  // ~5.3 cm radius in scene units
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OBJ PARSER — returns array of {mat, arr} in usemtl order
+// ─────────────────────────────────────────────────────────────────────────────
 function parseOBJ(text) {
   const lines = text.split('\n');
-  const pos   = [];   // raw flat positions [x,y,z, x,y,z, ...]
-
-  // per-material: flat Float32Array builders
-  const matArrays = {};
-  let curMat = '__default__';
+  const pos   = [];
+  const comps = [];
+  let cur = null;
 
   for (let i = 0, n = lines.length; i < n; i++) {
     const line = lines[i];
     if (line.length < 2) continue;
     const c0 = line.charCodeAt(0);
 
-    if (c0 === 118) {           // 'v'
-      const c1 = line.charCodeAt(1);
-      if (c1 === 32) {          // 'v ' — position
-        let s = line.split(' ');
-        pos.push(+s[1], +s[2], +s[3]);
+    if (c0 === 118 && line.charCodeAt(1) === 32) {  // 'v '
+      const s = line.split(' ');
+      pos.push(+s[1], +s[2], +s[3]);
+    } else if (c0 === 117) {                          // 'usemtl'
+      cur = { mat: line.slice(7).trim(), arr: [] };
+      comps.push(cur);
+    } else if (c0 === 102) {                          // 'f'
+      if (!cur) { cur = { mat: '__default__', arr: [] }; comps.push(cur); }
+      const arr = cur.arr;
+      const tok = line.split(/\s+/);
+      const idx = [];
+      for (let k = 1; k < tok.length; k++) {
+        if (!tok[k]) continue;
+        idx.push((+tok[k].split('/')[0] - 1) * 3);
       }
-      // skip vt / vn — we'll compute normals ourselves
-    } else if (c0 === 117) {    // 'u' — usemtl
-      curMat = line.slice(7).trim();
-      if (!matArrays[curMat]) matArrays[curMat] = [];
-    } else if (c0 === 102) {    // 'f' — face
-      if (!matArrays[curMat]) matArrays[curMat] = [];
-      const arr = matArrays[curMat];
-      const tokens = line.split(/\s+/);
-      // Collect vertex indices (1-based), triangulate as fan
-      const idxs = [];
-      for (let k = 1; k < tokens.length; k++) {
-        if (!tokens[k]) continue;
-        const vi = (+tokens[k].split('/')[0] - 1) * 3;
-        idxs.push(vi);
-      }
-      for (let j = 1; j < idxs.length - 1; j++) {
-        const a = idxs[0], b = idxs[j], c = idxs[j + 1];
-        arr.push(pos[a], pos[a+1], pos[a+2],
-                 pos[b], pos[b+1], pos[b+2],
-                 pos[c], pos[c+1], pos[c+2]);
+      for (let j = 1; j < idx.length - 1; j++) {
+        const a=idx[0], b=idx[j], c=idx[j+1];
+        arr.push(pos[a],pos[a+1],pos[a+2], pos[b],pos[b+1],pos[b+2], pos[c],pos[c+1],pos[c+2]);
       }
     }
   }
-
-  return matArrays;
+  return comps;
 }
 
-// ─── Build scene from parsed data ─────────────────────────────────────────
-const modelGroup = new THREE.Group();
-scene.add(modelGroup);
-
-// Store default (base) extents
-let BASE = { cx:0, cy:0, cz:0, sx:1, sy:1, sz:1 };
-let curL = 120, curW = 60, curH = 75;
-
-function buildScene(matArrays) {
-  // Collect all vertices to compute bounding box
-  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, minZ=Infinity, maxZ=-Infinity;
-
-  const allPos = matArrays['Paint'] || matArrays[Object.keys(matArrays)[0]];
-  for (let i = 0; i < allPos.length; i += 3) {
-    const x = allPos[i], y = allPos[i+1], z = allPos[i+2];
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+// Build a centered, OBJ-to-cm-scaled BufferGeometry from a flat triangle array
+function makeGeometry(arr, cx, cy, cz) {
+  const verts = new Float32Array(arr.length);
+  for (let i = 0; i < arr.length; i += 3) {
+    verts[i]   = (arr[i]   - cx) * OBJ_TO_CM;
+    verts[i+1] = (arr[i+1] - cy) * OBJ_TO_CM;
+    verts[i+2] = (arr[i+2] - cz) * OBJ_TO_CM;
   }
-
-  // Also scan all materials for bounding box
-  for (const arr of Object.values(matArrays)) {
-    for (let i = 0; i < arr.length; i += 3) {
-      const x = arr[i], y = arr[i+1], z = arr[i+2];
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    }
-  }
-
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const cz = (minZ + maxZ) / 2;
-  const rangeX = maxX - minX;
-  const rangeY = maxY - minY;
-  const rangeZ = maxZ - minZ;
-  const maxRange = Math.max(rangeX, rangeY, rangeZ);
-  const normalise = 100 / maxRange; // scale so largest dim = 100 units
-
-  BASE = {
-    cx, cy, cz,
-    rangeX, rangeY, rangeZ,
-    normalise,
-    sx: 1, sy: 1, sz: 1,
-  };
-
-  // Build one mesh per material
-  for (const [matName, arr] of Object.entries(matArrays)) {
-    if (arr.length === 0) continue;
-    const geo  = new THREE.BufferGeometry();
-    const verts = new Float32Array(arr.length);
-    // Centre and normalise verts
-    for (let i = 0; i < arr.length; i += 3) {
-      verts[i]   = (arr[i]   - cx) * normalise;
-      verts[i+1] = (arr[i+1] - cy) * normalise;
-      verts[i+2] = (arr[i+2] - cz) * normalise;
-    }
-    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-    geo.computeVertexNormals();
-    const mat = MATS[matName] || MATS['__default__'];
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.userData.matName = matName;
-    modelGroup.add(mesh);
-  }
-
-  // Camera: position to see full model
-  const dist = 100 * 2.6;
-  camR = dist;
-  posCamera();
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  return geo;
 }
 
-// ─── Parametric scale ─────────────────────────────────────────────────────
-// We scale the model group along its principal axes.
-// Y = height, X = length, Z = width (based on OBJ bounding box shape)
-const DEFAULT_L = 120, DEFAULT_W = 60, DEFAULT_H = 75;
+function centroid(arr) {
+  let cx=0, cy=0, cz=0;
+  const n = arr.length / 3;
+  for (let i=0; i<arr.length; i+=3) { cx+=arr[i]; cy+=arr[i+1]; cz+=arr[i+2]; }
+  return [cx/n, cy/n, cz/n];
+}
 
-function applyScale() {
-  modelGroup.scale.set(
-    curL / DEFAULT_L,
-    curH / DEFAULT_H,
-    curW / DEFAULT_W
+// ─────────────────────────────────────────────────────────────────────────────
+// SCENE OBJECTS
+// ─────────────────────────────────────────────────────────────────────────────
+const nodeMeshes  = {};   // nodeId → THREE.Mesh
+const dowelMeshes = [];   // one per connection
+let topMesh = null;
+
+function makeCylinder(pA, pB, radius) {
+  const len = pA.distanceTo(pB);
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 10);
+  const mesh = new THREE.Mesh(geo, MAT_DOWEL);
+  const mid  = new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5);
+  mesh.position.copy(mid);
+  mesh.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3().subVectors(pB, pA).normalize()
   );
-  updateCutSheet();
+  return mesh;
 }
 
-function updateCutSheet() {
-  document.getElementById('cut-tbody').innerHTML = `
+// Compute scene position for a node given current slider values
+function nodeScenePos(nd, L, W, H) {
+  return new THREE.Vector3(
+    (nd.u - 0.5) * W,
+    nd.v * H,
+    (nd.w - 0.5) * L
+  );
+}
+
+// Build/rebuild the entire parametric model
+function buildModel(comps, L, W, H) {
+  // Clear previous
+  while (scene.children.length > 4) scene.remove(scene.children[4]); // keep lights
+  for (const k in nodeMeshes) delete nodeMeshes[k];
+  dowelMeshes.length = 0;
+  topMesh = null;
+
+  // ── Node meshes ─────────────────────────────────────────────────────────
+  // Paint components (indices 7–16 and 40 in the comps array)
+  const paintIndices = [7,8,9,10,11,12,13,14,15,16,40];
+  for (const idx of paintIndices) {
+    const comp = comps[idx];
+    if (!comp || !comp.arr.length) continue;
+    const [cx,cy,cz] = centroid(comp.arr);
+    const geo = makeGeometry(comp.arr, cx, cy, cz);
+    const mesh = new THREE.Mesh(geo, MAT_NODE);
+    mesh.position.copy(nodeScenePos(NODES[idx], L, W, H));
+    scene.add(mesh);
+    nodeMeshes[idx] = mesh;
+  }
+
+  // Diffuse components (indices 1–6): small spheres (geometry is tiny ~1 OBJ unit)
+  for (let idx = 1; idx <= 6; idx++) {
+    const nd = NODES[idx];
+    const r = 0.55 * OBJ_TO_CM;
+    const geo = new THREE.SphereGeometry(r, 8, 6);
+    const mesh = new THREE.Mesh(geo, MAT_SMALL);
+    mesh.position.copy(nodeScenePos(nd, L, W, H));
+    scene.add(mesh);
+    nodeMeshes[idx] = mesh;
+  }
+
+  // ── Dowel cylinders ──────────────────────────────────────────────────────
+  for (const [, na, nb] of CONNECTIONS) {
+    const pA = nodeMeshes[na] ? nodeMeshes[na].position.clone() : new THREE.Vector3();
+    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position.clone() : new THREE.Vector3();
+    const mesh = makeCylinder(pA, pB, DOWEL_RADIUS);
+    scene.add(mesh);
+    dowelMeshes.push(mesh);
+  }
+
+  // ── Glass tabletop ───────────────────────────────────────────────────────
+  const topGeo = new THREE.PlaneGeometry(W + 4, L + 4);
+  topMesh = new THREE.Mesh(topGeo, MAT_TOP);
+  topMesh.rotation.x = -Math.PI / 2;
+  const topY = NODES[13].v * H;  // top corner height
+  topMesh.position.set(0, topY, 0);
+  scene.add(topMesh);
+}
+
+// Reposition nodes + rebuild dowels (fast path — no OBJ re-parse)
+let _comps = null;
+function updateModel(L, W, H) {
+  if (!_comps) return;
+
+  // Reposition node meshes
+  for (const [id, nd] of Object.entries(NODES)) {
+    const mesh = nodeMeshes[id];
+    if (!mesh) continue;
+    mesh.position.copy(nodeScenePos(nd, L, W, H));
+  }
+
+  // Rebuild dowel cylinders in-place
+  for (let i = 0; i < CONNECTIONS.length; i++) {
+    const [, na, nb] = CONNECTIONS[i];
+    const pA = nodeMeshes[na] ? nodeMeshes[na].position : new THREE.Vector3();
+    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position : new THREE.Vector3();
+    const len = pA.distanceTo(pB);
+    const mid = new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5);
+
+    const m = dowelMeshes[i];
+    m.geometry.dispose();
+    m.geometry = new THREE.CylinderGeometry(DOWEL_RADIUS, DOWEL_RADIUS, len, 10);
+    m.position.copy(mid);
+    m.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3().subVectors(pB, pA).normalize()
+    );
+  }
+
+  // Reposition tabletop
+  if (topMesh) {
+    topMesh.geometry.dispose();
+    topMesh.geometry = new THREE.PlaneGeometry(W + 4, L + 4);
+    topMesh.position.set(0, NODES[13].v * H, 0);
+  }
+
+  updateCamera(L, W, H);
+  updateCutSheet(L, W, H);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CAMERA & ORBIT
+// ─────────────────────────────────────────────────────────────────────────────
+let theta = 0.45, phi = 1.0, camDist = 220;
+let camTarget = new THREE.Vector3(0, 30, 0);
+let isDragging = false, lastX = 0, lastY = 0;
+
+function updateCamera(L, W, H) {
+  const maxDim = Math.max(L, W, H);
+  camDist = maxDim * 2.2;
+  camTarget.set(0, H * 0.4, 0);
+}
+
+function applyCamera() {
+  const x = camDist * Math.sin(phi) * Math.sin(theta);
+  const y = camDist * Math.cos(phi);
+  const z = camDist * Math.sin(phi) * Math.cos(theta);
+  camera.position.set(
+    camTarget.x + x,
+    camTarget.y + y,
+    camTarget.z + z
+  );
+  camera.lookAt(camTarget);
+}
+
+container.addEventListener('mousedown', e => { isDragging=true; lastX=e.clientX; lastY=e.clientY; });
+window.addEventListener('mouseup', () => isDragging=false);
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  theta -= (e.clientX - lastX) * 0.008;
+  phi    = Math.max(0.1, Math.min(Math.PI - 0.1, phi - (e.clientY - lastY) * 0.008));
+  lastX  = e.clientX;
+  lastY  = e.clientY;
+});
+container.addEventListener('wheel', e => {
+  e.preventDefault();
+  camDist = Math.max(20, Math.min(600, camDist + e.deltaY * 0.4));
+}, { passive: false });
+
+// Touch support
+let lastTouchX = 0, lastTouchY = 0;
+container.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) { lastTouchX=e.touches[0].clientX; lastTouchY=e.touches[0].clientY; }
+}, { passive: true });
+container.addEventListener('touchmove', e => {
+  if (e.touches.length === 1) {
+    theta -= (e.touches[0].clientX - lastTouchX) * 0.01;
+    phi    = Math.max(0.1, Math.min(Math.PI - 0.1, phi - (e.touches[0].clientY - lastTouchY) * 0.01));
+    lastTouchX = e.touches[0].clientX;
+    lastTouchY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUT SHEET
+// ─────────────────────────────────────────────────────────────────────────────
+function updateCutSheet(L, W, H) {
+  const tbody = document.getElementById('cut-tbody');
+  if (!tbody) return;
+
+  const rows = [];
+
+  // 4 vertical legs
+  LEG_CONN.forEach(([, na, nb], i) => {
+    const pA = nodeMeshes[na] ? nodeMeshes[na].position : new THREE.Vector3();
+    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position : new THREE.Vector3();
+    const len = pA.distanceTo(pB);
+    rows.push({
+      tag: LEG_LABELS[i],
+      label: 'Vertical leg',
+      len,
+      qty: 1
+    });
+  });
+
+  // Diagonal braces — group by approximate length
+  const diagLengths = [];
+  CONNECTIONS.forEach(([ci, na, nb]) => {
+    if ([28,29,30,31].includes(ci)) return; // skip legs
+    const pA = nodeMeshes[na] ? nodeMeshes[na].position : new THREE.Vector3();
+    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position : new THREE.Vector3();
+    diagLengths.push(pA.distanceTo(pB));
+  });
+  const minD = Math.min(...diagLengths), maxD = Math.max(...diagLengths);
+  rows.push({
+    tag: '—',
+    label: `Diagonal braces (${diagLengths.length} total)`,
+    len: null,
+    range: `${Math.round(minD)}–${Math.round(maxD)} cm`,
+    qty: diagLengths.length
+  });
+
+  tbody.innerHTML = rows.map(r => `
     <tr>
-      <td>Length (X)</td>
-      <td style="color:#aaa">${DEFAULT_L} cm</td>
-      <td>${curL} cm</td>
-      <td style="color:#888;font-variant-numeric:tabular-nums">${(curL/DEFAULT_L).toFixed(2)}×</td>
+      <td><span class="tag-dot">${r.tag}</span></td>
+      <td>${r.label}</td>
+      <td>${r.len != null ? Math.round(r.len) + ' cm' : r.range}</td>
+      <td>${r.qty}</td>
     </tr>
-    <tr>
-      <td>Width (Z)</td>
-      <td style="color:#aaa">${DEFAULT_W} cm</td>
-      <td>${curW} cm</td>
-      <td style="color:#888;font-variant-numeric:tabular-nums">${(curW/DEFAULT_W).toFixed(2)}×</td>
-    </tr>
-    <tr>
-      <td>Height (Y)</td>
-      <td style="color:#aaa">${DEFAULT_H} cm</td>
-      <td>${curH} cm</td>
-      <td style="color:#888;font-variant-numeric:tabular-nums">${(curH/DEFAULT_H).toFixed(2)}×</td>
+  `).join('') + `
+    <tr class="divider-row">
+      <td colspan="2">Total dowels</td>
+      <td colspan="2">${CONNECTIONS.length}</td>
     </tr>`;
 }
 
-// ─── Camera orbit ─────────────────────────────────────────────────────────
-let theta = -0.5, phi = 0.82, camR = 260;
-let autoSpin = true, dragging = false, lx = 0, ly = 0;
-
-function posCamera() {
-  camera.position.set(
-    camR * Math.sin(phi) * Math.sin(theta),
-    camR * Math.cos(phi),
-    camR * Math.sin(phi) * Math.cos(theta)
-  );
-  camera.lookAt(0, 0, 0);
-}
-
-container.addEventListener('mousedown', e => {
-  dragging = true; autoSpin = false;
-  lx = e.clientX; ly = e.clientY; e.preventDefault();
-});
-window.addEventListener('mousemove', e => {
-  if (!dragging) return;
-  theta += (e.clientX - lx) * 0.008;
-  phi   -= (e.clientY - ly) * 0.008;
-  phi = Math.max(0.05, Math.min(1.55, phi));
-  lx = e.clientX; ly = e.clientY;
-  posCamera();
-});
-window.addEventListener('mouseup', () => dragging = false);
-
-container.addEventListener('touchstart', e => {
-  dragging = true; autoSpin = false;
-  lx = e.touches[0].clientX; ly = e.touches[0].clientY;
-}, { passive: true });
-window.addEventListener('touchmove', e => {
-  if (!dragging) return;
-  theta += (e.touches[0].clientX - lx) * 0.01;
-  phi   -= (e.touches[0].clientY - ly) * 0.01;
-  phi = Math.max(0.05, Math.min(1.55, phi));
-  lx = e.touches[0].clientX; ly = e.touches[0].clientY;
-  posCamera();
-}, { passive: true });
-window.addEventListener('touchend', () => dragging = false);
-
-container.addEventListener('wheel', e => {
-  camR += e.deltaY * 0.4;
-  camR = Math.max(40, Math.min(5000, camR));
-  posCamera(); e.preventDefault();
-}, { passive: false });
-
-// ─── Sliders ──────────────────────────────────────────────────────────────
-['sl-L','sl-W','sl-H'].forEach(id => {
-  document.getElementById(id).addEventListener('input', () => {
-    curL = +document.getElementById('sl-L').value;
-    curW = +document.getElementById('sl-W').value;
-    curH = +document.getElementById('sl-H').value;
-    document.getElementById('val-L').textContent = curL;
-    document.getElementById('val-W').textContent = curW;
-    document.getElementById('val-H').textContent = curH;
-    applyScale();
-  });
-});
-
-// ─── Resize ───────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// RESIZE
+// ─────────────────────────────────────────────────────────────────────────────
 function onResize() {
   const w = container.clientWidth, h = container.clientHeight;
-  renderer.setSize(w, h);
+  renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', onResize);
+onResize();
 
-// ─── Render loop ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ANIMATION LOOP
+// ─────────────────────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
-  if (autoSpin && !dragging) { theta += 0.003; posCamera(); }
+  applyCamera();
   renderer.render(scene, camera);
 }
-
-// ─── Load OBJ ─────────────────────────────────────────────────────────────
-onResize();
 animate();
-updateCutSheet();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SLIDERS
+// ─────────────────────────────────────────────────────────────────────────────
+let curL = +document.getElementById('sl-L').value;
+let curW = +document.getElementById('sl-W').value;
+let curH = +document.getElementById('sl-H').value;
+
+['L','W','H'].forEach(axis => {
+  const sl  = document.getElementById('sl-' + axis);
+  const val = document.getElementById('val-' + axis);
+  sl.addEventListener('input', () => {
+    val.textContent = sl.value;
+    if (axis==='L') curL = +sl.value;
+    if (axis==='W') curW = +sl.value;
+    if (axis==='H') curH = +sl.value;
+    updateModel(curL, curW, curH);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOAD OBJ
+// ─────────────────────────────────────────────────────────────────────────────
 fetch('nodes-table.obj')
   .then(r => r.text())
   .then(text => {
-    const matArrays = parseOBJ(text);
-    buildScene(matArrays);
-    applyScale();
+    _comps = parseOBJ(text);
+    buildModel(_comps, curL, curW, curH);
+    updateCamera(curL, curW, curH);
+    updateCutSheet(curL, curW, curH);
     loadingEl.classList.add('hidden');
   })
   .catch(err => {
-    loadingEl.innerHTML = '<span style="color:#c00">Failed to load model</span>';
-    console.error(err);
+    console.error('OBJ load failed', err);
+    loadingEl.querySelector('span').textContent = 'Load failed';
   });
 </script>
 </body>
