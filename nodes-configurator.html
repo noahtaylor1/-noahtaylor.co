@@ -11,8 +11,8 @@
 
     #canvas-container {
       width: 100%;
-      height: 68vh;
-      min-height: 420px;
+      height: 70vh;
+      min-height: 440px;
       background: #f9f8f6;
       cursor: grab;
       position: relative;
@@ -20,6 +20,32 @@
     }
     #canvas-container:active { cursor: grabbing; }
     #three-canvas { display: block; width: 100% !important; height: 100% !important; }
+
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #f9f8f6;
+      gap: 16px;
+      font-size: 13px;
+      color: #aaa;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      z-index: 10;
+      transition: opacity 0.4s;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 2px solid #e0e0e0;
+      border-top-color: #1a1a1a;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     .canvas-hint {
       position: absolute;
@@ -63,7 +89,11 @@
       justify-content: space-between;
       align-items: center;
     }
-    .ctrl-label span { font-size: 14px; color: #1a1a1a; letter-spacing: 0; text-transform: none; font-variant-numeric: tabular-nums; }
+    .ctrl-label span {
+      font-size: 14px; color: #1a1a1a;
+      letter-spacing: 0; text-transform: none;
+      font-variant-numeric: tabular-nums;
+    }
     input[type="range"] {
       width: 100%; height: 2px; appearance: none;
       background: #e0e0e0; outline: none; cursor: pointer; border-radius: 2px;
@@ -75,8 +105,11 @@
 
     /* Cut sheet */
     .cutsheet { padding: 40px 48px 80px; }
-    .cutsheet h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #aaa; margin-bottom: 24px; }
-    .cut-table { width: 100%; max-width: 640px; border-collapse: collapse; }
+    .cutsheet h2 {
+      font-size: 11px; text-transform: uppercase;
+      letter-spacing: 0.1em; color: #aaa; margin-bottom: 24px;
+    }
+    .cut-table { width: 100%; max-width: 540px; border-collapse: collapse; }
     .cut-table th {
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
       color: #aaa; font-weight: 400; text-align: left;
@@ -88,7 +121,10 @@
       width: 22px; height: 22px; border-radius: 50%;
       background: #111; color: #fff; font-size: 11px; font-weight: 600;
     }
-    .total-row td { border-bottom: none; border-top: 1px solid #e5e5e5; padding-top: 16px; color: #888; font-size: 13px; }
+    .total-row td {
+      border-bottom: none; border-top: 1px solid #e5e5e5;
+      padding-top: 16px; color: #888; font-size: 13px;
+    }
 
     @media (max-width: 768px) {
       .ctrl { padding: 16px 20px; }
@@ -111,6 +147,12 @@
 <div class="configurator-wrap">
   <div id="canvas-container">
     <canvas id="three-canvas"></canvas>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <span>Loading model</span>
+    </div>
+
     <div class="project-label">
       <h1>Nodes</h1>
       <p>Parametric Configurator</p>
@@ -121,269 +163,226 @@
   <div class="controls-bar">
     <div class="ctrl">
       <div class="ctrl-label">Length <span><span id="val-L">120</span> cm</span></div>
-      <input type="range" id="sl-L" min="40" max="240" value="120" step="1"/>
+      <input type="range" id="sl-L" min="50" max="240" value="120" step="1"/>
     </div>
     <div class="ctrl">
       <div class="ctrl-label">Width <span><span id="val-W">60</span> cm</span></div>
-      <input type="range" id="sl-W" min="20" max="120" value="60" step="1"/>
+      <input type="range" id="sl-W" min="30" max="120" value="60" step="1"/>
     </div>
     <div class="ctrl">
       <div class="ctrl-label">Height <span><span id="val-H">75</span> cm</span></div>
-      <input type="range" id="sl-H" min="20" max="120" value="75" step="1"/>
+      <input type="range" id="sl-H" min="30" max="120" value="75" step="1"/>
     </div>
   </div>
 
   <div class="cutsheet">
-    <h2>Cut Sheet — Dowel Lengths</h2>
+    <h2>Scaled Dimensions</h2>
     <table class="cut-table">
       <thead>
-        <tr>
-          <th>Tag</th><th>Member</th><th>Length</th><th>Qty</th>
-        </tr>
+        <tr><th>Axis</th><th>Default</th><th>Current</th><th>Scale</th></tr>
       </thead>
       <tbody id="cut-tbody"></tbody>
     </table>
   </div>
 </div>
 
-<footer>© 2026 Noah Taylor &nbsp;·&nbsp; <a href="nodes.html" style="color:inherit;text-decoration:none;">← Back to Nodes</a></footer>
+<footer>© 2026 Noah Taylor &nbsp;·&nbsp;
+  <a href="nodes.html" style="color:inherit;text-decoration:none;">← Back to Nodes</a>
+</footer>
 
 <script>
 // ─── Renderer + Scene ─────────────────────────────────────────────────────
 const container = document.getElementById('canvas-container');
 const canvas    = document.getElementById('three-canvas');
-const renderer  = new THREE.WebGLRenderer({ canvas, antialias: true });
+const loadingEl = document.getElementById('loading');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = false;
 
 const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0xf9f8f6);
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 20000);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100000);
 
 // Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const key = new THREE.DirectionalLight(0xfff6e8, 0.9);
-key.position.set(250, 500, 350);
+scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+const key = new THREE.DirectionalLight(0xfff6e8, 0.95);
+key.position.set(1, 2, 1.5);
 scene.add(key);
 const fill = new THREE.DirectionalLight(0xe8f0ff, 0.4);
-fill.position.set(-300, 100, -200);
+fill.position.set(-1.5, 0.5, -1);
 scene.add(fill);
+const rim = new THREE.DirectionalLight(0xffffff, 0.2);
+rim.position.set(0, -1, -2);
+scene.add(rim);
 
 // ─── Materials ────────────────────────────────────────────────────────────
-const dowelMat = new THREE.MeshLambertMaterial({ color: 0xb8834a }); // warm wood
-const nodeMat  = new THREE.MeshLambertMaterial({ color: 0x111111 }); // black printed node
-const glassMat = new THREE.MeshLambertMaterial({
-  color: 0xd8eaf4, transparent: true, opacity: 0.28,
-  side: THREE.DoubleSide
-});
+const MATS = {
+  'Paint':               new THREE.MeshLambertMaterial({ color: 0xb07840 }),  // wood dowels
+  'diffuse_0_0_0_255':   new THREE.MeshLambertMaterial({ color: 0x111111 }),  // black nodes
+  'Plastic':             new THREE.MeshLambertMaterial({ color: 0xd0e4f0, transparent: true, opacity: 0.35, side: THREE.DoubleSide }), // glass top
+  'Plaster':             new THREE.MeshLambertMaterial({ color: 0xe8e0d8 }),  // off-white elements
+  '__default__':         new THREE.MeshLambertMaterial({ color: 0xcccccc }),
+};
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
-function v3(x, y, z) { return new THREE.Vector3(x, y, z); }
+// ─── OBJ Parser ───────────────────────────────────────────────────────────
+function parseOBJ(text) {
+  const lines = text.split('\n');
+  const pos   = [];   // raw flat positions [x,y,z, x,y,z, ...]
 
-function makeDowel(p1, p2) {
-  const dir = new THREE.Vector3().subVectors(p2, p1);
-  const len = dir.length();
-  if (len < 0.01) return null;
-  const geo  = new THREE.CylinderGeometry(1.1, 1.1, len, 12, 1);
-  const mesh = new THREE.Mesh(geo, dowelMat);
-  mesh.position.addVectors(p1, p2).multiplyScalar(0.5);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-  return mesh;
-}
+  // per-material: flat Float32Array builders
+  const matArrays = {};
+  let curMat = '__default__';
 
-function makeNode(p) {
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(2.1, 16, 12),
-    nodeMat
-  );
-  mesh.position.copy(p);
-  return mesh;
-}
+  for (let i = 0, n = lines.length; i < n; i++) {
+    const line = lines[i];
+    if (line.length < 2) continue;
+    const c0 = line.charCodeAt(0);
 
-// ─── Structure ────────────────────────────────────────────────────────────
-const group = new THREE.Group();
-scene.add(group);
-
-// Compute crossing point where line (a→b) and line (c→d) cross on a shared face
-// All four points must be coplanar — returns the intersection via parametric t
-function faceCross(a, b, c, d) {
-  // For the X pattern: a→b and c→d cross.
-  // Parametrize: P(t) = a + t*(b-a), Q(u) = c + u*(d-c)
-  // Solve for t where they meet (they meet by construction for an X-brace).
-  // Use the known geometry: for face X-braces the crossing is always at the midpoint
-  // of the face horizontally, at a height set by the splay.
-  // We solve: a.x + t*(b.x-a.x) = c.x + u*(d.x-c.x)
-  //           a.y + t*(b.y-a.y) = c.y + u*(d.y-c.y)
-  //           a.z + t*(b.z-a.z) = c.z + u*(d.z-c.z)
-  // Pick two equations to solve for t and u, verify with third.
-  const ab = new THREE.Vector3().subVectors(b, a);
-  const cd = new THREE.Vector3().subVectors(d, c);
-  const ac = new THREE.Vector3().subVectors(c, a);
-
-  // Solve in XZ plane if ab and cd are mostly in that plane, else use XY
-  // Generic: pick the two largest-range axes
-  // For our X-braces: use the axes that span the face
-  let t;
-  const denom_xy = ab.x * cd.y - ab.y * cd.x;
-  const denom_zy = ab.z * cd.y - ab.y * cd.z;
-  const denom_xz = ab.x * cd.z - ab.z * cd.x;
-
-  if (Math.abs(denom_xy) >= Math.abs(denom_zy) && Math.abs(denom_xy) >= Math.abs(denom_xz)) {
-    t = (ac.x * cd.y - ac.y * cd.x) / denom_xy;
-  } else if (Math.abs(denom_zy) >= Math.abs(denom_xz)) {
-    t = (ac.z * cd.y - ac.y * cd.z) / denom_zy;
-  } else {
-    t = (ac.x * cd.z - ac.z * cd.x) / denom_xz;
+    if (c0 === 118) {           // 'v'
+      const c1 = line.charCodeAt(1);
+      if (c1 === 32) {          // 'v ' — position
+        let s = line.split(' ');
+        pos.push(+s[1], +s[2], +s[3]);
+      }
+      // skip vt / vn — we'll compute normals ourselves
+    } else if (c0 === 117) {    // 'u' — usemtl
+      curMat = line.slice(7).trim();
+      if (!matArrays[curMat]) matArrays[curMat] = [];
+    } else if (c0 === 102) {    // 'f' — face
+      if (!matArrays[curMat]) matArrays[curMat] = [];
+      const arr = matArrays[curMat];
+      const tokens = line.split(/\s+/);
+      // Collect vertex indices (1-based), triangulate as fan
+      const idxs = [];
+      for (let k = 1; k < tokens.length; k++) {
+        if (!tokens[k]) continue;
+        const vi = (+tokens[k].split('/')[0] - 1) * 3;
+        idxs.push(vi);
+      }
+      for (let j = 1; j < idxs.length - 1; j++) {
+        const a = idxs[0], b = idxs[j], c = idxs[j + 1];
+        arr.push(pos[a], pos[a+1], pos[a+2],
+                 pos[b], pos[b+1], pos[b+2],
+                 pos[c], pos[c+1], pos[c+2]);
+      }
+    }
   }
 
-  return new THREE.Vector3(
-    a.x + t * ab.x,
-    a.y + t * ab.y,
-    a.z + t * ab.z
-  );
+  return matArrays;
 }
 
-function buildStructure(L, W, H) {
-  group.children.forEach(c => { if (c.geometry) c.geometry.dispose(); });
-  group.clear();
+// ─── Build scene from parsed data ─────────────────────────────────────────
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
 
-  // Splay: feet spread beyond tabletop by this amount
-  const S = Math.max(L, W) * 0.28;
+// Store default (base) extents
+let BASE = { cx:0, cy:0, cz:0, sx:1, sy:1, sz:1 };
+let curL = 120, curW = 60, curH = 75;
 
-  // Top corner nodes (where glass sits)
-  const T0 = v3(0, H, 0);   // front-left
-  const T1 = v3(L, H, 0);   // front-right
-  const T2 = v3(L, H, W);   // back-right
-  const T3 = v3(0, H, W);   // back-left
+function buildScene(matArrays) {
+  // Collect all vertices to compute bounding box
+  let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, minZ=Infinity, maxZ=-Infinity;
 
-  // Bottom foot nodes — 2 per face, splayed outward
-  // Front face (Z=0):  feet spread along X beyond table
-  const FFL = v3(-S,   0, 0);    // front face, left foot
-  const FFR = v3(L+S,  0, 0);    // front face, right foot
-  // Back face (Z=W):
-  const FBL = v3(-S,   0, W);    // back face, left foot
-  const FBR = v3(L+S,  0, W);    // back face, right foot
-  // Left face (X=0): feet spread along Z
-  const FLF = v3(0, 0, -S);      // left face, front foot
-  const FLB = v3(0, 0, W+S);     // left face, back foot
-  // Right face (X=L):
-  const FRF = v3(L, 0, -S);      // right face, front foot
-  const FRB = v3(L, 0, W+S);     // right face, back foot
+  const allPos = matArrays['Paint'] || matArrays[Object.keys(matArrays)[0]];
+  for (let i = 0; i < allPos.length; i += 3) {
+    const x = allPos[i], y = allPos[i+1], z = allPos[i+2];
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
 
-  // Face cross-brace nodes (intersection of X on each face)
-  // Front face: T0→FFR crosses T1→FFL
-  const CF = faceCross(T0, FFR, T1, FFL);
-  // Back face: T3→FBR crosses T2→FBL
-  const CB = faceCross(T3, FBR, T2, FBL);
-  // Left face: T0→FLB crosses T3→FLF
-  const CL = faceCross(T0, FLB, T3, FLF);
-  // Right face: T1→FRB crosses T2→FRF
-  const CR = faceCross(T1, FRB, T2, FRF);
-
-  // All dowel segments
-  const pairs = [
-    // Top frame
-    [T0, T1], [T1, T2], [T2, T3], [T3, T0],
-    // Front face X (split at CF)
-    [T0, CF], [CF, FFR],
-    [T1, CF], [CF, FFL],
-    // Back face X (split at CB)
-    [T3, CB], [CB, FBR],
-    [T2, CB], [CB, FBL],
-    // Left face X (split at CL)
-    [T0, CL], [CL, FLB],
-    [T3, CL], [CL, FLF],
-    // Right face X (split at CR)
-    [T1, CR], [CR, FRB],
-    [T2, CR], [CR, FRF],
-  ];
-
-  // All node points
-  const nodes = [T0, T1, T2, T3, CF, CB, CL, CR,
-                 FFL, FFR, FBL, FBR, FLF, FLB, FRF, FRB];
-
-  pairs.forEach(([a, b]) => {
-    const m = makeDowel(a, b);
-    if (m) group.add(m);
-  });
-  nodes.forEach(p => group.add(makeNode(p)));
-
-  // Glass tabletop
-  const pad = 4;
-  const glassGeo = new THREE.PlaneGeometry(L + pad*2, W + pad*2);
-  const glass = new THREE.Mesh(glassGeo, glassMat);
-  glass.rotation.x = -Math.PI / 2;
-  glass.position.set(L/2, H, W/2);
-  group.add(glass);
-
-  // Center group at origin
-  group.position.set(-L/2, -H/2, -W/2);
-}
-
-// ─── Cut sheet ────────────────────────────────────────────────────────────
-function dist(a, b) { return a.distanceTo(b); }
-
-function updateCutSheet(L, W, H) {
-  const S = Math.max(L, W) * 0.28;
-
-  const T0 = v3(0,H,0), T1 = v3(L,H,0), T2 = v3(L,H,W), T3 = v3(0,H,W);
-  const FFL = v3(-S,0,0), FFR = v3(L+S,0,0), FBL = v3(-S,0,W), FBR = v3(L+S,0,W);
-  const FLF = v3(0,0,-S),  FLB = v3(0,0,W+S), FRF = v3(L,0,-S), FRB = v3(L,0,W+S);
-
-  const CF = faceCross(T0,FFR,T1,FFL);
-  const CB = faceCross(T3,FBR,T2,FBL);
-  const CL = faceCross(T0,FLB,T3,FLF);
-  const CR = faceCross(T1,FRB,T2,FRF);
-
-  const rows = [
-    { tag:'A', desc:'Top rail — long',              len: dist(T0,T1), qty: 2 },
-    { tag:'B', desc:'Top rail — short',             len: dist(T0,T3), qty: 2 },
-    { tag:'C', desc:'Upper brace — front/back',     len: dist(T0,CF),  qty: 4 },
-    { tag:'D', desc:'Lower brace — front/back',     len: dist(CF,FFR), qty: 4 },
-    { tag:'E', desc:'Lower brace foot — front/back',len: dist(CF,FFL), qty: 4 },
-    { tag:'F', desc:'Upper brace — left/right',     len: dist(T0,CL),  qty: 4 },
-    { tag:'G', desc:'Lower brace — left/right',     len: dist(CL,FLB), qty: 4 },
-    { tag:'H', desc:'Lower brace foot — left/right',len: dist(CL,FLF), qty: 4 },
-  ];
-
-  // Check if D and E are the same length (symmetric splay)
-  // and F/G/H vs C/D/E — consolidate duplicates
-  const finalRows = [];
-  const seen = new Map();
-  rows.forEach(r => {
-    const key = r.len.toFixed(1);
-    if (seen.has(key)) {
-      seen.get(key).qty += r.qty;
-      seen.get(key).desc += ' / ' + r.desc.split('—')[1].trim();
-    } else {
-      const copy = {...r};
-      seen.set(key, copy);
-      finalRows.push(copy);
+  // Also scan all materials for bounding box
+  for (const arr of Object.values(matArrays)) {
+    for (let i = 0; i < arr.length; i += 3) {
+      const x = arr[i], y = arr[i+1], z = arr[i+2];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
     }
-  });
+  }
 
-  const totalLen = finalRows.reduce((s,r)=>s+r.len*r.qty,0);
-  const totalQty = finalRows.reduce((s,r)=>s+r.qty,0);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const rangeX = maxX - minX;
+  const rangeY = maxY - minY;
+  const rangeZ = maxZ - minZ;
+  const maxRange = Math.max(rangeX, rangeY, rangeZ);
+  const normalise = 100 / maxRange; // scale so largest dim = 100 units
 
-  document.getElementById('cut-tbody').innerHTML =
-    finalRows.map(r => `
-      <tr>
-        <td><span class="tag-dot">${r.tag}</span></td>
-        <td>${r.desc}</td>
-        <td style="font-variant-numeric:tabular-nums;color:#555">${r.len.toFixed(1)} cm</td>
-        <td style="color:#aaa">${r.qty}×</td>
-      </tr>`).join('') +
-    `<tr class="total-row">
-      <td></td><td>Total</td>
-      <td style="font-variant-numeric:tabular-nums">${(totalLen/100).toFixed(2)} m</td>
-      <td style="color:#aaa">${totalQty} pieces</td>
+  BASE = {
+    cx, cy, cz,
+    rangeX, rangeY, rangeZ,
+    normalise,
+    sx: 1, sy: 1, sz: 1,
+  };
+
+  // Build one mesh per material
+  for (const [matName, arr] of Object.entries(matArrays)) {
+    if (arr.length === 0) continue;
+    const geo  = new THREE.BufferGeometry();
+    const verts = new Float32Array(arr.length);
+    // Centre and normalise verts
+    for (let i = 0; i < arr.length; i += 3) {
+      verts[i]   = (arr[i]   - cx) * normalise;
+      verts[i+1] = (arr[i+1] - cy) * normalise;
+      verts[i+2] = (arr[i+2] - cz) * normalise;
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    geo.computeVertexNormals();
+    const mat = MATS[matName] || MATS['__default__'];
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.matName = matName;
+    modelGroup.add(mesh);
+  }
+
+  // Camera: position to see full model
+  const dist = 100 * 2.6;
+  camR = dist;
+  posCamera();
+}
+
+// ─── Parametric scale ─────────────────────────────────────────────────────
+// We scale the model group along its principal axes.
+// Y = height, X = length, Z = width (based on OBJ bounding box shape)
+const DEFAULT_L = 120, DEFAULT_W = 60, DEFAULT_H = 75;
+
+function applyScale() {
+  modelGroup.scale.set(
+    curL / DEFAULT_L,
+    curH / DEFAULT_H,
+    curW / DEFAULT_W
+  );
+  updateCutSheet();
+}
+
+function updateCutSheet() {
+  document.getElementById('cut-tbody').innerHTML = `
+    <tr>
+      <td>Length (X)</td>
+      <td style="color:#aaa">${DEFAULT_L} cm</td>
+      <td>${curL} cm</td>
+      <td style="color:#888;font-variant-numeric:tabular-nums">${(curL/DEFAULT_L).toFixed(2)}×</td>
+    </tr>
+    <tr>
+      <td>Width (Z)</td>
+      <td style="color:#aaa">${DEFAULT_W} cm</td>
+      <td>${curW} cm</td>
+      <td style="color:#888;font-variant-numeric:tabular-nums">${(curW/DEFAULT_W).toFixed(2)}×</td>
+    </tr>
+    <tr>
+      <td>Height (Y)</td>
+      <td style="color:#aaa">${DEFAULT_H} cm</td>
+      <td>${curH} cm</td>
+      <td style="color:#888;font-variant-numeric:tabular-nums">${(curH/DEFAULT_H).toFixed(2)}×</td>
     </tr>`;
 }
 
 // ─── Camera orbit ─────────────────────────────────────────────────────────
-let theta = -0.5, phi = 0.88, camR = 300;
+let theta = -0.5, phi = 0.82, camR = 260;
 let autoSpin = true, dragging = false, lx = 0, ly = 0;
-let curL = 120, curW = 60, curH = 75;
 
 function posCamera() {
   camera.position.set(
@@ -402,7 +401,7 @@ window.addEventListener('mousemove', e => {
   if (!dragging) return;
   theta += (e.clientX - lx) * 0.008;
   phi   -= (e.clientY - ly) * 0.008;
-  phi = Math.max(0.08, Math.min(1.5, phi));
+  phi = Math.max(0.05, Math.min(1.55, phi));
   lx = e.clientX; ly = e.clientY;
   posCamera();
 });
@@ -416,34 +415,30 @@ window.addEventListener('touchmove', e => {
   if (!dragging) return;
   theta += (e.touches[0].clientX - lx) * 0.01;
   phi   -= (e.touches[0].clientY - ly) * 0.01;
-  phi = Math.max(0.08, Math.min(1.5, phi));
+  phi = Math.max(0.05, Math.min(1.55, phi));
   lx = e.touches[0].clientX; ly = e.touches[0].clientY;
   posCamera();
 }, { passive: true });
 window.addEventListener('touchend', () => dragging = false);
 
 container.addEventListener('wheel', e => {
-  camR += e.deltaY * 0.5;
-  camR = Math.max(80, Math.min(3000, camR));
+  camR += e.deltaY * 0.4;
+  camR = Math.max(40, Math.min(5000, camR));
   posCamera(); e.preventDefault();
 }, { passive: false });
 
 // ─── Sliders ──────────────────────────────────────────────────────────────
-function onSliderChange() {
-  curL = +document.getElementById('sl-L').value;
-  curW = +document.getElementById('sl-W').value;
-  curH = +document.getElementById('sl-H').value;
-  document.getElementById('val-L').textContent = curL;
-  document.getElementById('val-W').textContent = curW;
-  document.getElementById('val-H').textContent = curH;
-  camR = Math.max(curL, curW, curH) * 2.6;
-  buildStructure(curL, curW, curH);
-  posCamera();
-  updateCutSheet(curL, curW, curH);
-}
-['sl-L','sl-W','sl-H'].forEach(id =>
-  document.getElementById(id).addEventListener('input', onSliderChange)
-);
+['sl-L','sl-W','sl-H'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    curL = +document.getElementById('sl-L').value;
+    curW = +document.getElementById('sl-W').value;
+    curH = +document.getElementById('sl-H').value;
+    document.getElementById('val-L').textContent = curL;
+    document.getElementById('val-W').textContent = curW;
+    document.getElementById('val-H').textContent = curH;
+    applyScale();
+  });
+});
 
 // ─── Resize ───────────────────────────────────────────────────────────────
 function onResize() {
@@ -461,13 +456,23 @@ function animate() {
   renderer.render(scene, camera);
 }
 
-// ─── Init ─────────────────────────────────────────────────────────────────
+// ─── Load OBJ ─────────────────────────────────────────────────────────────
 onResize();
-camR = Math.max(curL, curW, curH) * 2.6;
-buildStructure(curL, curW, curH);
-posCamera();
-updateCutSheet(curL, curW, curH);
 animate();
+updateCutSheet();
+
+fetch('nodes-table.obj')
+  .then(r => r.text())
+  .then(text => {
+    const matArrays = parseOBJ(text);
+    buildScene(matArrays);
+    applyScale();
+    loadingEl.classList.add('hidden');
+  })
+  .catch(err => {
+    loadingEl.innerHTML = '<span style="color:#c00">Failed to load model</span>';
+    console.error(err);
+  });
 </script>
 </body>
 </html>
