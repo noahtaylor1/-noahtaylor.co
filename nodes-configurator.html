@@ -7,123 +7,76 @@
   <link rel="stylesheet" href="style.css"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
-    .configurator-wrap { display: flex; flex-direction: column; }
+    .configurator-wrap { display:flex; flex-direction:column; }
 
     #canvas-container {
-      width: 100%;
-      height: 70vh;
-      min-height: 440px;
-      background: #f9f8f6;
-      cursor: grab;
-      position: relative;
-      user-select: none;
+      width:100%; height:70vh; min-height:440px;
+      background:#f5f4f0;
+      cursor:grab; position:relative; user-select:none;
     }
-    #canvas-container:active { cursor: grabbing; }
-    #three-canvas { display: block; width: 100% !important; height: 100% !important; }
-
-    #loading {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      background: #f9f8f6;
-      gap: 16px;
-      font-size: 13px;
-      color: #aaa;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      z-index: 10;
-      transition: opacity 0.6s;
-    }
-    #loading.hidden { opacity: 0; pointer-events: none; }
-    .spinner {
-      width: 28px; height: 28px;
-      border: 2px solid #e0e0e0;
-      border-top-color: #1a1a1a;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    #canvas-container:active { cursor:grabbing; }
+    #three-canvas { display:block; width:100% !important; height:100% !important; }
 
     .canvas-hint {
-      position: absolute;
-      bottom: 14px;
-      right: 18px;
-      font-size: 11px;
-      color: #bbb;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      pointer-events: none;
+      position:absolute; bottom:14px; right:18px;
+      font-size:11px; color:#bbb; letter-spacing:0.06em;
+      text-transform:uppercase; pointer-events:none;
     }
     .project-label {
-      position: absolute;
-      top: 20px;
-      left: 28px;
-      pointer-events: none;
+      position:absolute; top:20px; left:28px; pointer-events:none;
     }
-    .project-label h1 { font-size: 20px; font-weight: 400; letter-spacing: -0.01em; color: #1a1a1a; margin-bottom: 3px; }
-    .project-label p  { font-size: 12px; color: #aaa; letter-spacing: 0.03em; }
+    .project-label h1 { font-size:20px; font-weight:400; letter-spacing:-0.01em; color:#1a1a1a; margin-bottom:3px; }
+    .project-label p  { font-size:12px; color:#aaa; letter-spacing:0.03em; }
 
     .controls-bar {
-      display: flex;
-      border-bottom: 1px solid #e5e5e5;
-      flex-wrap: wrap;
+      display:flex; border-bottom:1px solid #e5e5e5; flex-wrap:wrap;
     }
     .ctrl {
-      flex: 1;
-      min-width: 160px;
-      padding: 20px 32px;
-      border-right: 1px solid #e5e5e5;
+      flex:1; min-width:160px; padding:20px 32px;
+      border-right:1px solid #e5e5e5;
     }
-    .ctrl:last-child { border-right: none; }
+    .ctrl:last-child { border-right:none; }
     .ctrl-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #aaa;
-      margin-bottom: 10px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      font-size:11px; text-transform:uppercase; letter-spacing:0.1em;
+      color:#aaa; margin-bottom:10px;
+      display:flex; justify-content:space-between; align-items:center;
     }
     .ctrl-label span {
-      font-size: 14px; color: #1a1a1a;
-      letter-spacing: 0; text-transform: none;
-      font-variant-numeric: tabular-nums;
+      font-size:14px; color:#1a1a1a;
+      letter-spacing:0; text-transform:none;
+      font-variant-numeric:tabular-nums;
     }
     input[type="range"] {
-      width: 100%; height: 2px; appearance: none;
-      background: #e0e0e0; outline: none; cursor: pointer; border-radius: 2px;
+      width:100%; height:2px; appearance:none;
+      background:#e0e0e0; outline:none; cursor:pointer; border-radius:2px;
     }
     input[type="range"]::-webkit-slider-thumb {
-      appearance: none; width: 14px; height: 14px;
-      border-radius: 50%; background: #1a1a1a; cursor: pointer;
+      appearance:none; width:14px; height:14px;
+      border-radius:50%; background:#1a1a1a; cursor:pointer;
     }
 
-    .cutsheet { padding: 40px 48px 80px; }
+    .cutsheet { padding:40px 48px 80px; }
     .cutsheet h2 {
-      font-size: 11px; text-transform: uppercase;
-      letter-spacing: 0.1em; color: #aaa; margin-bottom: 24px;
+      font-size:11px; text-transform:uppercase;
+      letter-spacing:0.1em; color:#aaa; margin-bottom:24px;
     }
-    .cut-table { width: 100%; max-width: 540px; border-collapse: collapse; }
+    .cut-table { width:100%; max-width:560px; border-collapse:collapse; }
     .cut-table th {
-      font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-      color: #aaa; font-weight: 400; text-align: left;
-      padding: 0 20px 10px 0; border-bottom: 1px solid #e5e5e5;
+      font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
+      color:#aaa; font-weight:400; text-align:left;
+      padding:0 20px 10px 0; border-bottom:1px solid #e5e5e5;
     }
-    .cut-table td { padding: 13px 20px 13px 0; border-bottom: 1px solid #f2f2f2; font-size: 14px; color: #333; }
-    .tag-dot {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 22px; height: 22px; border-radius: 50%;
-      background: #111; color: #fff; font-size: 11px; font-weight: 600;
+    .cut-table td { padding:12px 20px 12px 0; border-bottom:1px solid #f2f2f2; font-size:14px; color:#333; }
+    .tag-pill {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:24px; height:24px; border-radius:50%;
+      background:#111; color:#fff; font-size:10px; font-weight:600;
     }
-    .divider-row td { border-top: 1px solid #e5e5e5; border-bottom: none; padding-top: 16px; color: #888; font-size: 13px; }
+    .divider-row td { border-top:1px solid #e5e5e5; border-bottom:none; padding-top:16px; color:#888; font-size:13px; }
 
-    @media (max-width: 768px) {
-      .ctrl { padding: 16px 20px; }
-      .cutsheet { padding: 28px 20px 60px; }
+    @media (max-width:768px) {
+      .ctrl { padding:16px 20px; }
+      .cutsheet { padding:28px 20px 60px; }
     }
   </style>
 </head>
@@ -142,7 +95,6 @@
 <div class="configurator-wrap">
   <div id="canvas-container">
     <canvas id="three-canvas"></canvas>
-    <div id="loading"><div class="spinner"></div><span>Loading model</span></div>
     <div class="project-label"><h1>Nodes</h1><p>Parametric Configurator</p></div>
     <div class="canvas-hint">Drag to rotate &nbsp;·&nbsp; Scroll to zoom</div>
   </div>
@@ -180,186 +132,140 @@
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
 // PARAMETRIC DATA
-// Normalized node positions (u,v,w) derived from OBJ bounding box.
-// Bounding box from corner node positions:
-//   X: 228.7 → 249.8  (XR = 21.1)
-//   Y: 294.1 → 309.9  (YR = 15.8)
-//   Z: -247.7 → -226.7 (ZR = 21.0)  [w=0=back, w=1=front]
+// Normalized node positions (u,v,w) ∈ [0,1]³
+// Derived from OBJ bounding box corner nodes:
+//   X: 228.7 → 249.8  (span 21.1)  → u=0:left, u=1:right
+//   Y: 294.1 → 309.9  (span 15.8)  → v=0:floor, v=1:top
+//   Z: −247.7 → −226.7 (span 21.0) → w=0:back, w=1:front
 // ─────────────────────────────────────────────────────────────────────────────
 const XMIN=228.7, XR=21.1;
 const YMIN=294.1, YR=15.8;
 const ZMIN=-247.7, ZR=21.0;
 
-// OBJ-unit → cm scale at default dimensions (for node mesh geometry)
-// Default W=80cm spans XR=21.1 OBJ units → scale = 80/21.1
-const DEFAULT_W = 80, DEFAULT_L = 80, DEFAULT_H = 70;
-const OBJ_TO_CM = DEFAULT_W / XR; // ≈ 3.79
-
-function uvw(x, y, z) {
-  return { u:(x-XMIN)/XR, v:(y-YMIN)/YR, w:(z-ZMIN)/ZR };
-}
-
-// All nodes: component index → {u,v,w,type}
 const NODES = {};
 [
-  [1,  232.6, 294.7, -244.6, 'diffuse'],
-  [2,  245.0, 300.1, -234.7, 'diffuse'],
-  [3,  244.8, 300.4, -237.2, 'diffuse'],
-  [4,  242.0, 300.1, -234.6, 'diffuse'],
-  [5,  242.5, 302.1, -237.6, 'diffuse'],
-  [6,  245.1, 302.5, -237.4, 'diffuse'],
-  [7,  248.1, 294.2, -245.8, 'paint'],
-  [8,  231.1, 294.6, -245.5, 'paint'],
-  [9,  247.9, 294.1, -228.4, 'paint'],
-  [10, 231.1, 294.9, -228.2, 'paint'],
-  [11, 235.9, 301.9, -232.8, 'paint'],
-  [12, 243.2, 301.3, -236.1, 'paint'],
-  [13, 249.8, 309.9, -247.7, 'paint'],
-  [14, 228.8, 309.9, -247.5, 'paint'],
-  [15, 238.1, 303.6, -241.3, 'paint'],
-  [16, 228.7, 309.5, -227.2, 'paint'],
-  [40, 249.6, 309.9, -226.7, 'paint'],
+  // id,  x,       y,       z,       type
+  [  1, 232.6, 294.7, -244.6, 'small'],  // diffuse mid-joint markers
+  [  2, 245.0, 300.1, -234.7, 'small'],
+  [  3, 244.8, 300.4, -237.2, 'small'],
+  [  4, 242.0, 300.1, -234.6, 'small'],
+  [  5, 242.5, 302.1, -237.6, 'small'],
+  [  6, 245.1, 302.5, -237.4, 'small'],
+  [  7, 248.1, 294.2, -245.8, 'node'],  // bottom corners
+  [  8, 231.1, 294.6, -245.5, 'node'],
+  [  9, 247.9, 294.1, -228.4, 'node'],
+  [ 10, 231.1, 294.9, -228.2, 'node'],
+  [ 11, 235.9, 301.9, -232.8, 'node'],  // mid crossing nodes
+  [ 12, 243.2, 301.3, -236.1, 'node'],
+  [ 13, 249.8, 309.9, -247.7, 'node'],  // top corners
+  [ 14, 228.8, 309.9, -247.5, 'node'],
+  [ 15, 238.1, 303.6, -241.3, 'node'],
+  [ 16, 228.7, 309.5, -227.2, 'node'],
+  [ 40, 249.6, 309.9, -226.7, 'node'],
 ].forEach(([id, x, y, z, type]) => {
-  NODES[id] = { ...uvw(x, y, z), type };
+  NODES[id] = {
+    u: (x - XMIN) / XR,
+    v: (y - YMIN) / YR,
+    w: (z - ZMIN) / ZR,
+    type
+  };
 });
 
-// Top corner node IDs (for tabletop positioning)
-const TOP_CORNERS = [13, 14, 16, 40];
-// Bottom corner node IDs
-const BOTTOM_CORNERS = [7, 8, 9, 10];
-
-// Dowel connections: [plasterCompIdx, nodeA, nodeB]
-const CONNECTIONS = [
+// Dowel connections: [dowelIdx, nodeA, nodeB]
+// Legs (vertical) — indices 28-31 in original Plaster ordering
+const LEGS = [
+  [28, 13,  7],  // right-back
+  [29, 14,  8],  // left-back
+  [30, 40,  9],  // right-front
+  [31, 10, 16],  // left-front
+];
+// Diagonal braces
+const DIAGONALS = [
   [17, 10, 11], [18,  1,  8], [19,  4,  2], [20,  4, 11],
   [21, 15,  1], [22,  2,  9], [23,  3,  7], [24, 11,  4],
-  [25,  1,  8], [26,  7,  5], [27,  5, 12], [28, 13,  7],
-  [29, 14,  8], [30, 40,  9], [31, 10, 16], [32, 15, 14],
+  [25,  1,  8], [26,  7,  5], [27,  5, 12], [32, 15, 14],
   [33, 40,  4], [34, 16, 11], [35,  6, 13], [36, 13, 15],
   [37, 14, 15], [38,  6, 12], [39, 11, 16],
 ];
-
-// Leg connections (vertical posts)
-const LEG_CONN = [[28,13,7],[29,14,8],[30,40,9],[31,10,16]];
-const LEG_LABELS = ['A','B','C','D'];
+const ALL_CONNECTIONS = [...LEGS, ...DIAGONALS];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS SETUP
 // ─────────────────────────────────────────────────────────────────────────────
 const container = document.getElementById('canvas-container');
 const canvas    = document.getElementById('three-canvas');
-const loadingEl = document.getElementById('loading');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.shadowMap.enabled = false;
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf9f8f6);
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0xf5f4f0);  // warm off-white, matches Rhino render
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100000);
-camera.position.set(0, 60, 180);
+const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 10000);
 
-// Lights
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const key = new THREE.DirectionalLight(0xfff8f0, 1.0);
-key.position.set(1.5, 2.5, 2);
-scene.add(key);
-const fill = new THREE.DirectionalLight(0xf0f4ff, 0.45);
-fill.position.set(-2, 1, -1);
+// Lighting — neutral, no color tint
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(2, 3, 2);
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.35);
+fill.position.set(-2, 0.5, -1);
 scene.add(fill);
-const rim = new THREE.DirectionalLight(0xffffff, 0.2);
-rim.position.set(0, -1, -3);
-scene.add(rim);
-
-// Materials
-const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0x111111 });         // 3D-printed nodes: black
-const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xc8a876 });         // wood dowels: warm oak
-const MAT_SMALL = new THREE.MeshLambertMaterial({ color: 0x111111 });         // small diffuse nodes: black
-const MAT_TOP   = new THREE.MeshLambertMaterial({ color: 0xd8eaf5, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
-
-const DOWEL_RADIUS = 1.4 * OBJ_TO_CM;  // ~5.3 cm radius in scene units
 
 // ─────────────────────────────────────────────────────────────────────────────
-// OBJ PARSER — returns array of {mat, arr} in usemtl order
+// MATERIALS  — matching the Rhino render palette
 // ─────────────────────────────────────────────────────────────────────────────
-function parseOBJ(text) {
-  const lines = text.split('\n');
-  const pos   = [];
-  const comps = [];
-  let cur = null;
-
-  for (let i = 0, n = lines.length; i < n; i++) {
-    const line = lines[i];
-    if (line.length < 2) continue;
-    const c0 = line.charCodeAt(0);
-
-    if (c0 === 118 && line.charCodeAt(1) === 32) {  // 'v '
-      const s = line.split(' ');
-      pos.push(+s[1], +s[2], +s[3]);
-    } else if (c0 === 117) {                          // 'usemtl'
-      cur = { mat: line.slice(7).trim(), arr: [] };
-      comps.push(cur);
-    } else if (c0 === 102) {                          // 'f'
-      if (!cur) { cur = { mat: '__default__', arr: [] }; comps.push(cur); }
-      const arr = cur.arr;
-      const tok = line.split(/\s+/);
-      const idx = [];
-      for (let k = 1; k < tok.length; k++) {
-        if (!tok[k]) continue;
-        idx.push((+tok[k].split('/')[0] - 1) * 3);
-      }
-      for (let j = 1; j < idx.length - 1; j++) {
-        const a=idx[0], b=idx[j], c=idx[j+1];
-        arr.push(pos[a],pos[a+1],pos[a+2], pos[b],pos[b+1],pos[b+2], pos[c],pos[c+1],pos[c+2]);
-      }
-    }
-  }
-  return comps;
-}
-
-// Build a centered, OBJ-to-cm-scaled BufferGeometry from a flat triangle array
-function makeGeometry(arr, cx, cy, cz) {
-  const verts = new Float32Array(arr.length);
-  for (let i = 0; i < arr.length; i += 3) {
-    verts[i]   = (arr[i]   - cx) * OBJ_TO_CM;
-    verts[i+1] = (arr[i+1] - cy) * OBJ_TO_CM;
-    verts[i+2] = (arr[i+2] - cz) * OBJ_TO_CM;
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function centroid(arr) {
-  let cx=0, cy=0, cz=0;
-  const n = arr.length / 3;
-  for (let i=0; i<arr.length; i+=3) { cx+=arr[i]; cy+=arr[i+1]; cz+=arr[i+2]; }
-  return [cx/n, cy/n, cz/n];
-}
+const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xf0dda0 });  // pale wood
+const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });  // 3D-printed node: near-black
+const MAT_SMALL = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });  // small joint marker: near-black
+const MAT_TOP   = new THREE.MeshLambertMaterial({
+  color: 0xddeeff, transparent: true, opacity: 0.22, side: THREE.DoubleSide
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCENE OBJECTS
+// GEOMETRY HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
-const nodeMeshes  = {};   // nodeId → THREE.Mesh
-const dowelMeshes = [];   // one per connection
-let topMesh = null;
+const _yAxis = new THREE.Vector3(0, 1, 0);
 
-function makeCylinder(pA, pB, radius) {
-  const len = pA.distanceTo(pB);
-  const geo = new THREE.CylinderGeometry(radius, radius, len, 10);
-  const mesh = new THREE.Mesh(geo, MAT_DOWEL);
-  const mid  = new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5);
-  mesh.position.copy(mid);
-  mesh.quaternion.setFromUnitVectors(
-    new THREE.Vector3(0, 1, 0),
-    new THREE.Vector3().subVectors(pB, pA).normalize()
-  );
+function makeCylinder(pA, pB, radius, mat) {
+  const dir = new THREE.Vector3().subVectors(pB, pA);
+  const len = dir.length();
+  const geo = new THREE.CylinderGeometry(radius, radius, len, 12, 1);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(pA).addScaledVector(dir, 0.5);
+  mesh.quaternion.setFromUnitVectors(_yAxis, dir.normalize());
   return mesh;
 }
 
-// Compute scene position for a node given current slider values
-function nodeScenePos(nd, L, W, H) {
+function makeSphere(radius, mat) {
+  const geo = new THREE.SphereGeometry(radius, 14, 10);
+  return new THREE.Mesh(geo, mat);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARAMETRIC SCENE STATE
+// ─────────────────────────────────────────────────────────────────────────────
+// Scene units = cm.  Node positions = (u−0.5)×W,  v×H,  (w−0.5)×L
+// Dowel radius scales proportionally with structure size (realistic for a fixed material diameter).
+// Node sphere radius is fixed at 1.25× dowel radius — they're manufactured parts.
+
+let curL = 80, curW = 80, curH = 70;
+
+const nodeMeshes   = {};   // id → mesh
+const dowelMeshes  = [];   // one per ALL_CONNECTIONS entry
+let   topMesh      = null;
+let   isBuilt      = false;
+
+function dowelRadius(W) {
+  // Keep physical dowel diameter proportional to default 80 cm width.
+  // Original OBJ: dowel radius = 1.45 OBJ units, structural width = 21.1 OBJ units → 6.9% of width
+  return W * 0.069;
+}
+function nodeRadius(W) { return dowelRadius(W) * 1.35; }
+function smallRadius(W) { return dowelRadius(W) * 0.9; }
+
+function getNodePos(id, L, W, H) {
+  const nd = NODES[id];
   return new THREE.Vector3(
     (nd.u - 0.5) * W,
     nd.v * H,
@@ -367,202 +273,158 @@ function nodeScenePos(nd, L, W, H) {
   );
 }
 
-// Build/rebuild the entire parametric model
-function buildModel(comps, L, W, H) {
-  // Clear previous
-  while (scene.children.length > 4) scene.remove(scene.children[4]); // keep lights
-  for (const k in nodeMeshes) delete nodeMeshes[k];
-  dowelMeshes.length = 0;
-  topMesh = null;
-
-  // ── Node meshes ─────────────────────────────────────────────────────────
-  // Paint components (indices 7–16 and 40 in the comps array)
-  const paintIndices = [7,8,9,10,11,12,13,14,15,16,40];
-  for (const idx of paintIndices) {
-    const comp = comps[idx];
-    if (!comp || !comp.arr.length) continue;
-    const [cx,cy,cz] = centroid(comp.arr);
-    const geo = makeGeometry(comp.arr, cx, cy, cz);
-    const mesh = new THREE.Mesh(geo, MAT_NODE);
-    mesh.position.copy(nodeScenePos(NODES[idx], L, W, H));
+function buildScene(L, W, H) {
+  // ── Node meshes ────────────────────────────────────────────────────────────
+  const nr = nodeRadius(W), sr = smallRadius(W);
+  for (const [id, nd] of Object.entries(NODES)) {
+    const r    = nd.type === 'small' ? sr : nr;
+    const mat  = nd.type === 'small' ? MAT_SMALL : MAT_NODE;
+    const mesh = makeSphere(r, mat);
+    mesh.position.copy(getNodePos(+id, L, W, H));
     scene.add(mesh);
-    nodeMeshes[idx] = mesh;
+    nodeMeshes[id] = mesh;
   }
 
-  // Diffuse components (indices 1–6): small spheres (geometry is tiny ~1 OBJ unit)
-  for (let idx = 1; idx <= 6; idx++) {
-    const nd = NODES[idx];
-    const r = 0.55 * OBJ_TO_CM;
-    const geo = new THREE.SphereGeometry(r, 8, 6);
-    const mesh = new THREE.Mesh(geo, MAT_SMALL);
-    mesh.position.copy(nodeScenePos(nd, L, W, H));
-    scene.add(mesh);
-    nodeMeshes[idx] = mesh;
-  }
-
-  // ── Dowel cylinders ──────────────────────────────────────────────────────
-  for (const [, na, nb] of CONNECTIONS) {
-    const pA = nodeMeshes[na] ? nodeMeshes[na].position.clone() : new THREE.Vector3();
-    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position.clone() : new THREE.Vector3();
-    const mesh = makeCylinder(pA, pB, DOWEL_RADIUS);
+  // ── Dowel cylinders ────────────────────────────────────────────────────────
+  const dr = dowelRadius(W);
+  for (const [, na, nb] of ALL_CONNECTIONS) {
+    const pA = getNodePos(na, L, W, H);
+    const pB = getNodePos(nb, L, W, H);
+    const mesh = makeCylinder(pA, pB, dr, MAT_DOWEL);
     scene.add(mesh);
     dowelMeshes.push(mesh);
   }
 
-  // ── Glass tabletop ───────────────────────────────────────────────────────
-  const topGeo = new THREE.PlaneGeometry(W + 4, L + 4);
+  // ── Glass tabletop ─────────────────────────────────────────────────────────
+  const topGeo = new THREE.PlaneGeometry(W + 2, L + 2);
   topMesh = new THREE.Mesh(topGeo, MAT_TOP);
   topMesh.rotation.x = -Math.PI / 2;
-  const topY = NODES[13].v * H;  // top corner height
-  topMesh.position.set(0, topY, 0);
+  topMesh.position.set(0, NODES[13].v * H, 0);
   scene.add(topMesh);
+
+  isBuilt = true;
 }
 
-// Reposition nodes + rebuild dowels (fast path — no OBJ re-parse)
-let _comps = null;
-function updateModel(L, W, H) {
-  if (!_comps) return;
+function updateScene(L, W, H) {
+  if (!isBuilt) { buildScene(L, W, H); return; }
 
-  // Reposition node meshes
+  const dr = dowelRadius(W);
+  const nr = nodeRadius(W);
+  const sr = smallRadius(W);
+
+  // Reposition + rescale nodes
   for (const [id, nd] of Object.entries(NODES)) {
     const mesh = nodeMeshes[id];
     if (!mesh) continue;
-    mesh.position.copy(nodeScenePos(nd, L, W, H));
+    const r = nd.type === 'small' ? sr : nr;
+
+    // Translate
+    mesh.position.copy(getNodePos(+id, L, W, H));
+
+    // Rescale sphere to match new proportions
+    mesh.scale.setScalar(r / (nd.type === 'small' ? smallRadius(80) : nodeRadius(80)));
   }
 
-  // Rebuild dowel cylinders in-place
-  for (let i = 0; i < CONNECTIONS.length; i++) {
-    const [, na, nb] = CONNECTIONS[i];
-    const pA = nodeMeshes[na] ? nodeMeshes[na].position : new THREE.Vector3();
-    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position : new THREE.Vector3();
-    const len = pA.distanceTo(pB);
-    const mid = new THREE.Vector3().addVectors(pA, pB).multiplyScalar(0.5);
+  // Rebuild dowel cylinders
+  for (let i = 0; i < ALL_CONNECTIONS.length; i++) {
+    const [, na, nb] = ALL_CONNECTIONS[i];
+    const pA = getNodePos(na, L, W, H);
+    const pB = getNodePos(nb, L, W, H);
+    const dir = new THREE.Vector3().subVectors(pB, pA);
+    const len = dir.length();
+    const m   = dowelMeshes[i];
 
-    const m = dowelMeshes[i];
     m.geometry.dispose();
-    m.geometry = new THREE.CylinderGeometry(DOWEL_RADIUS, DOWEL_RADIUS, len, 10);
-    m.position.copy(mid);
-    m.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3().subVectors(pB, pA).normalize()
-    );
+    m.geometry = new THREE.CylinderGeometry(dr, dr, len, 12, 1);
+    m.position.copy(pA).addScaledVector(dir.clone().normalize(), len * 0.5);
+    m.quaternion.setFromUnitVectors(_yAxis, dir.normalize());
   }
 
-  // Reposition tabletop
+  // Resize and reposition tabletop
   if (topMesh) {
     topMesh.geometry.dispose();
-    topMesh.geometry = new THREE.PlaneGeometry(W + 4, L + 4);
+    topMesh.geometry = new THREE.PlaneGeometry(W + 2, L + 2);
     topMesh.position.set(0, NODES[13].v * H, 0);
   }
 
   updateCamera(L, W, H);
-  updateCutSheet(L, W, H);
+  updateCutSheet();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CAMERA & ORBIT
 // ─────────────────────────────────────────────────────────────────────────────
-let theta = 0.45, phi = 1.0, camDist = 220;
+let theta = 0.5, phi = 1.1, camDist = 220;
 let camTarget = new THREE.Vector3(0, 30, 0);
-let isDragging = false, lastX = 0, lastY = 0;
+let isDragging = false, lastMX = 0, lastMY = 0;
 
 function updateCamera(L, W, H) {
-  const maxDim = Math.max(L, W, H);
-  camDist = maxDim * 2.2;
-  camTarget.set(0, H * 0.4, 0);
+  camDist  = Math.max(L, W, H) * 2.2;
+  camTarget.set(0, H * 0.42, 0);
 }
 
 function applyCamera() {
   const x = camDist * Math.sin(phi) * Math.sin(theta);
   const y = camDist * Math.cos(phi);
   const z = camDist * Math.sin(phi) * Math.cos(theta);
-  camera.position.set(
-    camTarget.x + x,
-    camTarget.y + y,
-    camTarget.z + z
-  );
+  camera.position.set(camTarget.x + x, camTarget.y + y, camTarget.z + z);
   camera.lookAt(camTarget);
 }
 
-container.addEventListener('mousedown', e => { isDragging=true; lastX=e.clientX; lastY=e.clientY; });
+container.addEventListener('mousedown', e => { isDragging=true; lastMX=e.clientX; lastMY=e.clientY; });
 window.addEventListener('mouseup', () => isDragging=false);
 window.addEventListener('mousemove', e => {
   if (!isDragging) return;
-  theta -= (e.clientX - lastX) * 0.008;
-  phi    = Math.max(0.1, Math.min(Math.PI - 0.1, phi - (e.clientY - lastY) * 0.008));
-  lastX  = e.clientX;
-  lastY  = e.clientY;
+  theta -= (e.clientX - lastMX) * 0.008;
+  phi    = Math.max(0.08, Math.min(Math.PI-0.08, phi - (e.clientY - lastMY) * 0.008));
+  lastMX = e.clientX; lastMY = e.clientY;
 });
 container.addEventListener('wheel', e => {
   e.preventDefault();
-  camDist = Math.max(20, Math.min(600, camDist + e.deltaY * 0.4));
+  camDist = Math.max(30, Math.min(800, camDist + e.deltaY * 0.5));
 }, { passive: false });
 
-// Touch support
-let lastTouchX = 0, lastTouchY = 0;
-container.addEventListener('touchstart', e => {
-  if (e.touches.length === 1) { lastTouchX=e.touches[0].clientX; lastTouchY=e.touches[0].clientY; }
-}, { passive: true });
-container.addEventListener('touchmove', e => {
-  if (e.touches.length === 1) {
-    theta -= (e.touches[0].clientX - lastTouchX) * 0.01;
-    phi    = Math.max(0.1, Math.min(Math.PI - 0.1, phi - (e.touches[0].clientY - lastTouchY) * 0.01));
-    lastTouchX = e.touches[0].clientX;
-    lastTouchY = e.touches[0].clientY;
+// Touch
+let ltX=0, ltY=0;
+container.addEventListener('touchstart', e => { if(e.touches.length===1){ltX=e.touches[0].clientX;ltY=e.touches[0].clientY;} }, {passive:true});
+container.addEventListener('touchmove',  e => {
+  if(e.touches.length===1){
+    theta -= (e.touches[0].clientX - ltX) * 0.01;
+    phi    = Math.max(0.08, Math.min(Math.PI-0.08, phi - (e.touches[0].clientY - ltY) * 0.01));
+    ltX=e.touches[0].clientX; ltY=e.touches[0].clientY;
   }
-}, { passive: true });
+}, {passive:true});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CUT SHEET
 // ─────────────────────────────────────────────────────────────────────────────
-function updateCutSheet(L, W, H) {
+const LEG_LABELS = ['A','B','C','D'];
+
+function updateCutSheet() {
   const tbody = document.getElementById('cut-tbody');
-  if (!tbody) return;
+  if (!tbody || !isBuilt) return;
 
   const rows = [];
 
-  // 4 vertical legs
-  LEG_CONN.forEach(([, na, nb], i) => {
-    const pA = nodeMeshes[na] ? nodeMeshes[na].position : new THREE.Vector3();
-    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position : new THREE.Vector3();
-    const len = pA.distanceTo(pB);
-    rows.push({
-      tag: LEG_LABELS[i],
-      label: 'Vertical leg',
-      len,
-      qty: 1
-    });
+  // Legs
+  LEGS.forEach(([, na, nb], i) => {
+    const len = getNodePos(na, curL, curW, curH).distanceTo(getNodePos(nb, curL, curW, curH));
+    rows.push(`<tr><td><span class="tag-pill">${LEG_LABELS[i]}</span></td>
+      <td>Vertical leg</td><td>${Math.round(len)} cm</td><td>1</td></tr>`);
   });
 
-  // Diagonal braces — group by approximate length
-  const diagLengths = [];
-  CONNECTIONS.forEach(([ci, na, nb]) => {
-    if ([28,29,30,31].includes(ci)) return; // skip legs
-    const pA = nodeMeshes[na] ? nodeMeshes[na].position : new THREE.Vector3();
-    const pB = nodeMeshes[nb] ? nodeMeshes[nb].position : new THREE.Vector3();
-    diagLengths.push(pA.distanceTo(pB));
-  });
-  const minD = Math.min(...diagLengths), maxD = Math.max(...diagLengths);
-  rows.push({
-    tag: '—',
-    label: `Diagonal braces (${diagLengths.length} total)`,
-    len: null,
-    range: `${Math.round(minD)}–${Math.round(maxD)} cm`,
-    qty: diagLengths.length
-  });
+  // Diagonals summary
+  const dLens = DIAGONALS.map(([,na,nb]) =>
+    getNodePos(na,curL,curW,curH).distanceTo(getNodePos(nb,curL,curW,curH)));
+  const dMin = Math.round(Math.min(...dLens));
+  const dMax = Math.round(Math.max(...dLens));
+  rows.push(`<tr><td><span class="tag-pill" style="background:#888">—</span></td>
+    <td>Diagonal brace</td><td>${dMin}–${dMax} cm</td><td>${DIAGONALS.length}</td></tr>`);
 
-  tbody.innerHTML = rows.map(r => `
-    <tr>
-      <td><span class="tag-dot">${r.tag}</span></td>
-      <td>${r.label}</td>
-      <td>${r.len != null ? Math.round(r.len) + ' cm' : r.range}</td>
-      <td>${r.qty}</td>
-    </tr>
-  `).join('') + `
-    <tr class="divider-row">
-      <td colspan="2">Total dowels</td>
-      <td colspan="2">${CONNECTIONS.length}</td>
-    </tr>`;
+  rows.push(`<tr class="divider-row">
+    <td colspan="2">Total dowels</td><td colspan="2">${ALL_CONNECTIONS.length}</td></tr>`);
+
+  tbody.innerHTML = rows.join('');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -580,20 +442,15 @@ onResize();
 // ─────────────────────────────────────────────────────────────────────────────
 // ANIMATION LOOP
 // ─────────────────────────────────────────────────────────────────────────────
-function animate() {
+(function animate() {
   requestAnimationFrame(animate);
   applyCamera();
   renderer.render(scene, camera);
-}
-animate();
+})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SLIDERS
 // ─────────────────────────────────────────────────────────────────────────────
-let curL = +document.getElementById('sl-L').value;
-let curW = +document.getElementById('sl-W').value;
-let curH = +document.getElementById('sl-H').value;
-
 ['L','W','H'].forEach(axis => {
   const sl  = document.getElementById('sl-' + axis);
   const val = document.getElementById('val-' + axis);
@@ -602,26 +459,16 @@ let curH = +document.getElementById('sl-H').value;
     if (axis==='L') curL = +sl.value;
     if (axis==='W') curW = +sl.value;
     if (axis==='H') curH = +sl.value;
-    updateModel(curL, curW, curH);
+    updateScene(curL, curW, curH);
   });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOAD OBJ
+// INIT
 // ─────────────────────────────────────────────────────────────────────────────
-fetch('nodes-table.obj')
-  .then(r => r.text())
-  .then(text => {
-    _comps = parseOBJ(text);
-    buildModel(_comps, curL, curW, curH);
-    updateCamera(curL, curW, curH);
-    updateCutSheet(curL, curW, curH);
-    loadingEl.classList.add('hidden');
-  })
-  .catch(err => {
-    console.error('OBJ load failed', err);
-    loadingEl.querySelector('span').textContent = 'Load failed';
-  });
+buildScene(curL, curW, curH);
+updateCamera(curL, curW, curH);
+updateCutSheet();
 </script>
 </body>
 </html>
