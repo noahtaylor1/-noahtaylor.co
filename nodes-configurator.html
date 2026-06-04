@@ -155,9 +155,9 @@ for (const [,na,nb] of ALL_CONN) {
 // PHYSICAL DIMENSIONS  — FIXED, do not scale with L/W/H sliders
 // Matching OBJ proportions: tube radius ≈ 6.9% of default span
 // ─────────────────────────────────────────────────────────────────────────────
-const TUBE_R  = 5.0;   // cm — dowel & arm stub radius
-const NODE_R  = 4.2;   // cm — node core sphere (0.84× TUBE_R → compact organic knuckle)
-const ARM_LEN = 3.0;   // cm — arm stub length past sphere surface
+const TUBE_R  = 4.5;   // cm — dowel & arm stub radius
+const NODE_R  = 9.0;   // cm — node core sphere (2× TUBE_R → large blobby MultiPipe knuckle)
+const ARM_LEN = 1.5;   // cm — short arm stub; big sphere does the blob work
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -196,9 +196,9 @@ fill.position.set(-3, 1, -2); scene.add(fill);
 const rim  = new THREE.DirectionalLight(0xffeedd, 0.20);
 rim.position.set(0, -1.5, -3); scene.add(rim);
 
-// Materials — matches physical model: white 3D-printed nodes, pale natural wood
-const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0xf5f3ef });           // 3D-printed connector: warm white
-const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xf2e8d0 });           // timber dowel: very pale natural wood
+// Materials — white 3D-printed nodes contrast against warm honey-wood dowels
+const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0xf0ede8 });           // 3D-printed connector: clean warm white
+const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xc8a96e });           // timber dowel: warm honey oak
 const MAT_TOP   = new THREE.MeshLambertMaterial({ color: 0xddeeff, transparent:true, opacity:0.14, side:THREE.DoubleSide });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,20 +249,21 @@ function buildNode(id, positions) {
   core.castShadow = true; core.receiveShadow = true;
   group.add(core);
 
-  // One arm stub per connection — tapered: TUBE_R base (at sphere), TUBE_R tip (flush with dowel)
-  // The taper creates an organic flowing transition matching the physical MultiPipe model
+  // One arm stub per connection — flares from sphere surface out to dowel-width tip.
+  // radiusBottom (at sphere end) > radiusTop (at dowel end) → organic skirt merging into sphere blob.
   for (const nid of ADJ[id]) {
     const otherPt = positions[nid];
     if (!otherPt) continue;
     const dir = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
-    // Arm: base at NODE_R from centre, tip at NODE_R+ARM_LEN
-    // CylinderGeometry(radiusTop, radiusBottom, length) — top = tip (toward dowel), bottom = base (at sphere)
-    const armLen  = NODE_R + ARM_LEN;
-    const arm     = new THREE.Mesh(
-      new THREE.CylinderGeometry(TUBE_R * 0.72, TUBE_R * 1.05, armLen, 12, 1),
+    // Arm length: from sphere surface (NODE_R from centre) to ARM_LEN past that
+    const armLen = ARM_LEN + NODE_R * 0.25;  // short stub that emerges from sphere
+    const arm    = new THREE.Mesh(
+      // top=tip (toward dowel) matches TUBE_R for flush join; bottom=base flares 1.5× for blob skirt
+      new THREE.CylinderGeometry(TUBE_R, TUBE_R * 1.5, armLen, 14, 1),
       MAT_NODE
     );
-    arm.position.copy(dir.clone().multiplyScalar(armLen * 0.5));
+    // Position: arm centre is (NODE_R + armLen*0.5) from node centre
+    arm.position.copy(dir.clone().multiplyScalar(NODE_R + armLen * 0.5));
     arm.quaternion.setFromUnitVectors(_YUP, dir);
     arm.castShadow = true; arm.receiveShadow = true;
     group.add(arm);
@@ -280,7 +281,7 @@ function dowelPts(na, nb, positions) {
   const len = d.length();
   if (len < 0.01) return null;
   d.normalize();
-  const inset = NODE_R + ARM_LEN;   // how far each end recedes from node centre
+  const inset = NODE_R + ARM_LEN + NODE_R * 0.25;  // matches arm tip position from node centre
   if (len <= inset * 2 + 1) return null;   // skip near-zero dowels
   return [
     pA.clone().addScaledVector(d,  inset),
