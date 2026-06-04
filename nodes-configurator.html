@@ -10,67 +10,52 @@
     .configurator-wrap { display:flex; flex-direction:column; }
 
     #canvas-container {
-      width:100%; height:70vh; min-height:440px;
+      width:100%; height:72vh; min-height:460px;
       background:#f5f4f0;
       cursor:grab; position:relative; user-select:none;
     }
     #canvas-container:active { cursor:grabbing; }
-    #three-canvas { display:block; width:100% !important; height:100% !important; }
+    #three-canvas { display:block; width:100%!important; height:100%!important; }
 
     .canvas-hint {
       position:absolute; bottom:14px; right:18px;
-      font-size:11px; color:#bbb; letter-spacing:0.06em;
+      font-size:11px; color:#c0bdb8; letter-spacing:0.06em;
       text-transform:uppercase; pointer-events:none;
     }
     .project-label {
       position:absolute; top:20px; left:28px; pointer-events:none;
     }
     .project-label h1 { font-size:20px; font-weight:400; letter-spacing:-0.01em; color:#1a1a1a; margin-bottom:3px; }
-    .project-label p  { font-size:12px; color:#aaa; letter-spacing:0.03em; }
+    .project-label p  { font-size:12px; color:#bbb; letter-spacing:0.03em; }
 
-    .controls-bar {
-      display:flex; border-bottom:1px solid #e5e5e5; flex-wrap:wrap;
-    }
-    .ctrl {
-      flex:1; min-width:160px; padding:20px 32px;
-      border-right:1px solid #e5e5e5;
-    }
+    .controls-bar { display:flex; border-bottom:1px solid #e5e5e5; flex-wrap:wrap; }
+    .ctrl { flex:1; min-width:160px; padding:20px 32px; border-right:1px solid #e5e5e5; }
     .ctrl:last-child { border-right:none; }
     .ctrl-label {
       font-size:11px; text-transform:uppercase; letter-spacing:0.1em;
       color:#aaa; margin-bottom:10px;
       display:flex; justify-content:space-between; align-items:center;
     }
-    .ctrl-label span {
-      font-size:14px; color:#1a1a1a;
-      letter-spacing:0; text-transform:none;
-      font-variant-numeric:tabular-nums;
-    }
+    .ctrl-label span { font-size:14px; color:#1a1a1a; letter-spacing:0; text-transform:none; font-variant-numeric:tabular-nums; }
     input[type="range"] {
       width:100%; height:2px; appearance:none;
       background:#e0e0e0; outline:none; cursor:pointer; border-radius:2px;
     }
     input[type="range"]::-webkit-slider-thumb {
-      appearance:none; width:14px; height:14px;
-      border-radius:50%; background:#1a1a1a; cursor:pointer;
+      appearance:none; width:14px; height:14px; border-radius:50%; background:#1a1a1a; cursor:pointer;
     }
 
     .cutsheet { padding:40px 48px 80px; }
-    .cutsheet h2 {
-      font-size:11px; text-transform:uppercase;
-      letter-spacing:0.1em; color:#aaa; margin-bottom:24px;
-    }
+    .cutsheet h2 { font-size:11px; text-transform:uppercase; letter-spacing:0.1em; color:#aaa; margin-bottom:24px; }
     .cut-table { width:100%; max-width:560px; border-collapse:collapse; }
     .cut-table th {
-      font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
-      color:#aaa; font-weight:400; text-align:left;
-      padding:0 20px 10px 0; border-bottom:1px solid #e5e5e5;
+      font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#aaa;
+      font-weight:400; text-align:left; padding:0 20px 10px 0; border-bottom:1px solid #e5e5e5;
     }
     .cut-table td { padding:12px 20px 12px 0; border-bottom:1px solid #f2f2f2; font-size:14px; color:#333; }
     .tag-pill {
       display:inline-flex; align-items:center; justify-content:center;
-      width:24px; height:24px; border-radius:50%;
-      background:#111; color:#fff; font-size:10px; font-weight:600;
+      width:24px; height:24px; border-radius:50%; background:#111; color:#fff; font-size:10px; font-weight:600;
     }
     .divider-row td { border-top:1px solid #e5e5e5; border-bottom:none; padding-top:16px; color:#888; font-size:13px; }
 
@@ -117,9 +102,7 @@
   <div class="cutsheet">
     <h2>Cut Sheet</h2>
     <table class="cut-table">
-      <thead>
-        <tr><th>Tag</th><th>Component</th><th>Length</th><th>Qty</th></tr>
-      </thead>
+      <thead><tr><th>Tag</th><th>Component</th><th>Length</th><th>Qty</th></tr></thead>
       <tbody id="cut-tbody"></tbody>
     </table>
   </div>
@@ -131,63 +114,42 @@
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
-// PARAMETRIC DATA
-// Normalized node positions (u,v,w) ∈ [0,1]³
-// Derived from OBJ bounding box corner nodes:
-//   X: 228.7 → 249.8  (span 21.1)  → u=0:left, u=1:right
-//   Y: 294.1 → 309.9  (span 15.8)  → v=0:floor, v=1:top
-//   Z: −247.7 → −226.7 (span 21.0) → w=0:back, w=1:front
+// PARAMETRIC DATA — normalized node positions from OBJ bounding box
+// X: 228.7→249.8 (XR=21.1) | Y: 294.1→309.9 (YR=15.8) | Z: -247.7→-226.7 (ZR=21.0)
 // ─────────────────────────────────────────────────────────────────────────────
-const XMIN=228.7, XR=21.1;
-const YMIN=294.1, YR=15.8;
-const ZMIN=-247.7, ZR=21.0;
+const XMIN=228.7, XR=21.1, YMIN=294.1, YR=15.8, ZMIN=-247.7, ZR=21.0;
 
 const NODES = {};
 [
-  // id,  x,       y,       z,       type
-  [  1, 232.6, 294.7, -244.6, 'small'],  // diffuse mid-joint markers
-  [  2, 245.0, 300.1, -234.7, 'small'],
-  [  3, 244.8, 300.4, -237.2, 'small'],
-  [  4, 242.0, 300.1, -234.6, 'small'],
-  [  5, 242.5, 302.1, -237.6, 'small'],
-  [  6, 245.1, 302.5, -237.4, 'small'],
-  [  7, 248.1, 294.2, -245.8, 'node'],  // bottom corners
-  [  8, 231.1, 294.6, -245.5, 'node'],
-  [  9, 247.9, 294.1, -228.4, 'node'],
-  [ 10, 231.1, 294.9, -228.2, 'node'],
-  [ 11, 235.9, 301.9, -232.8, 'node'],  // mid crossing nodes
-  [ 12, 243.2, 301.3, -236.1, 'node'],
-  [ 13, 249.8, 309.9, -247.7, 'node'],  // top corners
-  [ 14, 228.8, 309.9, -247.5, 'node'],
-  [ 15, 238.1, 303.6, -241.3, 'node'],
-  [ 16, 228.7, 309.5, -227.2, 'node'],
-  [ 40, 249.6, 309.9, -226.7, 'node'],
-].forEach(([id, x, y, z, type]) => {
-  NODES[id] = {
-    u: (x - XMIN) / XR,
-    v: (y - YMIN) / YR,
-    w: (z - ZMIN) / ZR,
-    type
-  };
+  [1, 232.6,294.7,-244.6,'small'], [2, 245.0,300.1,-234.7,'small'],
+  [3, 244.8,300.4,-237.2,'small'], [4, 242.0,300.1,-234.6,'small'],
+  [5, 242.5,302.1,-237.6,'small'], [6, 245.1,302.5,-237.4,'small'],
+  [7, 248.1,294.2,-245.8,'node'],  [8, 231.1,294.6,-245.5,'node'],
+  [9, 247.9,294.1,-228.4,'node'],  [10,231.1,294.9,-228.2,'node'],
+  [11,235.9,301.9,-232.8,'node'],  [12,243.2,301.3,-236.1,'node'],
+  [13,249.8,309.9,-247.7,'node'],  [14,228.8,309.9,-247.5,'node'],
+  [15,238.1,303.6,-241.3,'node'],  [16,228.7,309.5,-227.2,'node'],
+  [40,249.6,309.9,-226.7,'node'],
+].forEach(([id,x,y,z,type]) => {
+  NODES[id] = { u:(x-XMIN)/XR, v:(y-YMIN)/YR, w:(z-ZMIN)/ZR, type };
 });
 
-// Dowel connections: [dowelIdx, nodeA, nodeB]
-// Legs (vertical) — indices 28-31 in original Plaster ordering
-const LEGS = [
-  [28, 13,  7],  // right-back
-  [29, 14,  8],  // left-back
-  [30, 40,  9],  // right-front
-  [31, 10, 16],  // left-front
-];
-// Diagonal braces
+const LEGS      = [[28,13,7],[29,14,8],[30,40,9],[31,10,16]];
 const DIAGONALS = [
-  [17, 10, 11], [18,  1,  8], [19,  4,  2], [20,  4, 11],
-  [21, 15,  1], [22,  2,  9], [23,  3,  7], [24, 11,  4],
-  [25,  1,  8], [26,  7,  5], [27,  5, 12], [32, 15, 14],
-  [33, 40,  4], [34, 16, 11], [35,  6, 13], [36, 13, 15],
-  [37, 14, 15], [38,  6, 12], [39, 11, 16],
+  [17,10,11],[18,1,8],[19,4,2],[20,4,11],[21,15,1],[22,2,9],
+  [23,3,7],[24,11,4],[25,1,8],[26,7,5],[27,5,12],[32,15,14],
+  [33,40,4],[34,16,11],[35,6,13],[36,13,15],[37,14,15],[38,6,12],[39,11,16]
 ];
-const ALL_CONNECTIONS = [...LEGS, ...DIAGONALS];
+const ALL_CONN = [...LEGS, ...DIAGONALS];
+
+// Build adjacency: nodeId → [connected nodeIds]
+const ADJACENCY = {};
+for (const [,na,nb] of ALL_CONN) {
+  if (!ADJACENCY[na]) ADJACENCY[na] = [];
+  if (!ADJACENCY[nb]) ADJACENCY[nb] = [];
+  ADJACENCY[na].push(nb);
+  ADJACENCY[nb].push(na);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS SETUP
@@ -195,234 +157,249 @@ const ALL_CONNECTIONS = [...LEGS, ...DIAGONALS];
 const container = document.getElementById('canvas-container');
 const canvas    = document.getElementById('three-canvas');
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer  = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
 const scene  = new THREE.Scene();
-scene.background = new THREE.Color(0xf5f4f0);  // warm off-white, matches Rhino render
+scene.background = new THREE.Color(0xf5f4f0);
 
 const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 10000);
 
-// Lighting — neutral, no color tint
-scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-sun.position.set(2, 3, 2);
-scene.add(sun);
-const fill = new THREE.DirectionalLight(0xffffff, 0.35);
-fill.position.set(-2, 0.5, -1);
-scene.add(fill);
+// Clean neutral lighting — no colour tint
+scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+const sun  = new THREE.DirectionalLight(0xffffff, 0.95);
+sun.position.set(1.8, 3, 2.2); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.3);
+fill.position.set(-2, 0.5, -1); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0xffffff, 0.15);
+rim.position.set(0, -1, -2); scene.add(rim);
+
+// Materials — palette from Rhino render
+const MAT_DOWEL = new THREE.MeshLambertMaterial({ color:0xf0dda0 }); // pale warm wood
+const MAT_NODE  = new THREE.MeshLambertMaterial({ color:0x1c1c1c }); // near-black printed node
+const MAT_TOP   = new THREE.MeshLambertMaterial({ color:0xddeeff, transparent:true, opacity:0.18, side:THREE.DoubleSide });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MATERIALS  — matching the Rhino render palette
+// PROPORTIONS  — all scale with W so structure always looks right
 // ─────────────────────────────────────────────────────────────────────────────
-const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xf0dda0 });  // pale wood
-const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });  // 3D-printed node: near-black
-const MAT_SMALL = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });  // small joint marker: near-black
-const MAT_TOP   = new THREE.MeshLambertMaterial({
-  color: 0xddeeff, transparent: true, opacity: 0.22, side: THREE.DoubleSide
-});
+function DR(W) { return W * 0.058; }           // dowel tube radius
+function NR(W) { return DR(W) * 1.15; }        // node core sphere radius
+function ARM(W) { return NR(W) * 1.1; }        // arm stub length past sphere surface
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GEOMETRY HELPERS
+// NODE POSITION HELPER
 // ─────────────────────────────────────────────────────────────────────────────
-const _yAxis = new THREE.Vector3(0, 1, 0);
+function nodePos(id, L, W, H) {
+  const n = NODES[id];
+  return new THREE.Vector3((n.u-0.5)*W, n.v*H, (n.w-0.5)*L);
+}
 
-function makeCylinder(pA, pB, radius, mat) {
+// Build a snapshot of all node positions for current LWH
+function allNodePositions(L, W, H) {
+  const m = {};
+  for (const id of Object.keys(NODES)) m[id] = nodePos(+id, L, W, H);
+  return m;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GEOMETRY BUILDERS
+// ─────────────────────────────────────────────────────────────────────────────
+const _Y = new THREE.Vector3(0,1,0);
+
+function cylinderBetween(pA, pB, r, mat) {
   const dir = new THREE.Vector3().subVectors(pB, pA);
   const len = dir.length();
-  const geo = new THREE.CylinderGeometry(radius, radius, len, 12, 1);
+  if (len < 0.001) return null;
+  const geo  = new THREE.CylinderGeometry(r, r, len, 12, 1);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(pA).addScaledVector(dir, 0.5);
-  mesh.quaternion.setFromUnitVectors(_yAxis, dir.normalize());
+  mesh.position.copy(pA).addScaledVector(dir.normalize(), len * 0.5);
+  mesh.quaternion.setFromUnitVectors(_Y, dir);
   return mesh;
 }
 
-function makeSphere(radius, mat) {
-  const geo = new THREE.SphereGeometry(radius, 14, 10);
-  return new THREE.Mesh(geo, mat);
+// MultiPipe-style node: central sphere + one arm stub per connection
+// Arms point toward each connected node — they update on every slider change
+function buildNodeGroup(id, positions, W) {
+  const group = new THREE.Group();
+  const pos   = positions[id];
+  const nr    = NR(W);
+  const dr    = DR(W);
+  const armL  = ARM(W);
+  const isSmall = NODES[id].type === 'small';
+
+  // Core sphere
+  const coreR = isSmall ? nr * 0.75 : nr;
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(coreR, 14, 10), MAT_NODE));
+
+  if (!isSmall) {
+    // Arm stubs pointing toward each connected node
+    for (const otherId of (ADJACENCY[id] || [])) {
+      const otherPos = positions[otherId];
+      if (!otherPos) continue;
+      const dir = new THREE.Vector3().subVectors(otherPos, pos).normalize();
+
+      // Arm: starts at sphere surface, extends outward by armL
+      const armGeo  = new THREE.CylinderGeometry(dr * 0.92, dr * 0.92, armL + coreR, 8, 1);
+      const armMesh = new THREE.Mesh(armGeo, MAT_NODE);
+      // Position so arm base is at sphere centre (half the length starts inside sphere)
+      armMesh.position.copy(dir.clone().multiplyScalar((armL + coreR) * 0.5));
+      armMesh.quaternion.setFromUnitVectors(_Y, dir);
+      group.add(armMesh);
+    }
+  }
+
+  group.position.copy(pos);
+  return group;
+}
+
+// Dowel: runs between the tips of the two node arms (not centre-to-centre)
+// This gives the "plugs into the node" look from MultiPipe
+function dowelEndpoints(na, nb, positions, W) {
+  const pA  = positions[na];
+  const pB  = positions[nb];
+  const dir = new THREE.Vector3().subVectors(pB, pA);
+  const len = dir.length();
+  if (len < 0.001) return [pA, pB];
+  dir.normalize();
+  const insetA = NODES[na].type === 'small' ? NR(W)*0.75 : NR(W) + ARM(W);
+  const insetB = NODES[nb].type === 'small' ? NR(W)*0.75 : NR(W) + ARM(W);
+  return [
+    pA.clone().addScaledVector(dir,  insetA),
+    pB.clone().addScaledVector(dir, -insetB),
+  ];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PARAMETRIC SCENE STATE
+// SCENE STATE
 // ─────────────────────────────────────────────────────────────────────────────
-// Scene units = cm.  Node positions = (u−0.5)×W,  v×H,  (w−0.5)×L
-// Dowel radius scales proportionally with structure size (realistic for a fixed material diameter).
-// Node sphere radius is fixed at 1.25× dowel radius — they're manufactured parts.
-
-let curL = 80, curW = 80, curH = 70;
-
-const nodeMeshes   = {};   // id → mesh
-const dowelMeshes  = [];   // one per ALL_CONNECTIONS entry
-let   topMesh      = null;
-let   isBuilt      = false;
-
-function dowelRadius(W) {
-  // Keep physical dowel diameter proportional to default 80 cm width.
-  // Original OBJ: dowel radius = 1.45 OBJ units, structural width = 21.1 OBJ units → 6.9% of width
-  return W * 0.069;
-}
-function nodeRadius(W) { return dowelRadius(W) * 1.35; }
-function smallRadius(W) { return dowelRadius(W) * 0.9; }
-
-function getNodePos(id, L, W, H) {
-  const nd = NODES[id];
-  return new THREE.Vector3(
-    (nd.u - 0.5) * W,
-    nd.v * H,
-    (nd.w - 0.5) * L
-  );
-}
+let curL=80, curW=80, curH=70;
+const nodeGroups  = {};
+const dowelMeshes = [];
+let   topMesh     = null;
+let   isBuilt     = false;
 
 function buildScene(L, W, H) {
-  // ── Node meshes ────────────────────────────────────────────────────────────
-  const nr = nodeRadius(W), sr = smallRadius(W);
-  for (const [id, nd] of Object.entries(NODES)) {
-    const r    = nd.type === 'small' ? sr : nr;
-    const mat  = nd.type === 'small' ? MAT_SMALL : MAT_NODE;
-    const mesh = makeSphere(r, mat);
-    mesh.position.copy(getNodePos(+id, L, W, H));
-    scene.add(mesh);
-    nodeMeshes[id] = mesh;
+  const pos = allNodePositions(L, W, H);
+
+  // Node groups
+  for (const id of Object.keys(NODES)) {
+    const g = buildNodeGroup(+id, pos, W);
+    scene.add(g);
+    nodeGroups[id] = g;
   }
 
-  // ── Dowel cylinders ────────────────────────────────────────────────────────
-  const dr = dowelRadius(W);
-  for (const [, na, nb] of ALL_CONNECTIONS) {
-    const pA = getNodePos(na, L, W, H);
-    const pB = getNodePos(nb, L, W, H);
-    const mesh = makeCylinder(pA, pB, dr, MAT_DOWEL);
-    scene.add(mesh);
-    dowelMeshes.push(mesh);
+  // Dowel cylinders
+  const dr = DR(W);
+  for (const [,na,nb] of ALL_CONN) {
+    const [ep0, ep1] = dowelEndpoints(na, nb, pos, W);
+    const m = cylinderBetween(ep0, ep1, dr, MAT_DOWEL);
+    if (m) { scene.add(m); dowelMeshes.push(m); }
+    else dowelMeshes.push(null);
   }
 
-  // ── Glass tabletop ─────────────────────────────────────────────────────────
-  const topGeo = new THREE.PlaneGeometry(W + 2, L + 2);
-  topMesh = new THREE.Mesh(topGeo, MAT_TOP);
-  topMesh.rotation.x = -Math.PI / 2;
+  // Glass tabletop
+  topMesh = new THREE.Mesh(new THREE.PlaneGeometry(W+2, L+2), MAT_TOP);
+  topMesh.rotation.x = -Math.PI/2;
   topMesh.position.set(0, NODES[13].v * H, 0);
   scene.add(topMesh);
 
   isBuilt = true;
 }
 
+function clearScene() {
+  // Remove everything except lights (first 4 children)
+  while (scene.children.length > 4) scene.remove(scene.children[4]);
+  for (const k in nodeGroups) { delete nodeGroups[k]; }
+  for (let i=0; i<dowelMeshes.length; i++) {
+    if (dowelMeshes[i]) dowelMeshes[i].geometry.dispose();
+  }
+  dowelMeshes.length = 0;
+  if (topMesh) { topMesh.geometry.dispose(); topMesh = null; }
+  isBuilt = false;
+}
+
 function updateScene(L, W, H) {
-  if (!isBuilt) { buildScene(L, W, H); return; }
-
-  const dr = dowelRadius(W);
-  const nr = nodeRadius(W);
-  const sr = smallRadius(W);
-
-  // Reposition + rescale nodes
-  for (const [id, nd] of Object.entries(NODES)) {
-    const mesh = nodeMeshes[id];
-    if (!mesh) continue;
-    const r = nd.type === 'small' ? sr : nr;
-
-    // Translate
-    mesh.position.copy(getNodePos(+id, L, W, H));
-
-    // Rescale sphere to match new proportions
-    mesh.scale.setScalar(r / (nd.type === 'small' ? smallRadius(80) : nodeRadius(80)));
-  }
-
-  // Rebuild dowel cylinders
-  for (let i = 0; i < ALL_CONNECTIONS.length; i++) {
-    const [, na, nb] = ALL_CONNECTIONS[i];
-    const pA = getNodePos(na, L, W, H);
-    const pB = getNodePos(nb, L, W, H);
-    const dir = new THREE.Vector3().subVectors(pB, pA);
-    const len = dir.length();
-    const m   = dowelMeshes[i];
-
-    m.geometry.dispose();
-    m.geometry = new THREE.CylinderGeometry(dr, dr, len, 12, 1);
-    m.position.copy(pA).addScaledVector(dir.clone().normalize(), len * 0.5);
-    m.quaternion.setFromUnitVectors(_yAxis, dir.normalize());
-  }
-
-  // Resize and reposition tabletop
-  if (topMesh) {
-    topMesh.geometry.dispose();
-    topMesh.geometry = new THREE.PlaneGeometry(W + 2, L + 2);
-    topMesh.position.set(0, NODES[13].v * H, 0);
-  }
-
+  // Full rebuild: arm directions change when LWH changes,
+  // so we can't just translate — we must re-arm each node.
+  clearScene();
+  buildScene(L, W, H);
   updateCamera(L, W, H);
-  updateCutSheet();
+  updateCutSheet(L, W, H);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CAMERA & ORBIT
 // ─────────────────────────────────────────────────────────────────────────────
-let theta = 0.5, phi = 1.1, camDist = 220;
-let camTarget = new THREE.Vector3(0, 30, 0);
-let isDragging = false, lastMX = 0, lastMY = 0;
+let theta=0.5, phi=1.08, camDist=230;
+let camTarget = new THREE.Vector3(0,30,0);
+let isDragging=false, lastMX=0, lastMY=0;
 
 function updateCamera(L, W, H) {
-  camDist  = Math.max(L, W, H) * 2.2;
-  camTarget.set(0, H * 0.42, 0);
+  camDist = Math.max(L,W,H) * 2.3;
+  camTarget.set(0, H*0.42, 0);
 }
-
 function applyCamera() {
   const x = camDist * Math.sin(phi) * Math.sin(theta);
   const y = camDist * Math.cos(phi);
   const z = camDist * Math.sin(phi) * Math.cos(theta);
-  camera.position.set(camTarget.x + x, camTarget.y + y, camTarget.z + z);
+  camera.position.set(camTarget.x+x, camTarget.y+y, camTarget.z+z);
   camera.lookAt(camTarget);
 }
 
 container.addEventListener('mousedown', e => { isDragging=true; lastMX=e.clientX; lastMY=e.clientY; });
-window.addEventListener('mouseup', () => isDragging=false);
+window.addEventListener('mouseup', ()=>isDragging=false);
 window.addEventListener('mousemove', e => {
-  if (!isDragging) return;
-  theta -= (e.clientX - lastMX) * 0.008;
-  phi    = Math.max(0.08, Math.min(Math.PI-0.08, phi - (e.clientY - lastMY) * 0.008));
-  lastMX = e.clientX; lastMY = e.clientY;
+  if(!isDragging) return;
+  theta -= (e.clientX-lastMX)*0.008;
+  phi    = Math.max(0.08, Math.min(Math.PI-0.08, phi-(e.clientY-lastMY)*0.008));
+  lastMX=e.clientX; lastMY=e.clientY;
 });
 container.addEventListener('wheel', e => {
   e.preventDefault();
-  camDist = Math.max(30, Math.min(800, camDist + e.deltaY * 0.5));
-}, { passive: false });
+  camDist = Math.max(30, Math.min(800, camDist+e.deltaY*0.5));
+}, {passive:false});
 
-// Touch
 let ltX=0, ltY=0;
-container.addEventListener('touchstart', e => { if(e.touches.length===1){ltX=e.touches[0].clientX;ltY=e.touches[0].clientY;} }, {passive:true});
-container.addEventListener('touchmove',  e => {
+container.addEventListener('touchstart', e=>{if(e.touches.length===1){ltX=e.touches[0].clientX;ltY=e.touches[0].clientY;}},{passive:true});
+container.addEventListener('touchmove', e=>{
   if(e.touches.length===1){
-    theta -= (e.touches[0].clientX - ltX) * 0.01;
-    phi    = Math.max(0.08, Math.min(Math.PI-0.08, phi - (e.touches[0].clientY - ltY) * 0.01));
-    ltX=e.touches[0].clientX; ltY=e.touches[0].clientY;
+    theta-=(e.touches[0].clientX-ltX)*0.01;
+    phi=Math.max(0.08,Math.min(Math.PI-0.08,phi-(e.touches[0].clientY-ltY)*0.01));
+    ltX=e.touches[0].clientX;ltY=e.touches[0].clientY;
   }
-}, {passive:true});
+},{passive:true});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CUT SHEET
 // ─────────────────────────────────────────────────────────────────────────────
-const LEG_LABELS = ['A','B','C','D'];
-
-function updateCutSheet() {
+function updateCutSheet(L, W, H) {
+  const pos = allNodePositions(L, W, H);
   const tbody = document.getElementById('cut-tbody');
-  if (!tbody || !isBuilt) return;
-
+  if (!tbody) return;
   const rows = [];
+  const LEG_LABELS = ['A','B','C','D'];
 
-  // Legs
-  LEGS.forEach(([, na, nb], i) => {
-    const len = getNodePos(na, curL, curW, curH).distanceTo(getNodePos(nb, curL, curW, curH));
-    rows.push(`<tr><td><span class="tag-pill">${LEG_LABELS[i]}</span></td>
-      <td>Vertical leg</td><td>${Math.round(len)} cm</td><td>1</td></tr>`);
+  LEGS.forEach(([,na,nb], i) => {
+    const [ep0,ep1] = dowelEndpoints(na, nb, pos, W);
+    rows.push(`<tr>
+      <td><span class="tag-pill">${LEG_LABELS[i]}</span></td>
+      <td>Vertical leg</td>
+      <td>${Math.round(ep0.distanceTo(ep1))} cm</td><td>1</td></tr>`);
   });
 
-  // Diagonals summary
-  const dLens = DIAGONALS.map(([,na,nb]) =>
-    getNodePos(na,curL,curW,curH).distanceTo(getNodePos(nb,curL,curW,curH)));
+  const dLens = DIAGONALS.map(([,na,nb]) => {
+    const [ep0,ep1] = dowelEndpoints(na, nb, pos, W);
+    return ep0.distanceTo(ep1);
+  }).filter(l => l > 1);
   const dMin = Math.round(Math.min(...dLens));
   const dMax = Math.round(Math.max(...dLens));
-  rows.push(`<tr><td><span class="tag-pill" style="background:#888">—</span></td>
-    <td>Diagonal brace</td><td>${dMin}–${dMax} cm</td><td>${DIAGONALS.length}</td></tr>`);
+  rows.push(`<tr>
+    <td><span class="tag-pill" style="background:#666">—</span></td>
+    <td>Diagonal brace</td>
+    <td>${dMin}–${dMax} cm</td><td>${DIAGONALS.length}</td></tr>`);
 
   rows.push(`<tr class="divider-row">
-    <td colspan="2">Total dowels</td><td colspan="2">${ALL_CONNECTIONS.length}</td></tr>`);
+    <td colspan="2">Total dowels</td><td colspan="2">${ALL_CONN.length}</td></tr>`);
 
   tbody.innerHTML = rows.join('');
 }
@@ -431,16 +408,16 @@ function updateCutSheet() {
 // RESIZE
 // ─────────────────────────────────────────────────────────────────────────────
 function onResize() {
-  const w = container.clientWidth, h = container.clientHeight;
+  const w=container.clientWidth, h=container.clientHeight;
   renderer.setSize(w, h, false);
-  camera.aspect = w / h;
+  camera.aspect = w/h;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', onResize);
 onResize();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ANIMATION LOOP
+// RENDER LOOP
 // ─────────────────────────────────────────────────────────────────────────────
 (function animate() {
   requestAnimationFrame(animate);
@@ -452,13 +429,13 @@ onResize();
 // SLIDERS
 // ─────────────────────────────────────────────────────────────────────────────
 ['L','W','H'].forEach(axis => {
-  const sl  = document.getElementById('sl-' + axis);
-  const val = document.getElementById('val-' + axis);
+  const sl=document.getElementById('sl-'+axis);
+  const vl=document.getElementById('val-'+axis);
   sl.addEventListener('input', () => {
-    val.textContent = sl.value;
-    if (axis==='L') curL = +sl.value;
-    if (axis==='W') curW = +sl.value;
-    if (axis==='H') curH = +sl.value;
+    vl.textContent = sl.value;
+    if(axis==='L') curL=+sl.value;
+    if(axis==='W') curW=+sl.value;
+    if(axis==='H') curH=+sl.value;
     updateScene(curL, curW, curH);
   });
 });
@@ -468,7 +445,7 @@ onResize();
 // ─────────────────────────────────────────────────────────────────────────────
 buildScene(curL, curW, curH);
 updateCamera(curL, curW, curH);
-updateCutSheet();
+updateCutSheet(curL, curW, curH);
 </script>
 </body>
 </html>
