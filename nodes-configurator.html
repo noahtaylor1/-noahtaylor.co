@@ -156,8 +156,8 @@ for (const [,na,nb] of ALL_CONN) {
 // Matching OBJ proportions: tube radius ≈ 6.9% of default span
 // ─────────────────────────────────────────────────────────────────────────────
 const TUBE_R  = 5.0;   // cm — dowel & arm stub radius
-const NODE_R  = 6.4;   // cm — node core sphere (1.28× TUBE_R → organic rounded junction)
-const ARM_LEN = 4.5;   // cm — arm stub length past sphere surface
+const NODE_R  = 4.2;   // cm — node core sphere (0.84× TUBE_R → compact organic knuckle)
+const ARM_LEN = 3.0;   // cm — arm stub length past sphere surface
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -166,26 +166,40 @@ const container = document.getElementById('canvas-container');
 const canvas    = document.getElementById('three-canvas');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0xf2f1ed);
 
 const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 10000);
 
-// Neutral lighting — no colour cast
-scene.add(new THREE.AmbientLight(0xffffff, 0.70));
-const sun  = new THREE.DirectionalLight(0xffffff, 1.0);
-sun.position.set(2, 3.5, 2.5); scene.add(sun);
-const fill = new THREE.DirectionalLight(0xffffff, 0.32);
-fill.position.set(-2, 0.5, -1); scene.add(fill);
-const rim  = new THREE.DirectionalLight(0xffffff, 0.12);
-rim.position.set(0, -1, -2); scene.add(rim);
+// Studio-quality lighting
+const hemi = new THREE.HemisphereLight(0xfff8f0, 0xd0c8b8, 0.55);
+scene.add(hemi);
+const sun  = new THREE.DirectionalLight(0xfffaf5, 1.4);
+sun.position.set(3, 5, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.width  = 2048;
+sun.shadow.mapSize.height = 2048;
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far  = 2000;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -300;
+sun.shadow.camera.right = sun.shadow.camera.top = 300;
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0xd8eaff, 0.45);
+fill.position.set(-3, 1, -2); scene.add(fill);
+const rim  = new THREE.DirectionalLight(0xffeedd, 0.20);
+rim.position.set(0, -1.5, -3); scene.add(rim);
 
-// Materials — matches the Rhino render palette
-const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0x1a1a1a });           // 3D-printed connector: near-black
-const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xf0dea0 });           // timber dowel: pale warm wood
-const MAT_TOP   = new THREE.MeshLambertMaterial({ color: 0xddeeff, transparent:true, opacity:0.16, side:THREE.DoubleSide });
+// Materials — matches physical model: white 3D-printed nodes, pale natural wood
+const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0xf5f3ef });           // 3D-printed connector: warm white
+const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xf2e8d0 });           // timber dowel: very pale natural wood
+const MAT_TOP   = new THREE.MeshLambertMaterial({ color: 0xddeeff, transparent:true, opacity:0.14, side:THREE.DoubleSide });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GEOMETRY HELPERS
@@ -201,6 +215,7 @@ function cylAB(pA, pB, r, mat) {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.copy(pA).addScaledVector(d.normalize(), len * 0.5);
   mesh.quaternion.setFromUnitVectors(_YUP, d);
+  mesh.castShadow = true; mesh.receiveShadow = true;
   return mesh;
 }
 
@@ -230,23 +245,26 @@ function buildNode(id, positions) {
   const myPt  = positions[id];
 
   // Core sphere — same material as arms/dowel ends
-  group.add(new THREE.Mesh(
-    new THREE.SphereGeometry(NODE_R, 16, 12), MAT_NODE
-  ));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(NODE_R, 20, 14), MAT_NODE);
+  core.castShadow = true; core.receiveShadow = true;
+  group.add(core);
 
-  // One arm stub per connection, same radius as dowel tube
+  // One arm stub per connection — tapered: TUBE_R base (at sphere), TUBE_R tip (flush with dowel)
+  // The taper creates an organic flowing transition matching the physical MultiPipe model
   for (const nid of ADJ[id]) {
     const otherPt = positions[nid];
     if (!otherPt) continue;
     const dir = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
-    // Arm: starts at sphere centre, length = NODE_R + ARM_LEN (so tip is ARM_LEN past sphere surface)
+    // Arm: base at NODE_R from centre, tip at NODE_R+ARM_LEN
+    // CylinderGeometry(radiusTop, radiusBottom, length) — top = tip (toward dowel), bottom = base (at sphere)
     const armLen  = NODE_R + ARM_LEN;
     const arm     = new THREE.Mesh(
-      new THREE.CylinderGeometry(TUBE_R, TUBE_R, armLen, 10, 1),
+      new THREE.CylinderGeometry(TUBE_R * 0.72, TUBE_R * 1.05, armLen, 12, 1),
       MAT_NODE
     );
     arm.position.copy(dir.clone().multiplyScalar(armLen * 0.5));
     arm.quaternion.setFromUnitVectors(_YUP, dir);
+    arm.castShadow = true; arm.receiveShadow = true;
     group.add(arm);
   }
 
@@ -273,7 +291,7 @@ function dowelPts(na, nb, positions) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SCENE MANAGEMENT
 // ─────────────────────────────────────────────────────────────────────────────
-const LIGHT_COUNT = 4;  // AmbientLight + 3 DirectionalLights added above
+const LIGHT_COUNT = 4;  // HemisphereLight + 3 DirectionalLights added above
 let topMesh = null;
 
 function clearScene() {
