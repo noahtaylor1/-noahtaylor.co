@@ -320,11 +320,13 @@ function armInsets(id, positions) {
     let inset = BELL_L;
     for (const n2 of nids) {
       if (n === n2) continue;
-      // sinTheta = |d1 × d2|  (0 for parallel/anti-parallel, 1 for perpendicular)
       const sinT = dirs[n].clone().cross(dirs[n2]).length();
-      if (sinT < 0.08) continue;  // collinear arms — no cross-section clash
-      inset = Math.max(inset, BOX_W * Math.SQRT2 / 2 / sinT + BELL_L * 0.3);
+      if (sinT < 0.08) continue;
+      inset = Math.max(inset, (BOX_W * 0.55) / sinT);
     }
+    // Hard cap: never exceed 40% of the distance to that neighbour
+    const distToN = myPt.distanceTo(positions[n]);
+    inset = Math.min(inset, distToN * 0.40, 1.5 * IN);
     result[n] = inset;
   }
   return result;
@@ -379,11 +381,15 @@ function buildScene(L, W, H) {
     if (m) scene.add(m);
   }
 
-  // Glass tabletop — follows top corners
-  const topY = NODES[13].v * H;
-  topMesh = new THREE.Mesh(new THREE.PlaneGeometry(W + 2, L + 2), MAT_TOP);
-  topMesh.rotation.x = -Math.PI / 2;
-  topMesh.position.set(0, topY, 0);
+  // Glass tabletop — 0.75" thick slab sitting on top of the frame
+  const topY  = NODES[13].v * H;
+  const topTh = 0.75 * IN;
+  topMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(W + 4*IN, topTh, L + 4*IN),
+    MAT_TOP
+  );
+  topMesh.position.set(0, topY + topTh * 0.5, 0);
+  topMesh.castShadow = true; topMesh.receiveShadow = true;
   scene.add(topMesh);
 }
 
