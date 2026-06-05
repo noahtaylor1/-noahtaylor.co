@@ -155,9 +155,9 @@ for (const [,na,nb] of ALL_CONN) {
 // PHYSICAL DIMENSIONS  — FIXED, do not scale with L/W/H sliders
 // Matching OBJ proportions: tube radius ≈ 6.9% of default span
 // ─────────────────────────────────────────────────────────────────────────────
-const TUBE_R  = 4.5;   // cm — dowel & arm stub radius
-const NODE_R  = 9.0;   // cm — node core sphere (2× TUBE_R → large blobby MultiPipe knuckle)
-const ARM_LEN = 1.5;   // cm — short arm stub; big sphere does the blob work
+const TUBE_R  = 4.5;   // cm — tube radius (constant — never scales)
+const NODE_R  = TUBE_R * 1.18;  // cm — node knot sphere: just larger than tube so it caps cleanly
+const BOW     = 0.06;  // fractional bow per member — gives tendon/organic curve
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -196,25 +196,37 @@ fill.position.set(-3, 1, -2); scene.add(fill);
 const rim  = new THREE.DirectionalLight(0xffeedd, 0.20);
 rim.position.set(0, -1.5, -3); scene.add(rim);
 
-// Materials — white 3D-printed nodes contrast against warm honey-wood dowels
-const MAT_NODE  = new THREE.MeshLambertMaterial({ color: 0xf0ede8 });           // 3D-printed connector: clean warm white
-const MAT_DOWEL = new THREE.MeshLambertMaterial({ color: 0xc8a96e });           // timber dowel: warm honey oak
-const MAT_TOP   = new THREE.MeshLambertMaterial({ color: 0xddeeff, transparent:true, opacity:0.14, side:THREE.DoubleSide });
+// Phong for highlights: nodes = matte warm white, dowels = satin wood
+const MAT_NODE  = new THREE.MeshPhongMaterial({ color:0xeeeae4, specular:0x222222, shininess:18 });
+const MAT_DOWEL = new THREE.MeshPhongMaterial({ color:0xc4a060, specular:0x1a1208, shininess:12 });
+const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xddeeff, transparent:true, opacity:0.13, side:THREE.DoubleSide });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GEOMETRY HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 const _YUP = new THREE.Vector3(0, 1, 0);
 
-// Cylinder from point A to point B, given radius and material
-function cylAB(pA, pB, r, mat) {
-  const d   = new THREE.Vector3().subVectors(pB, pA);
-  const len = d.length();
-  if (len < 0.01) return null;
-  const geo  = new THREE.CylinderGeometry(r, r, len, 12, 1);
+// Curved tube from pA to pB — CatmullRom with a natural bow gives the tendon look.
+// Bow direction: cross of tube axis × world-up, blended with a slight downward sag.
+function curvedTube(pA, pB, r, mat) {
+  const axis = pB.clone().sub(pA);
+  const len  = axis.length();
+  if (len < 0.5) return null;
+  axis.normalize();
+
+  // Perpendicular to the tube in the horizontal plane
+  let perp = new THREE.Vector3().crossVectors(axis, _YUP).normalize();
+  if (perp.lengthSq() < 0.01) perp.set(1, 0, 0); // fallback for vertical members
+
+  // Blend: mostly the perpendicular + slight downward sag → organic drape
+  const bowDir = perp.clone().lerp(new THREE.Vector3(0, -0.6, 0), 0.35).normalize();
+  const bowAmt = len * BOW;
+
+  const mid = pA.clone().lerp(pB, 0.5).addScaledVector(bowDir, bowAmt);
+  const curve = new THREE.CatmullRomCurve3([pA, mid, pB]);
+
+  const geo  = new THREE.TubeGeometry(curve, 20, r, 10, false);
   const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(pA).addScaledVector(d.normalize(), len * 0.5);
-  mesh.quaternion.setFromUnitVectors(_YUP, d);
   mesh.castShadow = true; mesh.receiveShadow = true;
   return mesh;
 }
@@ -234,55 +246,29 @@ function allPositions(L, W, H) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MULTIPIPE-STYLE NODE  — sphere core + same-radius arm stubs toward each connection
-//
-// Key: arm radius = TUBE_R exactly → seamless flush join with dowel.
-//      sphere radius = NODE_R (1.28×) → bulges slightly, creating organic rounded knuckle.
-//      Result mimics MultiPipe's smooth blob at multi-curve junctions.
+// NODE — tight sphere knot. The curved tubes flow INTO the sphere, creating
+// the organic fused junction. No arm stubs needed: the bow curve + sphere do the work.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildNode(id, positions) {
-  const group = new THREE.Group();
-  const myPt  = positions[id];
-
-  // Core sphere — same material as arms/dowel ends
-  const core = new THREE.Mesh(new THREE.SphereGeometry(NODE_R, 20, 14), MAT_NODE);
-  core.castShadow = true; core.receiveShadow = true;
-  group.add(core);
-
-  // One arm stub per connection — flares from sphere surface out to dowel-width tip.
-  // radiusBottom (at sphere end) > radiusTop (at dowel end) → organic skirt merging into sphere blob.
-  for (const nid of ADJ[id]) {
-    const otherPt = positions[nid];
-    if (!otherPt) continue;
-    const dir = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
-    // Arm length: from sphere surface (NODE_R from centre) to ARM_LEN past that
-    const armLen = ARM_LEN + NODE_R * 0.25;  // short stub that emerges from sphere
-    const arm    = new THREE.Mesh(
-      // top=tip (toward dowel) matches TUBE_R for flush join; bottom=base flares 1.5× for blob skirt
-      new THREE.CylinderGeometry(TUBE_R, TUBE_R * 1.5, armLen, 14, 1),
-      MAT_NODE
-    );
-    // Position: arm centre is (NODE_R + armLen*0.5) from node centre
-    arm.position.copy(dir.clone().multiplyScalar(NODE_R + armLen * 0.5));
-    arm.quaternion.setFromUnitVectors(_YUP, dir);
-    arm.castShadow = true; arm.receiveShadow = true;
-    group.add(arm);
-  }
-
-  group.position.copy(myPt);
-  return group;
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(NODE_R, 24, 18), MAT_NODE
+  );
+  sphere.position.copy(positions[id]);
+  sphere.castShadow = true; sphere.receiveShadow = true;
+  return sphere;
 }
 
-// Dowel endpoints: from arm tip of A toward B, to arm tip of B toward A
+// Dowel endpoints: start/end at sphere SURFACE so the tube dives into the node.
+// The sphere occludes the joint, hiding the seam — appears seamlessly merged.
 function dowelPts(na, nb, positions) {
   const pA  = positions[na];
   const pB  = positions[nb];
-  const d   = new THREE.Vector3().subVectors(pB, pA);
+  const d   = pB.clone().sub(pA);
   const len = d.length();
-  if (len < 0.01) return null;
+  if (len < NODE_R * 2 + 2) return null;   // skip degenerate spans
   d.normalize();
-  const inset = NODE_R + ARM_LEN + NODE_R * 0.25;  // matches arm tip position from node centre
-  if (len <= inset * 2 + 1) return null;   // skip near-zero dowels
+  // Inset slightly past sphere surface so tube end is hidden inside the sphere geo
+  const inset = NODE_R * 0.85;
   return [
     pA.clone().addScaledVector(d,  inset),
     pB.clone().addScaledVector(d, -inset),
@@ -298,7 +284,9 @@ let topMesh = null;
 function clearScene() {
   while (scene.children.length > LIGHT_COUNT) {
     const obj = scene.children[LIGHT_COUNT];
-    if (obj.geometry) obj.geometry.dispose();
+    // Dispose geometry for Mesh or each child of a Group
+    if (obj.isMesh && obj.geometry) obj.geometry.dispose();
+    if (obj.isGroup) obj.children.forEach(c => { if (c.geometry) c.geometry.dispose(); });
     scene.remove(obj);
   }
   topMesh = null;
@@ -312,11 +300,11 @@ function buildScene(L, W, H) {
     scene.add(buildNode(+id, pos));
   }
 
-  // Dowel cylinders — only between arm tips (skip if too short)
+  // Curved dowel tubes — organic bow between nodes; tube ends hidden inside node spheres
   for (const [,na,nb] of ALL_CONN) {
     const pts = dowelPts(na, nb, pos);
     if (!pts) continue;
-    const m = cylAB(pts[0], pts[1], TUBE_R, MAT_DOWEL);
+    const m = curvedTube(pts[0], pts[1], TUBE_R, MAT_DOWEL);
     if (m) scene.add(m);
   }
 
