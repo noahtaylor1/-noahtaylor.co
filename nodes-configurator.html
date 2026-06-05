@@ -7,51 +7,93 @@
   <link rel="stylesheet" href="style.css"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <style>
-    .configurator-wrap { display:flex; flex-direction:column; }
+    * { -webkit-font-smoothing:antialiased; }
+    .configurator-wrap { display:flex; flex-direction:column; background:#fff; }
+
     #canvas-container {
-      width:100%; height:72vh; min-height:460px;
-      background:#f2f1ed; cursor:grab; position:relative; user-select:none;
+      width:100%; height:74vh; min-height:480px;
+      background:#f5f5f7; cursor:grab; position:relative; user-select:none;
     }
     #canvas-container:active { cursor:grabbing; }
     #three-canvas { display:block; width:100%!important; height:100%!important; }
+
     .canvas-hint {
-      position:absolute; bottom:14px; right:18px;
-      font-size:11px; color:#c0bdb8; letter-spacing:0.06em;
+      position:absolute; bottom:16px; right:20px;
+      font-size:10px; color:#c7c7cc; letter-spacing:0.08em;
       text-transform:uppercase; pointer-events:none;
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
     }
-    .project-label { position:absolute; top:20px; left:28px; pointer-events:none; }
-    .project-label h1 { font-size:20px; font-weight:400; letter-spacing:-0.01em; color:#1a1a1a; margin-bottom:3px; }
-    .project-label p  { font-size:12px; color:#bbb; letter-spacing:0.03em; }
-    .controls-bar { display:flex; border-bottom:1px solid #e5e5e5; flex-wrap:wrap; }
-    .ctrl { flex:1; min-width:160px; padding:20px 32px; border-right:1px solid #e5e5e5; }
+    .project-label { position:absolute; top:24px; left:32px; pointer-events:none; }
+    .project-label h1 {
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
+      font-size:17px; font-weight:500; letter-spacing:-0.02em; color:#1d1d1f; margin-bottom:2px;
+    }
+    .project-label p {
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+      font-size:11px; color:#6e6e73; letter-spacing:0.01em;
+    }
+
+    /* Controls bar */
+    .controls-bar {
+      display:flex; background:#fff; border-top:1px solid #d2d2d7;
+      border-bottom:1px solid #d2d2d7; flex-wrap:wrap;
+    }
+    .ctrl { flex:1; min-width:150px; padding:18px 32px 20px; border-right:1px solid #d2d2d7; }
     .ctrl:last-child { border-right:none; }
     .ctrl-label {
-      font-size:11px; text-transform:uppercase; letter-spacing:0.1em;
-      color:#aaa; margin-bottom:10px; display:flex; justify-content:space-between; align-items:center;
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+      font-size:11px; font-weight:400; text-transform:uppercase; letter-spacing:0.08em;
+      color:#6e6e73; margin-bottom:12px;
+      display:flex; justify-content:space-between; align-items:baseline;
     }
-    .ctrl-label span { font-size:14px; color:#1a1a1a; letter-spacing:0; text-transform:none; font-variant-numeric:tabular-nums; }
+    .ctrl-label span {
+      font-size:15px; font-weight:300; color:#1d1d1f;
+      letter-spacing:-0.01em; text-transform:none; font-variant-numeric:tabular-nums;
+    }
     input[type="range"] {
-      width:100%; height:2px; appearance:none; background:#e0e0e0; outline:none; cursor:pointer; border-radius:2px;
+      width:100%; height:3px; appearance:none;
+      background:linear-gradient(to right,#1d1d1f 0%,#1d1d1f var(--pct,50%),#e5e5ea var(--pct,50%),#e5e5ea 100%);
+      outline:none; cursor:pointer; border-radius:3px;
     }
     input[type="range"]::-webkit-slider-thumb {
-      appearance:none; width:14px; height:14px; border-radius:50%; background:#1a1a1a; cursor:pointer;
+      appearance:none; width:18px; height:18px; border-radius:50%;
+      background:#fff; border:1.5px solid #1d1d1f;
+      box-shadow:0 1px 4px rgba(0,0,0,0.18); cursor:pointer;
     }
-    .cutsheet { padding:40px 48px 80px; }
-    .cutsheet h2 { font-size:11px; text-transform:uppercase; letter-spacing:0.1em; color:#aaa; margin-bottom:24px; }
-    .cut-table { width:100%; max-width:560px; border-collapse:collapse; }
+
+    /* Cut sheet */
+    .cutsheet { padding:44px 48px 96px; background:#fff; }
+    .cutsheet h2 {
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+      font-size:11px; font-weight:500; text-transform:uppercase;
+      letter-spacing:0.10em; color:#6e6e73; margin-bottom:28px;
+    }
+    .cut-table { width:100%; max-width:600px; border-collapse:collapse; }
     .cut-table th {
-      font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#aaa;
-      font-weight:400; text-align:left; padding:0 20px 10px 0; border-bottom:1px solid #e5e5e5;
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+      font-size:11px; text-transform:uppercase; letter-spacing:0.08em;
+      color:#6e6e73; font-weight:400; text-align:left;
+      padding:0 24px 12px 0; border-bottom:1px solid #d2d2d7;
     }
-    .cut-table td { padding:12px 20px 12px 0; border-bottom:1px solid #f2f2f2; font-size:14px; color:#333; }
+    .cut-table td {
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+      padding:14px 24px 14px 0; border-bottom:1px solid #f2f2f7;
+      font-size:14px; color:#1d1d1f;
+    }
     .tag-pill {
       display:inline-flex; align-items:center; justify-content:center;
-      width:24px; height:24px; border-radius:50%; background:#111; color:#fff; font-size:10px; font-weight:600;
+      min-width:28px; height:20px; padding:0 7px; border-radius:10px;
+      background:#1d1d1f; color:#fff;
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;
+      font-size:10px; font-weight:500; letter-spacing:0.02em;
     }
-    .divider-row td { border-top:1px solid #e5e5e5; border-bottom:none; padding-top:16px; color:#888; font-size:13px; }
+    .divider-row td {
+      border-top:1px solid #d2d2d7; border-bottom:none;
+      padding-top:18px; color:#6e6e73; font-size:13px;
+    }
     @media (max-width:768px) {
-      .ctrl { padding:16px 20px; }
-      .cutsheet { padding:28px 20px 60px; }
+      .ctrl { padding:14px 20px 16px; }
+      .cutsheet { padding:32px 20px 72px; }
     }
   </style>
 </head>
@@ -175,158 +217,54 @@ const canvas    = document.getElementById('three-canvas');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
-renderer.outputEncoding   = THREE.sRGBEncoding;
-renderer.toneMapping      = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.92;
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
+renderer.outputEncoding      = THREE.sRGBEncoding;
+renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled   = true;
+renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
 
 const scene  = new THREE.Scene();
-scene.background = new THREE.Color(0xf0ede8);
-scene.fog = new THREE.Fog(0xf0ede8, 300, 900);
+scene.background = new THREE.Color(0xf5f5f7);
 
 const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 10000);
 
 // ── Studio lighting ─────────────────────────────────────────────────────────
 // Warm sky hemisphere
-const hemi = new THREE.HemisphereLight(0xfff6e8, 0x2a1f10, 0.35);
-scene.add(hemi);
+// Clean, even product-photography lighting
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+sun.position.set(2, 4, 2.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = sun.shadow.camera.bottom = -200;
+sun.shadow.camera.right = sun.shadow.camera.top  =  200;
+sun.shadow.camera.far  = 800;
+sun.shadow.bias = -0.001;
+scene.add(sun);
+const soft = new THREE.DirectionalLight(0xf0f4ff, 0.45);
+soft.position.set(-2, 1.5, -1.5);
+scene.add(soft);
 
-// Key light — warm softbox upper-right-front
-const key = new THREE.SpotLight(0xfff8f0, 1.8);
-key.position.set(120, 200, 140);
-key.angle   = Math.PI / 6;
-key.penumbra = 0.55;
-key.decay   = 1.4;
-key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
-key.shadow.camera.near = 5;
-key.shadow.camera.far  = 600;
-key.shadow.bias = -0.001;
-key.target.position.set(0, 25, 0);
-scene.add(key); scene.add(key.target);
-
-// Fill light — cool softbox upper-left
-const fill = new THREE.SpotLight(0xddeeff, 0.75);
-fill.position.set(-130, 160, 60);
-fill.angle   = Math.PI / 5;
-fill.penumbra = 0.8;
-fill.decay   = 1.4;
-fill.target.position.set(0, 20, 0);
-scene.add(fill); scene.add(fill.target);
-
-// Rim — separation from background
-const rim = new THREE.DirectionalLight(0xfff0e0, 0.30);
-rim.position.set(-20, 60, -180);
-scene.add(rim);
-
-// ── Procedural textures ─────────────────────────────────────────────────────
-function makeWoodGrain() {
-  // Grain runs along X (U direction) — correct for the long face of a square beam.
-  // High res + tight rings so there's no visible banding.
-  const W = 1024, H = 512;
-  const cvs = document.createElement('canvas');
-  cvs.width = W; cvs.height = H;
-  const ctx = cvs.getContext('2d');
-  const id  = ctx.createImageData(W, H);
-  const px  = id.data;
-
-  function hash(x, y) { return ((Math.sin(x*127.1 + y*311.7)*43758.5453) % 1 + 1) % 1; }
-  function smooth(t) { return t*t*(3-2*t); }
-  function vnoise(x, y) {
-    const ix=Math.floor(x), iy=Math.floor(y);
-    const fx=smooth(x-ix), fy=smooth(y-iy);
-    const a=hash(ix,iy), b=hash(ix+1,iy), c=hash(ix,iy+1), d=hash(ix+1,iy+1);
-    return a*(1-fx)*(1-fy) + b*fx*(1-fy) + c*(1-fx)*fy + d*fx*fy;
-  }
-  function fbm(x, y) {
-    return vnoise(x,y)*0.5 + vnoise(x*2.1,y*2.1)*0.25
-         + vnoise(x*4.3,y*4.3)*0.125 + vnoise(x*8.7,y*8.7)*0.0625;
-  }
-
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const nx = x / W, ny = y / H;
-
-      // Warp coordinates with fbm for natural wavy grain
-      const warpX = fbm(nx*1.8, ny*0.6) * 1.8;
-      const warpY = fbm(nx*1.8 + 5.2, ny*0.6 + 3.1) * 0.6;
-
-      // Ring pattern — 28 rings across U width, tight and varied
-      const ringVal = (nx * 28 + warpX) % 1.0;
-      const ring = Math.pow(Math.sin(ringVal * Math.PI), 1.2) * 0.5 + 0.5;
-
-      // Fine longitudinal grain fiber noise
-      const fiber = vnoise(nx * 400, ny * 8) * 0.10;
-      // Occasional knot/medullary ray
-      const ray = Math.max(0, 1 - Math.abs(vnoise(nx*6, ny*3) - 0.5)*14) * 0.08;
-
-      const t = ring * 0.80 + fiber + ray;
-
-      // Light ash/maple — very pale warm honey palette, low contrast
-      const r = Math.round(200 + t * 30);
-      const g = Math.round(172 + t * 26);
-      const b = Math.round(125 + t * 20);
-
-      const i = (y * W + x) * 4;
-      px[i]=Math.min(255,r); px[i+1]=Math.min(255,g); px[i+2]=Math.min(255,b); px[i+3]=255;
-    }
-  }
-  ctx.putImageData(id, 0, 0);
-  const tex = new THREE.CanvasTexture(cvs);
-  tex.encoding = THREE.sRGBEncoding;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1, 4);  // 4× along beam length keeps grain density consistent
-  tex.anisotropy = 8;     // crisp at glancing angles
-  return tex;
-}
-
-function makeFloorTex() {
-  const S = 1024;
-  const cvs = document.createElement('canvas');
-  cvs.width = cvs.height = S;
-  const ctx = cvs.getContext('2d');
-  const id  = ctx.createImageData(S, S);
-  const px  = id.data;
-  for (let i = 0; i < S * S; i++) {
-    const x = i % S, y = Math.floor(i / S);
-    const n = (Math.sin(x*0.09+y*0.05)*0.5+0.5)*0.06
-            + (Math.sin(x*0.031+y*0.12)*0.5+0.5)*0.04;
-    const v = Math.round(232 - n * 28);
-    const o = i * 4;
-    px[o]=v+6; px[o+1]=v+3; px[o+2]=v; px[o+3]=255;
-  }
-  ctx.putImageData(id, 0, 0);
-  const tex = new THREE.CanvasTexture(cvs);
-  tex.encoding = THREE.sRGBEncoding;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(10, 10);
-  return tex;
-}
-
-const _woodTex  = makeWoodGrain();
-const _floorTex = makeFloorTex();
-
-// ── PBR Materials ────────────────────────────────────────────────────────────
+// ── Clean minimal materials ──────────────────────────────────────────────────
 const MAT_NODE  = new THREE.MeshStandardMaterial({
-  color: 0xf0ede8, roughness: 0.30, metalness: 0.0
+  color: 0xffffff, roughness: 0.25, metalness: 0.0
 });
 const MAT_DOWEL = new THREE.MeshStandardMaterial({
-  map: _woodTex, roughness: 0.62, metalness: 0.0, color: 0xdfc898
+  color: 0xd4b896, roughness: 0.55, metalness: 0.0
 });
 const MAT_TOP = new THREE.MeshStandardMaterial({
-  color: 0xc8dff0, roughness: 0.05, metalness: 0.08,
-  transparent: true, opacity: 0.62, side: THREE.DoubleSide
-});
-const MAT_FLOOR = new THREE.MeshStandardMaterial({
-  map: _floorTex, roughness: 0.88, metalness: 0.0, color: 0xf5f0e8
+  color: 0xe8f0f8, roughness: 0.04, metalness: 0.06,
+  transparent: true, opacity: 0.55, side: THREE.DoubleSide
 });
 
-// ── Persistent floor plane ───────────────────────────────────────────────────
-const _floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), MAT_FLOOR);
+// ── Subtle floor — matches background, receives soft shadow ─────────────────
+const _floorMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(1200, 1200),
+  new THREE.MeshStandardMaterial({ color: 0xf5f5f7, roughness: 1.0, metalness: 0.0 })
+);
 _floorMesh.rotation.x = -Math.PI / 2;
 _floorMesh.position.y = -BOX_W * 0.5;
-_floorMesh.receiveShadow = false;
+_floorMesh.receiveShadow = true;
 scene.add(_floorMesh);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -640,10 +578,16 @@ onResize();
 // Scene units = cm; sliders in inches — convert at boundary
 let curL=24*IN, curW=24*IN, curH=18*IN;
 
+function updateSliderFill(sl) {
+  const pct = (sl.value - sl.min) / (sl.max - sl.min) * 100;
+  sl.style.setProperty('--pct', pct + '%');
+}
 ['L','W','H'].forEach(axis => {
   const sl = document.getElementById('sl-'+axis);
+  updateSliderFill(sl);
   const vl = document.getElementById('val-'+axis);
   sl.addEventListener('input', () => {
+    updateSliderFill(sl);
     vl.textContent = sl.value;
     if(axis==='L') curL = +sl.value * IN;
     if(axis==='W') curW = +sl.value * IN;
