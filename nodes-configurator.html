@@ -74,16 +74,16 @@
   </div>
   <div class="controls-bar">
     <div class="ctrl">
-      <div class="ctrl-label">Length <span><span id="val-L">80</span> cm</span></div>
-      <input type="range" id="sl-L" min="40" max="200" value="80" step="1"/>
+      <div class="ctrl-label">Width A <span><span id="val-L">24</span>"</span></div>
+      <input type="range" id="sl-L" min="12" max="60" value="24" step="1"/>
     </div>
     <div class="ctrl">
-      <div class="ctrl-label">Width <span><span id="val-W">80</span> cm</span></div>
-      <input type="range" id="sl-W" min="40" max="150" value="80" step="1"/>
+      <div class="ctrl-label">Width B <span><span id="val-W">24</span>"</span></div>
+      <input type="range" id="sl-W" min="12" max="60" value="24" step="1"/>
     </div>
     <div class="ctrl">
-      <div class="ctrl-label">Height <span><span id="val-H">70</span> cm</span></div>
-      <input type="range" id="sl-H" min="40" max="120" value="70" step="1"/>
+      <div class="ctrl-label">Height <span><span id="val-H">18</span>"</span></div>
+      <input type="range" id="sl-H" min="12" max="24" value="18" step="1"/>
     </div>
   </div>
   <div class="cutsheet">
@@ -207,7 +207,7 @@ rim.position.set(0, -1.5, -3); scene.add(rim);
 // Phong for highlights: nodes = matte warm white, dowels = satin wood
 const MAT_NODE  = new THREE.MeshPhongMaterial({ color:0xeeeae4, specular:0x222222, shininess:18 });
 const MAT_DOWEL = new THREE.MeshPhongMaterial({ color:0xc4a060, specular:0x1a1208, shininess:12 });
-const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xc8ddf0, specular:0x88aacc, shininess:60, transparent:true, opacity:0.32, side:THREE.DoubleSide });
+const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xbcc8cc, specular:0x6688aa, shininess:90, transparent:true, opacity:0.58, side:THREE.DoubleSide });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GEOMETRY HELPERS
@@ -445,37 +445,43 @@ const LEG_LABELS = ['A','B','C','D'];
 function updateCutSheet(L, W, H) {
   const tbody = document.getElementById('cut-tbody');
   if (!tbody) return;
-  const pos  = allPositions(L, W, H);
+  const pos = allPositions(L, W, H);
   const rows = [];
 
-  // Reuse insets for cut-sheet length calculations
   const INS = {};
   for (const id of Object.keys(NODES)) INS[+id] = armInsets(+id, pos);
-  function dowelLen(na, nb) {
-    const ab = pos[nb].clone().sub(pos[na]);
+
+  // Returns exposed dowel length in inches (cm ÷ IN), or 0 if suppressed
+  function lenIn(na, nb) {
+    const ab  = pos[nb].clone().sub(pos[na]);
     const len = ab.length();
-    const tA = INS[na][nb] ?? BELL_L, tB = INS[nb][na] ?? BELL_L;
-    return (len > tA + tB + 0.1) ? len - tA - tB : 0;
+    const tA  = INS[na][nb] ?? BELL_L, tB = INS[nb][na] ?? BELL_L;
+    return (len > tA + tB + 0.1) ? (len - tA - tB) / IN : 0;
   }
 
+  // Legs — individual rows, labelled A–D
   LEGS.forEach(([,na,nb], i) => {
-    const len = Math.round(dowelLen(na, nb));
+    const l = lenIn(na, nb);
+    if (l < 0.1) return;
     rows.push(`<tr>
       <td><span class="tag-pill">${LEG_LABELS[i]}</span></td>
-      <td>Vertical leg</td><td>${len} cm</td><td>1</td></tr>`);
+      <td>Vertical leg</td><td>${l.toFixed(2)}"</td><td>1</td></tr>`);
   });
 
-  const bLens = BRACES
-    .map(([,na,nb]) => dowelLen(na, nb))
-    .filter(l => l > 1);
-  const bMin = Math.round(Math.min(...bLens));
-  const bMax = Math.round(Math.max(...bLens));
-  rows.push(`<tr>
-    <td><span class="tag-pill" style="background:#666">—</span></td>
-    <td>Diagonal brace</td><td>${bMin}–${bMax} cm</td><td>${BRACES.length}</td></tr>`);
+  // Braces — one row per member
+  let braceCount = 0;
+  ALL_CONN.filter(c => !LEGS.includes(c)).forEach(([,na,nb]) => {
+    const l = lenIn(na, nb);
+    if (l < 0.1) return;
+    braceCount++;
+    rows.push(`<tr>
+      <td><span class="tag-pill" style="background:#888;font-size:9px">B${String(braceCount).padStart(2,'0')}</span></td>
+      <td>Diagonal brace</td><td>${l.toFixed(2)}"</td><td>1</td></tr>`);
+  });
 
+  const total = LEGS.length + braceCount;
   rows.push(`<tr class="divider-row">
-    <td colspan="2">Total dowels</td><td colspan="2">${ALL_CONN.length}</td></tr>`);
+    <td colspan="2">Total dowels</td><td colspan="2">${total}</td></tr>`);
 
   tbody.innerHTML = rows.join('');
 }
@@ -504,16 +510,17 @@ onResize();
 // ─────────────────────────────────────────────────────────────────────────────
 // SLIDERS
 // ─────────────────────────────────────────────────────────────────────────────
-let curL=80, curW=80, curH=70;
+// Scene units = cm; sliders in inches — convert at boundary
+let curL=24*IN, curW=24*IN, curH=18*IN;
 
 ['L','W','H'].forEach(axis => {
   const sl = document.getElementById('sl-'+axis);
   const vl = document.getElementById('val-'+axis);
   sl.addEventListener('input', () => {
     vl.textContent = sl.value;
-    if(axis==='L') curL=+sl.value;
-    if(axis==='W') curW=+sl.value;
-    if(axis==='H') curH=+sl.value;
+    if(axis==='L') curL = +sl.value * IN;
+    if(axis==='W') curW = +sl.value * IN;
+    if(axis==='H') curH = +sl.value * IN;
     updateScene(curL, curW, curH);
   });
 });
