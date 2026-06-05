@@ -152,15 +152,11 @@ for (const [,na,nb] of ALL_CONN) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PHYSICAL DIMENSIONS
+// PHYSICAL DIMENSIONS — all halved from previous version
 // ─────────────────────────────────────────────────────────────────────────────
-const TUBE_R  = 4.5;   // cm — tube radius (constant)
-const NODE_R  = 7.5;   // cm — node radius to scale STL geometry into
-const BOW     = 0.055; // fractional bow per member — tendon curve
-
-// Connection count per node (precomputed from topology)
-// Used to pick STL type: high-valency (≥4) → tbl6, low-valency → tbl11
-const NODE_VALENCE = {7:3,8:3,9:2,10:2,11:4,12:6,13:3,14:2,15:5,16:2,40:2};
+const TUBE_R  = 2.4;   // cm — dowel cylinder radius
+const NODE_R  = 3.8;   // cm — node sphere radius  (≈ 1.6× TUBE_R)
+const BELL_L  = 5.5;   // cm — conical bell length (sphere surface → cylinder start)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -209,27 +205,14 @@ const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xddeeff, transparent:true
 // ─────────────────────────────────────────────────────────────────────────────
 const _YUP = new THREE.Vector3(0, 1, 0);
 
-// Curved tube from pA to pB — CatmullRom with a natural bow gives the tendon look.
-// Bow direction: cross of tube axis × world-up, blended with a slight downward sag.
-function curvedTube(pA, pB, r, mat) {
-  const axis = pB.clone().sub(pA);
-  const len  = axis.length();
-  if (len < 0.5) return null;
-  axis.normalize();
-
-  // Perpendicular to the tube in the horizontal plane
-  let perp = new THREE.Vector3().crossVectors(axis, _YUP).normalize();
-  if (perp.lengthSq() < 0.01) perp.set(1, 0, 0); // fallback for vertical members
-
-  // Blend: mostly the perpendicular + slight downward sag → organic drape
-  const bowDir = perp.clone().lerp(new THREE.Vector3(0, -0.6, 0), 0.35).normalize();
-  const bowAmt = len * BOW;
-
-  const mid = pA.clone().lerp(pB, 0.5).addScaledVector(bowDir, bowAmt);
-  const curve = new THREE.CatmullRomCurve3([pA, mid, pB]);
-
-  const geo  = new THREE.TubeGeometry(curve, 20, r, 10, false);
-  const mesh = new THREE.Mesh(geo, mat);
+// Straight cylinder from pA to pB
+function cylAB(pA, pB, r, mat) {
+  const d   = pB.clone().sub(pA);
+  const len = d.length();
+  if (len < 0.01) return null;
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 14, 1), mat);
+  mesh.position.copy(pA).addScaledVector(d.normalize(), len * 0.5);
+  mesh.quaternion.setFromUnitVectors(_YUP, d);
   mesh.castShadow = true; mesh.receiveShadow = true;
   return mesh;
 }
@@ -249,96 +232,55 @@ function allPositions(L, W, H) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STL LOADER — binary STL → THREE.BufferGeometry, centered + scaled to radius
-// ─────────────────────────────────────────────────────────────────────────────
-async function loadSTL(url) {
-  const buf  = await fetch(url).then(r => r.arrayBuffer());
-  const view = new DataView(buf);
-  const n    = view.getUint32(80, true);
-  const pos  = new Float32Array(n * 9);
-  const nrm  = new Float32Array(n * 9);
-  for (let i = 0; i < n; i++) {
-    const o  = 84 + i * 50;
-    const nx = view.getFloat32(o,    true);
-    const ny = view.getFloat32(o+4,  true);
-    const nz = view.getFloat32(o+8,  true);
-    for (let v = 0; v < 3; v++) {
-      const vo = o + 12 + v * 12;
-      pos[(i*3+v)*3]   = view.getFloat32(vo,   true);
-      pos[(i*3+v)*3+1] = view.getFloat32(vo+4, true);
-      pos[(i*3+v)*3+2] = view.getFloat32(vo+8, true);
-      nrm[(i*3+v)*3]   = nx;
-      nrm[(i*3+v)*3+1] = ny;
-      nrm[(i*3+v)*3+2] = nz;
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
-  return geo;
-}
-
-function centerScaleGeo(geo, targetRadius) {
-  geo.computeBoundingSphere();
-  const c = geo.boundingSphere.center;
-  const r = geo.boundingSphere.radius;
-  const s = targetRadius / r;
-  const a = geo.attributes.position.array;
-  for (let i = 0; i < a.length; i += 3) {
-    a[i]   = (a[i]   - c.x) * s;
-    a[i+1] = (a[i+1] - c.y) * s;
-    a[i+2] = (a[i+2] - c.z) * s;
-  }
-  geo.attributes.position.needsUpdate = true;
-  geo.computeBoundingSphere();
-}
-
-// Shared node geometries — loaded once, reused per instance
-let GEO_NODE_HI = null;  // tbl6 — high-valency junctions (≥4 arms)
-let GEO_NODE_LO = null;  // tbl11 — low-valency corners (≤3 arms)
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NODE — actual STL MultiPipe geometry, scaled to NODE_R, rotated per node
-// for variety (golden-angle spread so no two look identical)
+// NODE — sphere core + one conical bell per connection
+//
+// Bell: CylinderGeometry(top=TUBE_R, bottom=NODE_R, h=BELL_L)
+//   base (NODE_R wide) sits flush at the sphere surface
+//   tip  (TUBE_R wide) meets the incoming cylinder exactly — no seam, no gap
 // ─────────────────────────────────────────────────────────────────────────────
 function buildNode(id, positions) {
-  const geo  = (NODE_VALENCE[id] >= 4) ? GEO_NODE_HI : GEO_NODE_LO;
-  // Fallback sphere if STLs haven't loaded
-  const mesh = geo
-    ? new THREE.Mesh(geo, MAT_NODE)
-    : new THREE.Mesh(new THREE.SphereGeometry(NODE_R, 20, 16), MAT_NODE);
-  mesh.position.copy(positions[id]);
-  // Per-node orientation: rotate so arms face roughly toward connections
-  const conns = [...ADJ[id]];
-  if (conns.length > 0) {
-    // Primary direction: toward first connection
-    const primary = new THREE.Vector3()
-      .subVectors(positions[conns[0]], positions[id]).normalize();
-    // Align STL's +Z toward that first connection (STL blobs tend to be elongated along Z)
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), primary);
-    // Additional roll based on second connection for variety
-    if (conns.length > 1) {
-      const secondary = new THREE.Vector3()
-        .subVectors(positions[conns[1]], positions[id]).normalize();
-      const roll = Math.atan2(secondary.y, secondary.x);
-      mesh.rotateZ(roll * 0.4);
-    }
+  const group = new THREE.Group();
+  const myPt  = positions[id];
+
+  // Core sphere
+  const core = new THREE.Mesh(new THREE.SphereGeometry(NODE_R, 24, 18), MAT_NODE);
+  core.castShadow = true; core.receiveShadow = true;
+  group.add(core);
+
+  // One bell per connected neighbour
+  for (const nid of ADJ[id]) {
+    const otherPt = positions[nid];
+    if (!otherPt) continue;
+    const dir = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
+
+    // CylinderGeometry: top = tip (toward dowel) = TUBE_R, bottom = base (at sphere) = NODE_R
+    const bell = new THREE.Mesh(
+      new THREE.CylinderGeometry(TUBE_R, NODE_R, BELL_L, 16, 1),
+      MAT_NODE
+    );
+    // Centre the bell so its base sits at NODE_R from node centre
+    // Bell centre = NODE_R + BELL_L/2 along dir
+    bell.position.copy(dir.clone().multiplyScalar(NODE_R + BELL_L * 0.5));
+    bell.quaternion.setFromUnitVectors(_YUP, dir);
+    bell.castShadow = true; bell.receiveShadow = true;
+    group.add(bell);
   }
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  return mesh;
+
+  group.position.copy(myPt);
+  return group;
 }
 
-// Dowel endpoints: start/end at sphere SURFACE so the tube dives into the node.
-// The sphere occludes the joint, hiding the seam — appears seamlessly merged.
+// Dowel: cylinder from bell tip of A to bell tip of B
+// inset = NODE_R (sphere) + BELL_L (bell) from each node centre
 function dowelPts(na, nb, positions) {
   const pA  = positions[na];
   const pB  = positions[nb];
   const d   = pB.clone().sub(pA);
   const len = d.length();
-  if (len < NODE_R * 2 + 2) return null;   // skip degenerate spans
+  if (len < 0.01) return null;
   d.normalize();
-  // Inset slightly past sphere surface so tube end is hidden inside the sphere geo
-  const inset = NODE_R * 0.85;
+  const inset = NODE_R + BELL_L;
+  if (len <= inset * 2 + 1) return null;   // skip spans too short for a dowel
   return [
     pA.clone().addScaledVector(d,  inset),
     pB.clone().addScaledVector(d, -inset),
@@ -354,9 +296,8 @@ let topMesh = null;
 function clearScene() {
   while (scene.children.length > LIGHT_COUNT) {
     const obj = scene.children[LIGHT_COUNT];
-    // Dispose geometry for Mesh or each child of a Group
-    if (obj.isMesh && obj.geometry) obj.geometry.dispose();
-    if (obj.isGroup) obj.children.forEach(c => { if (c.geometry) c.geometry.dispose(); });
+    if (obj.isMesh  && obj.geometry) obj.geometry.dispose();
+    if (obj.isGroup) obj.traverse(c => { if (c.geometry) c.geometry.dispose(); });
     scene.remove(obj);
   }
   topMesh = null;
@@ -370,11 +311,11 @@ function buildScene(L, W, H) {
     scene.add(buildNode(+id, pos));
   }
 
-  // Curved dowel tubes — organic bow between nodes; tube ends hidden inside node spheres
+  // Dowel cylinders — from bell tip to bell tip
   for (const [,na,nb] of ALL_CONN) {
     const pts = dowelPts(na, nb, pos);
     if (!pts) continue;
-    const m = curvedTube(pts[0], pts[1], TUBE_R, MAT_DOWEL);
+    const m = cylAB(pts[0], pts[1], TUBE_R, MAT_DOWEL);
     if (m) scene.add(m);
   }
 
@@ -509,22 +450,11 @@ let curL=80, curW=80, curH=70;
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INIT — load STL geometries then build scene
+// INIT
 // ─────────────────────────────────────────────────────────────────────────────
-(async () => {
-  try {
-    const [g6, g11] = await Promise.all([loadSTL('tbl6.stl'), loadSTL('tbl11.stl')]);
-    centerScaleGeo(g6,  NODE_R);
-    centerScaleGeo(g11, NODE_R);
-    GEO_NODE_HI = g6;
-    GEO_NODE_LO = g11;
-  } catch(e) {
-    console.warn('STL load failed, using sphere fallback:', e);
-  }
-  buildScene(curL, curW, curH);
-  updateCamera(curL, curW, curH);
-  updateCutSheet(curL, curW, curH);
-})();
+buildScene(curL, curW, curH);
+updateCamera(curL, curW, curH);
+updateCutSheet(curL, curW, curH);
 </script>
 </body>
 </html>
