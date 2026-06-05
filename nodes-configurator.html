@@ -175,39 +175,145 @@ const canvas    = document.getElementById('three-canvas');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.outputEncoding   = THREE.sRGBEncoding;
+renderer.toneMapping      = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 
 const scene  = new THREE.Scene();
-scene.background = new THREE.Color(0xf2f1ed);
+scene.background = new THREE.Color(0xf0ede8);
+scene.fog = new THREE.Fog(0xf0ede8, 300, 900);
 
-const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 10000);
+const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 10000);
 
-// Studio-quality lighting
-const hemi = new THREE.HemisphereLight(0xfff8f0, 0xd0c8b8, 0.55);
+// ── Studio lighting ─────────────────────────────────────────────────────────
+// Warm sky hemisphere
+const hemi = new THREE.HemisphereLight(0xfff6e8, 0x2a1f10, 0.6);
 scene.add(hemi);
-const sun  = new THREE.DirectionalLight(0xfffaf5, 1.4);
-sun.position.set(3, 5, 3);
-sun.castShadow = true;
-sun.shadow.mapSize.width  = 2048;
-sun.shadow.mapSize.height = 2048;
-sun.shadow.camera.near = 0.5;
-sun.shadow.camera.far  = 2000;
-sun.shadow.camera.left = sun.shadow.camera.bottom = -300;
-sun.shadow.camera.right = sun.shadow.camera.top = 300;
-sun.shadow.bias = -0.0005;
-scene.add(sun);
-const fill = new THREE.DirectionalLight(0xd8eaff, 0.45);
-fill.position.set(-3, 1, -2); scene.add(fill);
-const rim  = new THREE.DirectionalLight(0xffeedd, 0.20);
-rim.position.set(0, -1.5, -3); scene.add(rim);
 
-// Phong for highlights: nodes = matte warm white, dowels = satin wood
-const MAT_NODE  = new THREE.MeshPhongMaterial({ color:0xeeeae4, specular:0x222222, shininess:18 });
-const MAT_DOWEL = new THREE.MeshPhongMaterial({ color:0xc4a060, specular:0x1a1208, shininess:12 });
-const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xbcc8cc, specular:0x6688aa, shininess:90, transparent:true, opacity:0.58, side:THREE.DoubleSide });
+// Key light — large warm softbox upper-right-front
+const key = new THREE.SpotLight(0xfff8f0, 3.8);
+key.position.set(120, 200, 140);
+key.angle   = Math.PI / 6;
+key.penumbra = 0.55;
+key.decay   = 1.4;
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.near = 5;
+key.shadow.camera.far  = 600;
+key.shadow.bias = -0.001;
+key.target.position.set(0, 25, 0);
+scene.add(key); scene.add(key.target);
+
+// Fill light — large cool softbox upper-left
+const fill = new THREE.SpotLight(0xddeeff, 1.6);
+fill.position.set(-130, 160, 60);
+fill.angle   = Math.PI / 5;
+fill.penumbra = 0.8;
+fill.decay   = 1.4;
+fill.target.position.set(0, 20, 0);
+scene.add(fill); scene.add(fill.target);
+
+// Rim / separation light — behind and slightly below
+const rim = new THREE.DirectionalLight(0xfff0e0, 0.55);
+rim.position.set(-20, 60, -180);
+scene.add(rim);
+
+// ── Procedural textures ─────────────────────────────────────────────────────
+function makeWoodGrain() {
+  const W = 512, H = 1024;
+  const cvs = document.createElement('canvas');
+  cvs.width = W; cvs.height = H;
+  const ctx = cvs.getContext('2d');
+  const id  = ctx.createImageData(W, H);
+  const px  = id.data;
+
+  function hash(x, y) { return ((Math.sin(x * 127.1 + y * 311.7) * 43758.5453) % 1 + 1) % 1; }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function vnoise(x, y) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = smoothstep(x - ix), fy = smoothstep(y - iy);
+    return lerp(lerp(hash(ix,iy),hash(ix+1,iy),fx), lerp(hash(ix,iy+1),hash(ix+1,iy+1),fx), fy);
+  }
+  function fbm(x, y) {
+    return vnoise(x,y)*0.50 + vnoise(x*2,y*2)*0.25 + vnoise(x*4,y*4)*0.125 + vnoise(x*8,y*8)*0.0625;
+  }
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const nx = x / W, ny = y / H;
+      const warp = fbm(nx * 2 + 0.5, ny * 0.8) * 2.2;
+      const ring = Math.sin((nx * 6 + warp) * Math.PI * 2) * 0.5 + 0.5;
+      const fineGrain = vnoise(nx * 180, ny * 4) * 0.18;
+      const t = Math.pow(ring, 0.7) * 0.82 + fineGrain;
+
+      // Light ash / maple palette
+      const r = Math.round(lerp(148, 220, t));
+      const g = Math.round(lerp(108, 186, t));
+      const b = Math.round(lerp( 68, 138, t));
+
+      const i = (y * W + x) * 4;
+      px[i]=r; px[i+1]=g; px[i+2]=b; px[i+3]=255;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 3);
+  return tex;
+}
+
+function makeFloorTex() {
+  const S = 1024;
+  const cvs = document.createElement('canvas');
+  cvs.width = cvs.height = S;
+  const ctx = cvs.getContext('2d');
+  const id  = ctx.createImageData(S, S);
+  const px  = id.data;
+  for (let i = 0; i < S * S; i++) {
+    const x = i % S, y = Math.floor(i / S);
+    const n = (Math.sin(x*0.09+y*0.05)*0.5+0.5)*0.06
+            + (Math.sin(x*0.031+y*0.12)*0.5+0.5)*0.04;
+    const v = Math.round(232 - n * 28);
+    const o = i * 4;
+    px[o]=v+6; px[o+1]=v+3; px[o+2]=v; px[o+3]=255;
+  }
+  ctx.putImageData(id, 0, 0);
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.encoding = THREE.sRGBEncoding;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(10, 10);
+  return tex;
+}
+
+const _woodTex  = makeWoodGrain();
+const _floorTex = makeFloorTex();
+
+// ── PBR Materials ────────────────────────────────────────────────────────────
+const MAT_NODE  = new THREE.MeshStandardMaterial({
+  color: 0xf0ede8, roughness: 0.30, metalness: 0.0
+});
+const MAT_DOWEL = new THREE.MeshStandardMaterial({
+  map: _woodTex, roughness: 0.62, metalness: 0.0, color: 0xdfc898
+});
+const MAT_TOP = new THREE.MeshPhysicalMaterial({
+  color: 0xddeeff, roughness: 0.04, metalness: 0.0,
+  clearcoat: 1.0, clearcoatRoughness: 0.05,
+  transparent: true, opacity: 0.42, side: THREE.DoubleSide
+});
+const MAT_FLOOR = new THREE.MeshStandardMaterial({
+  map: _floorTex, roughness: 0.88, metalness: 0.0, color: 0xf5f0e8
+});
+
+// ── Persistent floor plane ───────────────────────────────────────────────────
+const _floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), MAT_FLOOR);
+_floorMesh.rotation.x = -Math.PI / 2;
+_floorMesh.position.y = -BOX_W * 0.5;
+_floorMesh.receiveShadow = true;
+scene.add(_floorMesh);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GEOMETRY HELPERS
@@ -335,13 +441,14 @@ function armInsets(id, positions) {
 // ─────────────────────────────────────────────────────────────────────────────
 // SCENE MANAGEMENT
 // ─────────────────────────────────────────────────────────────────────────────
-const LIGHT_COUNT = 4;  // HemisphereLight + 3 DirectionalLights added above
+// Capture scene child count after all permanent objects (lights + targets + floor)
+const SCENE_BASE = scene.children.length;
 let topMesh = null;
 
 const SHARED_GEOS = new Set([GEO_SPHERE, GEO_BELL]);
 function clearScene() {
-  while (scene.children.length > LIGHT_COUNT) {
-    const obj = scene.children[LIGHT_COUNT];
+  while (scene.children.length > SCENE_BASE) {
+    const obj = scene.children[SCENE_BASE];
     if (obj.isMesh && obj.geometry && !SHARED_GEOS.has(obj.geometry)) obj.geometry.dispose();
     if (obj.isGroup) obj.traverse(c => {
       if (c.geometry && !SHARED_GEOS.has(c.geometry)) c.geometry.dispose();
