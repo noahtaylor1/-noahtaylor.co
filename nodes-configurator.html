@@ -256,15 +256,54 @@ const MAT_TOP = new THREE.MeshStandardMaterial({
 // ─────────────────────────────────────────────────────────────────────────────
 const _YUP = new THREE.Vector3(0, 1, 0);
 
-// Square-section dowel from pA to pB
-function boxAB(pA, pB, w, mat) {
+// ── Beam roll calculation ────────────────────────────────────────────────────
+// For a beam going from node `fromId` toward `toId`, compute a roll angle
+// around its own axis so its CORNERS (not flat faces) point toward neighboring
+// beams. This minimises visible face-on-face clash at junctions.
+function beamRoll(fromId, toId, positions) {
+  const orig = positions[fromId];
+  const dir  = positions[toId].clone().sub(orig).normalize();
+
+  // Side axis = default local-X after setFromUnitVectors(_YUP, dir)
+  let side;
+  if (Math.abs(dir.dot(_YUP)) > 0.99) {
+    side = new THREE.Vector3(1, 0, 0);
+  } else {
+    side = new THREE.Vector3().crossVectors(_YUP, dir).normalize();
+  }
+  const upCS = new THREE.Vector3().crossVectors(side, dir); // local-Z in cross-section
+
+  // Project every other neighbor at fromId into this beam's cross-section plane
+  const others = [...ADJ[fromId]].filter(n => n !== toId && positions[n]);
+  if (others.length === 0) return 0;
+
+  let sx = 0, sy = 0;
+  for (const nid of others) {
+    const d2 = positions[nid].clone().sub(orig).normalize();
+    // Remove component along beam dir → perpendicular projection
+    const d2p = d2.sub(dir.clone().multiplyScalar(d2.dot(dir)));
+    if (d2p.lengthSq() < 0.001) continue;
+    d2p.normalize();
+    sx += d2p.dot(side);
+    sy += d2p.dot(upCS);
+  }
+
+  // Average angle of neighbors in cross-section, then offset by 45° → put corner there
+  return Math.atan2(sy, sx) - Math.PI / 4;
+}
+
+// Square-section dowel from pA to pB, with optional roll around its own axis
+function boxAB(pA, pB, w, mat, roll = 0) {
   const d   = pB.clone().sub(pA);
   const len = d.length();
   if (len < 0.01) return null;
+  d.normalize();
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, len, w), mat);
-  mesh.position.copy(pA).addScaledVector(d.normalize(), len * 0.5);
+  mesh.position.copy(pA).addScaledVector(d.clone(), len * 0.5);
   mesh.quaternion.setFromUnitVectors(_YUP, d);
-  mesh.castShadow = true; mesh.receiveShadow = true;
+  if (roll !== 0) {
+    mesh.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(d, roll));
+  }
   return mesh;
 }
 
@@ -366,9 +405,9 @@ function armInsets(id, positions) {
       if (sinT < 0.08) continue;
       inset = Math.max(inset, (BOX_W * 0.55) / sinT);
     }
-    // Hard cap: never exceed 40% of the distance to that neighbour
+    // Hard cap: never exceed 38% of span to neighbour, and 2.5" absolute max
     const distToN = myPt.distanceTo(positions[n]);
-    inset = Math.min(inset, distToN * 0.40, 1.5 * IN);
+    inset = Math.min(inset, distToN * 0.38, 2.5 * IN);
     result[n] = inset;
   }
   return result;
@@ -406,7 +445,7 @@ function buildScene(L, W, H) {
     scene.add(buildNode(+id, pos, INSETS[+id]));
   }
 
-  // 3 — Dowels: start exactly where the bell tip ends at each node
+  // 3 — Dowels: rolled so corners (not faces) face adjacent beams at junctions
   for (const [,na,nb] of ALL_CONN) {
     const pA  = pos[na], pB = pos[nb];
     const ab  = pB.clone().sub(pA);
@@ -416,10 +455,14 @@ function buildScene(L, W, H) {
     const tA = INSETS[na][nb] ?? BELL_L;
     const tB = INSETS[nb][na] ?? BELL_L;
     if (len <= tA + tB + 0.1) continue;
+    // Average roll from both endpoints so beam looks consistent from either end
+    const rollA = beamRoll(na, nb, pos);
+    const rollB = beamRoll(nb, na, pos);
+    const roll  = (rollA + rollB) * 0.5;
     const m = boxAB(
       pA.clone().addScaledVector(ab,  tA),
       pB.clone().addScaledVector(ab, -tB),
-      BOX_W, MAT_DOWEL
+      BOX_W, MAT_DOWEL, roll
     );
     if (m) scene.add(m);
   }
