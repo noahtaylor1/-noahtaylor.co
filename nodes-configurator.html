@@ -258,9 +258,9 @@ function buildNode(id, positions) {
       new THREE.CylinderGeometry(TUBE_R, NODE_R, BELL_L, 16, 1),
       MAT_NODE
     );
-    // Centre the bell so its base sits at NODE_R from node centre
-    // Bell centre = NODE_R + BELL_L/2 along dir
-    bell.position.copy(dir.clone().multiplyScalar(NODE_R + BELL_L * 0.5));
+    // Base (wide end, NODE_R) starts at sphere centre → sphere hides it, cone emerges from ball
+    // Bell centre = BELL_L/2 along dir
+    bell.position.copy(dir.clone().multiplyScalar(BELL_L * 0.5));
     bell.quaternion.setFromUnitVectors(_YUP, dir);
     bell.castShadow = true; bell.receiveShadow = true;
     group.add(bell);
@@ -279,7 +279,7 @@ function dowelPts(na, nb, positions) {
   const len = d.length();
   if (len < 0.01) return null;
   d.normalize();
-  const inset = NODE_R + BELL_L;
+  const inset = BELL_L;  // bell tip is at BELL_L from node centre (base starts at centre)
   if (len <= inset * 2 + 1) return null;   // skip spans too short for a dowel
   return [
     pA.clone().addScaledVector(d,  inset),
