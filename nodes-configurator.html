@@ -136,12 +136,17 @@ const LEGS = [
 ];
 const BRACES = [
   [17,10,11], [18, 8,11], [19, 9,12], [20,11,12],
-  [21,15, 8], [22, 9,12], [23, 7,12], [24,11,10],
-  [25, 8,15], [26, 7,15], [27,12,15], [32,15,14],
+  [21,15, 8], [23, 7,12],
+  [26, 7,15], [27,12,15], [32,15,14],
   [33,40,12], [34,16,11], [35,13,12], [36,13,15],
-  [37,14,15], [38,12,40], [39,11,16],
+  [37,14,15], [39,11,16],
 ];
-const ALL_CONN = [...LEGS, ...BRACES];
+// Deduplicate by sorted pair — removes any double legs from OBJ topology
+const _seen = new Set();
+const ALL_CONN = [...LEGS, ...BRACES].filter(([,a,b]) => {
+  const k = Math.min(a,b)+'-'+Math.max(a,b);
+  return _seen.has(k) ? false : (_seen.add(k), true);
+});
 
 // Build adjacency map: nodeId → Set of connected nodeIds
 const ADJ = {};
@@ -155,10 +160,12 @@ for (const [,na,nb] of ALL_CONN) {
 // PHYSICAL DIMENSIONS
 // Dowels are thicker than nodes (matching physical model)
 // ─────────────────────────────────────────────────────────────────────────────
-const BOX_W   = 9.0;   // cm — square dowel side length
-const NODE_R  = 2.5;   // cm — node sphere radius (compact, smaller than dowel)
-const BELL_L  = 4.5;   // cm — bell flare length (sphere centre → dowel face)
-const BELL_R  = BOX_W * 0.48; // cm — bell tip radius, inscribed in the square dowel face
+// All measurements in cm (1 inch = 2.54 cm)
+const IN      = 2.54;          // 1 inch in cm
+const BOX_W   = 1.00 * IN;     // 1"  — square dowel side
+const NODE_R  = 0.75/2 * IN;   // ¾"  — node sphere diameter → radius
+const BELL_R  = 0.50/2 * IN;   // ½"  — peg diameter → radius (fits inside dowel)
+const BELL_L  = 0.90  * IN;    // peg depth from sphere centre → dowel face
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -236,16 +243,15 @@ function allPositions(L, W, H) {
 // ─────────────────────────────────────────────────────────────────────────────
 // BELL GEOMETRY — LatheGeometry with cubic bezier profile
 //
-// Profile: (r=NODE_R, y=0) → (r=TUBE_R, y=BELL_L)
-// Starts with a HORIZONTAL tangent at y=0 so its surface normals are continuous
-// with the sphere's equatorial normals — no visible seam at the junction.
+// Profile: NODE_R (sphere equator) → BELL_R (peg tip, smaller)
+// Horizontal G1 tangent at y=0 matches sphere normals — seamless blend.
+// NODE_R > BELL_R: tapers inward like a real machined connector peg.
 // ─────────────────────────────────────────────────────────────────────────────
 function makeBellGeo() {
-  const N = 22, pts = [];
-  // Cubic bezier: horizontal start (dr/dy=0 at y=0) matching sphere equator tangent
+  const N = 30, pts = [];
   const P0 = [NODE_R, 0];
-  const P1 = [NODE_R, BELL_L * 0.42]; // tangent straight out — no radius change initially
-  const P2 = [BELL_R, BELL_L * 0.58]; // curves outward toward end
+  const P1 = [NODE_R, BELL_L * 0.40]; // horizontal start — G1 with sphere
+  const P2 = [BELL_R, BELL_L * 0.62]; // smoothly tapers inward
   const P3 = [BELL_R, BELL_L];
   for (let i = 0; i <= N; i++) {
     const t = i / N, mt = 1 - t;
@@ -253,7 +259,7 @@ function makeBellGeo() {
     const y = mt**3*P0[1] + 3*mt**2*t*P1[1] + 3*mt*t**2*P2[1] + t**3*P3[1];
     pts.push(new THREE.Vector2(r, y));
   }
-  return new THREE.LatheGeometry(pts, 20);
+  return new THREE.LatheGeometry(pts, 30);
 }
 
 // Shared geometries — built once, reused every scene rebuild (never disposed)
@@ -289,19 +295,38 @@ function buildNode(id, positions) {
   return group;
 }
 
-// Dowel: from bell tip (BELL_L from each node centre) to bell tip of neighbour
+// Dowel endpoints with clash detection.
+// Base inset = BELL_L (peg depth). Additionally, if any third node sits close
+// to the member line (within NODE_R + BOX_W clearance), the dowel is clipped
+// so it doesn't visually pass through that node — matching the Grasshopper
+// clash-detection logic where intermediate collisions divide the member.
 function dowelPts(na, nb, positions) {
-  const pA  = positions[na];
-  const pB  = positions[nb];
-  const d   = pB.clone().sub(pA);
-  const len = d.length();
+  const pA = positions[na];
+  const pB = positions[nb];
+  const ab = pB.clone().sub(pA);
+  const len = ab.length();
   if (len < 0.01) return null;
-  d.normalize();
-  const inset = BELL_L;
-  if (len <= inset * 2 + 1) return null;
+  ab.normalize();
+
+  let tA = BELL_L;   // inset from pA end
+  let tB = BELL_L;   // inset from pB end
+
+  for (const [nidStr, pt] of Object.entries(positions)) {
+    const nid = +nidStr;
+    if (nid === na || nid === nb) continue;
+    const t = pt.clone().sub(pA).dot(ab);  // projection along line
+    if (t <= 0 || t >= len) continue;
+    const closest = pA.clone().addScaledVector(ab, t);
+    if (pt.distanceTo(closest) > NODE_R + BOX_W * 0.7) continue;
+    // Clash: clip the nearest end past this node
+    if (t < len / 2) tA = Math.max(tA, t + BELL_L);
+    else             tB = Math.max(tB, len - t + BELL_L);
+  }
+
+  if (len <= tA + tB + 0.1) return null;
   return [
-    pA.clone().addScaledVector(d,  inset),
-    pB.clone().addScaledVector(d, -inset),
+    pA.clone().addScaledVector(ab,  tA),
+    pB.clone().addScaledVector(ab, -tB),
   ];
 }
 
