@@ -177,7 +177,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
 renderer.outputEncoding   = THREE.sRGBEncoding;
 renderer.toneMapping      = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = 0.92;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type    = THREE.PCFSoftShadowMap;
 
@@ -189,11 +189,11 @@ const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 10000);
 
 // ── Studio lighting ─────────────────────────────────────────────────────────
 // Warm sky hemisphere
-const hemi = new THREE.HemisphereLight(0xfff6e8, 0x2a1f10, 0.6);
+const hemi = new THREE.HemisphereLight(0xfff6e8, 0x2a1f10, 0.35);
 scene.add(hemi);
 
-// Key light — large warm softbox upper-right-front
-const key = new THREE.SpotLight(0xfff8f0, 3.8);
+// Key light — warm softbox upper-right-front
+const key = new THREE.SpotLight(0xfff8f0, 1.8);
 key.position.set(120, 200, 140);
 key.angle   = Math.PI / 6;
 key.penumbra = 0.55;
@@ -206,8 +206,8 @@ key.shadow.bias = -0.001;
 key.target.position.set(0, 25, 0);
 scene.add(key); scene.add(key.target);
 
-// Fill light — large cool softbox upper-left
-const fill = new THREE.SpotLight(0xddeeff, 1.6);
+// Fill light — cool softbox upper-left
+const fill = new THREE.SpotLight(0xddeeff, 0.75);
 fill.position.set(-130, 160, 60);
 fill.angle   = Math.PI / 5;
 fill.penumbra = 0.8;
@@ -215,54 +215,69 @@ fill.decay   = 1.4;
 fill.target.position.set(0, 20, 0);
 scene.add(fill); scene.add(fill.target);
 
-// Rim / separation light — behind and slightly below
-const rim = new THREE.DirectionalLight(0xfff0e0, 0.55);
+// Rim — separation from background
+const rim = new THREE.DirectionalLight(0xfff0e0, 0.30);
 rim.position.set(-20, 60, -180);
 scene.add(rim);
 
 // ── Procedural textures ─────────────────────────────────────────────────────
 function makeWoodGrain() {
-  const W = 512, H = 1024;
+  // Grain runs along X (U direction) — correct for the long face of a square beam.
+  // High res + tight rings so there's no visible banding.
+  const W = 1024, H = 512;
   const cvs = document.createElement('canvas');
   cvs.width = W; cvs.height = H;
   const ctx = cvs.getContext('2d');
   const id  = ctx.createImageData(W, H);
   const px  = id.data;
 
-  function hash(x, y) { return ((Math.sin(x * 127.1 + y * 311.7) * 43758.5453) % 1 + 1) % 1; }
-  function lerp(a, b, t) { return a + (b - a) * t; }
-  function smoothstep(t) { return t * t * (3 - 2 * t); }
+  function hash(x, y) { return ((Math.sin(x*127.1 + y*311.7)*43758.5453) % 1 + 1) % 1; }
+  function smooth(t) { return t*t*(3-2*t); }
   function vnoise(x, y) {
-    const ix = Math.floor(x), iy = Math.floor(y);
-    const fx = smoothstep(x - ix), fy = smoothstep(y - iy);
-    return lerp(lerp(hash(ix,iy),hash(ix+1,iy),fx), lerp(hash(ix,iy+1),hash(ix+1,iy+1),fx), fy);
+    const ix=Math.floor(x), iy=Math.floor(y);
+    const fx=smooth(x-ix), fy=smooth(y-iy);
+    const a=hash(ix,iy), b=hash(ix+1,iy), c=hash(ix,iy+1), d=hash(ix+1,iy+1);
+    return a*(1-fx)*(1-fy) + b*fx*(1-fy) + c*(1-fx)*fy + d*fx*fy;
   }
   function fbm(x, y) {
-    return vnoise(x,y)*0.50 + vnoise(x*2,y*2)*0.25 + vnoise(x*4,y*4)*0.125 + vnoise(x*8,y*8)*0.0625;
+    return vnoise(x,y)*0.5 + vnoise(x*2.1,y*2.1)*0.25
+         + vnoise(x*4.3,y*4.3)*0.125 + vnoise(x*8.7,y*8.7)*0.0625;
   }
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const nx = x / W, ny = y / H;
-      const warp = fbm(nx * 2 + 0.5, ny * 0.8) * 2.2;
-      const ring = Math.sin((nx * 6 + warp) * Math.PI * 2) * 0.5 + 0.5;
-      const fineGrain = vnoise(nx * 180, ny * 4) * 0.18;
-      const t = Math.pow(ring, 0.7) * 0.82 + fineGrain;
 
-      // Light ash / maple palette
-      const r = Math.round(lerp(148, 220, t));
-      const g = Math.round(lerp(108, 186, t));
-      const b = Math.round(lerp( 68, 138, t));
+      // Warp coordinates with fbm for natural wavy grain
+      const warpX = fbm(nx*1.8, ny*0.6) * 1.8;
+      const warpY = fbm(nx*1.8 + 5.2, ny*0.6 + 3.1) * 0.6;
+
+      // Ring pattern — 28 rings across U width, tight and varied
+      const ringVal = (nx * 28 + warpX) % 1.0;
+      const ring = Math.pow(Math.sin(ringVal * Math.PI), 1.2) * 0.5 + 0.5;
+
+      // Fine longitudinal grain fiber noise
+      const fiber = vnoise(nx * 400, ny * 8) * 0.10;
+      // Occasional knot/medullary ray
+      const ray = Math.max(0, 1 - Math.abs(vnoise(nx*6, ny*3) - 0.5)*14) * 0.08;
+
+      const t = ring * 0.80 + fiber + ray;
+
+      // Light ash/maple — very pale warm honey palette, low contrast
+      const r = Math.round(200 + t * 30);
+      const g = Math.round(172 + t * 26);
+      const b = Math.round(125 + t * 20);
 
       const i = (y * W + x) * 4;
-      px[i]=r; px[i+1]=g; px[i+2]=b; px[i+3]=255;
+      px[i]=Math.min(255,r); px[i+1]=Math.min(255,g); px[i+2]=Math.min(255,b); px[i+3]=255;
     }
   }
   ctx.putImageData(id, 0, 0);
   const tex = new THREE.CanvasTexture(cvs);
   tex.encoding = THREE.sRGBEncoding;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1, 3);
+  tex.repeat.set(1, 4);  // 4× along beam length keeps grain density consistent
+  tex.anisotropy = 8;     // crisp at glancing angles
   return tex;
 }
 
@@ -299,10 +314,9 @@ const MAT_NODE  = new THREE.MeshStandardMaterial({
 const MAT_DOWEL = new THREE.MeshStandardMaterial({
   map: _woodTex, roughness: 0.62, metalness: 0.0, color: 0xdfc898
 });
-const MAT_TOP = new THREE.MeshPhysicalMaterial({
-  color: 0xddeeff, roughness: 0.04, metalness: 0.0,
-  clearcoat: 1.0, clearcoatRoughness: 0.05,
-  transparent: true, opacity: 0.42, side: THREE.DoubleSide
+const MAT_TOP = new THREE.MeshStandardMaterial({
+  color: 0xc8dff0, roughness: 0.05, metalness: 0.08,
+  transparent: true, opacity: 0.62, side: THREE.DoubleSide
 });
 const MAT_FLOOR = new THREE.MeshStandardMaterial({
   map: _floorTex, roughness: 0.88, metalness: 0.0, color: 0xf5f0e8
