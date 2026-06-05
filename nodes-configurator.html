@@ -152,11 +152,12 @@ for (const [,na,nb] of ALL_CONN) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PHYSICAL DIMENSIONS — all halved from previous version
+// PHYSICAL DIMENSIONS
+// Dowels are thicker than nodes (matching physical model)
 // ─────────────────────────────────────────────────────────────────────────────
-const TUBE_R  = 2.4;   // cm — dowel cylinder radius
-const NODE_R  = 3.8;   // cm — node sphere radius  (≈ 1.6× TUBE_R)
-const BELL_L  = 5.5;   // cm — conical bell length (sphere surface → cylinder start)
+const TUBE_R  = 6.0;   // cm — dowel cylinder radius (chunky, larger than node)
+const NODE_R  = 3.5;   // cm — node sphere radius (compact 3D-printed connector)
+const BELL_L  = 5.5;   // cm — bell flare length (sphere centre → cylinder start)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -232,36 +233,53 @@ function allPositions(L, W, H) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NODE — sphere core + one conical bell per connection
+// BELL GEOMETRY — LatheGeometry with cubic bezier profile
 //
-// Bell: CylinderGeometry(top=TUBE_R, bottom=NODE_R, h=BELL_L)
-//   base (NODE_R wide) sits flush at the sphere surface
-//   tip  (TUBE_R wide) meets the incoming cylinder exactly — no seam, no gap
+// Profile: (r=NODE_R, y=0) → (r=TUBE_R, y=BELL_L)
+// Starts with a HORIZONTAL tangent at y=0 so its surface normals are continuous
+// with the sphere's equatorial normals — no visible seam at the junction.
+// ─────────────────────────────────────────────────────────────────────────────
+function makeBellGeo() {
+  const N = 22, pts = [];
+  // Cubic bezier: horizontal start (dr/dy=0 at y=0) matching sphere equator tangent
+  const P0 = [NODE_R, 0];
+  const P1 = [NODE_R, BELL_L * 0.42]; // tangent straight out — no radius change initially
+  const P2 = [TUBE_R, BELL_L * 0.58]; // curves outward toward end
+  const P3 = [TUBE_R, BELL_L];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, mt = 1 - t;
+    const r = mt**3*P0[0] + 3*mt**2*t*P1[0] + 3*mt*t**2*P2[0] + t**3*P3[0];
+    const y = mt**3*P0[1] + 3*mt**2*t*P1[1] + 3*mt*t**2*P2[1] + t**3*P3[1];
+    pts.push(new THREE.Vector2(r, y));
+  }
+  return new THREE.LatheGeometry(pts, 20);
+}
+
+// Shared geometries — built once, reused every scene rebuild (never disposed)
+const GEO_SPHERE = new THREE.SphereGeometry(NODE_R, 24, 18);
+const GEO_BELL   = makeBellGeo();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NODE — sphere + smooth LatheGeometry bell per arm
+//
+// Bell's y=0 sits at the sphere centre; LatheGeometry rotated so +Y = arm dir.
+// Sphere equator (r=NODE_R) ↔ bell base (r=NODE_R, horizontal tangent) share
+// the same circle with matching normals → perfectly smooth blend, no hard edge.
 // ─────────────────────────────────────────────────────────────────────────────
 function buildNode(id, positions) {
   const group = new THREE.Group();
   const myPt  = positions[id];
 
-  // Core sphere
-  const core = new THREE.Mesh(new THREE.SphereGeometry(NODE_R, 24, 18), MAT_NODE);
+  const core = new THREE.Mesh(GEO_SPHERE, MAT_NODE);
   core.castShadow = true; core.receiveShadow = true;
   group.add(core);
 
-  // One bell per connected neighbour
   for (const nid of ADJ[id]) {
     const otherPt = positions[nid];
     if (!otherPt) continue;
     const dir = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
-
-    // CylinderGeometry: top = tip (toward dowel) = TUBE_R, bottom = base (at sphere) = NODE_R
-    const bell = new THREE.Mesh(
-      new THREE.CylinderGeometry(TUBE_R, NODE_R, BELL_L, 16, 1),
-      MAT_NODE
-    );
-    // Base (wide end, NODE_R) starts at sphere centre → sphere hides it, cone emerges from ball
-    // Bell centre = BELL_L/2 along dir
-    bell.position.copy(dir.clone().multiplyScalar(BELL_L * 0.5));
-    bell.quaternion.setFromUnitVectors(_YUP, dir);
+    const bell = new THREE.Mesh(GEO_BELL, MAT_NODE);
+    bell.quaternion.setFromUnitVectors(_YUP, dir); // +Y of LatheGeometry → arm direction
     bell.castShadow = true; bell.receiveShadow = true;
     group.add(bell);
   }
@@ -270,8 +288,7 @@ function buildNode(id, positions) {
   return group;
 }
 
-// Dowel: cylinder from bell tip of A to bell tip of B
-// inset = NODE_R (sphere) + BELL_L (bell) from each node centre
+// Dowel: from bell tip (BELL_L from each node centre) to bell tip of neighbour
 function dowelPts(na, nb, positions) {
   const pA  = positions[na];
   const pB  = positions[nb];
@@ -279,8 +296,8 @@ function dowelPts(na, nb, positions) {
   const len = d.length();
   if (len < 0.01) return null;
   d.normalize();
-  const inset = BELL_L;  // bell tip is at BELL_L from node centre (base starts at centre)
-  if (len <= inset * 2 + 1) return null;   // skip spans too short for a dowel
+  const inset = BELL_L;
+  if (len <= inset * 2 + 1) return null;
   return [
     pA.clone().addScaledVector(d,  inset),
     pB.clone().addScaledVector(d, -inset),
@@ -293,11 +310,14 @@ function dowelPts(na, nb, positions) {
 const LIGHT_COUNT = 4;  // HemisphereLight + 3 DirectionalLights added above
 let topMesh = null;
 
+const SHARED_GEOS = new Set([GEO_SPHERE, GEO_BELL]);
 function clearScene() {
   while (scene.children.length > LIGHT_COUNT) {
     const obj = scene.children[LIGHT_COUNT];
-    if (obj.isMesh  && obj.geometry) obj.geometry.dispose();
-    if (obj.isGroup) obj.traverse(c => { if (c.geometry) c.geometry.dispose(); });
+    if (obj.isMesh && obj.geometry && !SHARED_GEOS.has(obj.geometry)) obj.geometry.dispose();
+    if (obj.isGroup) obj.traverse(c => {
+      if (c.geometry && !SHARED_GEOS.has(c.geometry)) c.geometry.dispose();
+    });
     scene.remove(obj);
   }
   topMesh = null;
