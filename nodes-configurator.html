@@ -273,7 +273,9 @@ const GEO_BELL   = makeBellGeo();
 // Sphere equator (r=NODE_R) ↔ bell base (r=NODE_R, horizontal tangent) share
 // the same circle with matching normals → perfectly smooth blend, no hard edge.
 // ─────────────────────────────────────────────────────────────────────────────
-function buildNode(id, positions) {
+// insets: {neighbourId → distance from sphere centre to beam face}
+// Bell arm is stretched along Y to reach exactly that distance.
+function buildNode(id, positions, insets) {
   const group = new THREE.Group();
   const myPt  = positions[id];
 
@@ -284,9 +286,12 @@ function buildNode(id, positions) {
   for (const nid of ADJ[id]) {
     const otherPt = positions[nid];
     if (!otherPt) continue;
-    const dir = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
-    const bell = new THREE.Mesh(GEO_BELL, MAT_NODE);
-    bell.quaternion.setFromUnitVectors(_YUP, dir); // +Y of LatheGeometry → arm direction
+    const dir   = new THREE.Vector3().subVectors(otherPt, myPt).normalize();
+    const reach = insets[nid] ?? BELL_L;
+
+    const bell  = new THREE.Mesh(GEO_BELL, MAT_NODE);
+    bell.quaternion.setFromUnitVectors(_YUP, dir);
+    bell.scale.y = reach / BELL_L;   // stretch bell to span sphere→beam face
     bell.castShadow = true; bell.receiveShadow = true;
     group.add(bell);
   }
@@ -295,39 +300,34 @@ function buildNode(id, positions) {
   return group;
 }
 
-// Dowel endpoints with clash detection.
-// Base inset = BELL_L (peg depth). Additionally, if any third node sits close
-// to the member line (within NODE_R + BOX_W clearance), the dowel is clipped
-// so it doesn't visually pass through that node — matching the Grasshopper
-// clash-detection logic where intermediate collisions divide the member.
-function dowelPts(na, nb, positions) {
-  const pA = positions[na];
-  const pB = positions[nb];
-  const ab = pB.clone().sub(pA);
-  const len = ab.length();
-  if (len < 0.01) return null;
-  ab.normalize();
-
-  let tA = BELL_L;   // inset from pA end
-  let tB = BELL_L;   // inset from pB end
-
-  for (const [nidStr, pt] of Object.entries(positions)) {
-    const nid = +nidStr;
-    if (nid === na || nid === nb) continue;
-    const t = pt.clone().sub(pA).dot(ab);  // projection along line
-    if (t <= 0 || t >= len) continue;
-    const closest = pA.clone().addScaledVector(ab, t);
-    if (pt.distanceTo(closest) > NODE_R + BOX_W * 0.7) continue;
-    // Clash: clip the nearest end past this node
-    if (t < len / 2) tA = Math.max(tA, t + BELL_L);
-    else             tB = Math.max(tB, len - t + BELL_L);
+// ─────────────────────────────────────────────────────────────────────────────
+// PER-ARM INSET — clash-driven geometry
+//
+// For each arm leaving a node, find the minimum safe inset so its square box
+// doesn't overlap any neighbouring arm's box. The safe distance is:
+//   inset ≥ BOX_W·√2/2 / sin(θ)
+// where θ is the angle between the two arm directions.
+// The bell arm then stretches (scale.y) to fill the gap from sphere to beam face.
+// ─────────────────────────────────────────────────────────────────────────────
+function armInsets(id, positions) {
+  const myPt = positions[id];
+  const nids  = [...ADJ[id]].filter(n => positions[n]);
+  const dirs  = Object.fromEntries(
+    nids.map(n => [n, new THREE.Vector3().subVectors(positions[n], myPt).normalize()])
+  );
+  const result = {};
+  for (const n of nids) {
+    let inset = BELL_L;
+    for (const n2 of nids) {
+      if (n === n2) continue;
+      // sinTheta = |d1 × d2|  (0 for parallel/anti-parallel, 1 for perpendicular)
+      const sinT = dirs[n].clone().cross(dirs[n2]).length();
+      if (sinT < 0.08) continue;  // collinear arms — no cross-section clash
+      inset = Math.max(inset, BOX_W * Math.SQRT2 / 2 / sinT + BELL_L * 0.3);
+    }
+    result[n] = inset;
   }
-
-  if (len <= tA + tB + 0.1) return null;
-  return [
-    pA.clone().addScaledVector(ab,  tA),
-    pB.clone().addScaledVector(ab, -tB),
-  ];
+  return result;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -352,16 +352,30 @@ function clearScene() {
 function buildScene(L, W, H) {
   const pos = allPositions(L, W, H);
 
-  // Nodes (MultiPipe-style sphere + arms)
+  // 1 — Precompute clash-adjusted insets for every arm at every node
+  const INSETS = {};
+  for (const id of Object.keys(NODES)) INSETS[+id] = armInsets(+id, pos);
+
+  // 2 — Nodes: bells stretch to fill sphere → beam face gap
   for (const id of Object.keys(NODES)) {
-    scene.add(buildNode(+id, pos));
+    scene.add(buildNode(+id, pos, INSETS[+id]));
   }
 
-  // Square dowels — from bell tip to bell tip
+  // 3 — Dowels: start exactly where the bell tip ends at each node
   for (const [,na,nb] of ALL_CONN) {
-    const pts = dowelPts(na, nb, pos);
-    if (!pts) continue;
-    const m = boxAB(pts[0], pts[1], BOX_W, MAT_DOWEL);
+    const pA  = pos[na], pB = pos[nb];
+    const ab  = pB.clone().sub(pA);
+    const len = ab.length();
+    if (len < 0.01) continue;
+    ab.normalize();
+    const tA = INSETS[na][nb] ?? BELL_L;
+    const tB = INSETS[nb][na] ?? BELL_L;
+    if (len <= tA + tB + 0.1) continue;
+    const m = boxAB(
+      pA.clone().addScaledVector(ab,  tA),
+      pB.clone().addScaledVector(ab, -tB),
+      BOX_W, MAT_DOWEL
+    );
     if (m) scene.add(m);
   }
 
@@ -434,16 +448,25 @@ function updateCutSheet(L, W, H) {
   const pos  = allPositions(L, W, H);
   const rows = [];
 
+  // Reuse insets for cut-sheet length calculations
+  const INS = {};
+  for (const id of Object.keys(NODES)) INS[+id] = armInsets(+id, pos);
+  function dowelLen(na, nb) {
+    const ab = pos[nb].clone().sub(pos[na]);
+    const len = ab.length();
+    const tA = INS[na][nb] ?? BELL_L, tB = INS[nb][na] ?? BELL_L;
+    return (len > tA + tB + 0.1) ? len - tA - tB : 0;
+  }
+
   LEGS.forEach(([,na,nb], i) => {
-    const pts = dowelPts(na, nb, pos);
-    const len = pts ? Math.round(pts[0].distanceTo(pts[1])) : 0;
+    const len = Math.round(dowelLen(na, nb));
     rows.push(`<tr>
       <td><span class="tag-pill">${LEG_LABELS[i]}</span></td>
       <td>Vertical leg</td><td>${len} cm</td><td>1</td></tr>`);
   });
 
   const bLens = BRACES
-    .map(([,na,nb]) => { const p=dowelPts(na,nb,pos); return p ? p[0].distanceTo(p[1]) : 0; })
+    .map(([,na,nb]) => dowelLen(na, nb))
     .filter(l => l > 1);
   const bMin = Math.round(Math.min(...bLens));
   const bMax = Math.round(Math.max(...bLens));
