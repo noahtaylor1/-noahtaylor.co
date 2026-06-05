@@ -250,15 +250,6 @@ const MAT_TOP = new THREE.MeshStandardMaterial({
   transparent: true, opacity: 0.55, side: THREE.DoubleSide
 });
 
-// ── Subtle floor — matches background, receives soft shadow ─────────────────
-const _floorMesh = new THREE.Mesh(
-  new THREE.PlaneGeometry(1200, 1200),
-  new THREE.MeshStandardMaterial({ color: 0xf5f5f7, roughness: 1.0, metalness: 0.0 })
-);
-_floorMesh.rotation.x = -Math.PI / 2;
-_floorMesh.position.y = -BOX_W * 0.5;
-_floorMesh.receiveShadow = true;
-scene.add(_floorMesh);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GEOMETRY HELPERS
