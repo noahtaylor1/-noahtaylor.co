@@ -155,9 +155,10 @@ for (const [,na,nb] of ALL_CONN) {
 // PHYSICAL DIMENSIONS
 // Dowels are thicker than nodes (matching physical model)
 // ─────────────────────────────────────────────────────────────────────────────
-const TUBE_R  = 6.0;   // cm — dowel cylinder radius (chunky, larger than node)
-const NODE_R  = 3.5;   // cm — node sphere radius (compact 3D-printed connector)
-const BELL_L  = 5.5;   // cm — bell flare length (sphere centre → cylinder start)
+const BOX_W   = 9.0;   // cm — square dowel side length
+const NODE_R  = 2.5;   // cm — node sphere radius (compact, smaller than dowel)
+const BELL_L  = 4.5;   // cm — bell flare length (sphere centre → dowel face)
+const BELL_R  = BOX_W * 0.48; // cm — bell tip radius, inscribed in the square dowel face
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THREE.JS
@@ -199,19 +200,19 @@ rim.position.set(0, -1.5, -3); scene.add(rim);
 // Phong for highlights: nodes = matte warm white, dowels = satin wood
 const MAT_NODE  = new THREE.MeshPhongMaterial({ color:0xeeeae4, specular:0x222222, shininess:18 });
 const MAT_DOWEL = new THREE.MeshPhongMaterial({ color:0xc4a060, specular:0x1a1208, shininess:12 });
-const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xddeeff, transparent:true, opacity:0.13, side:THREE.DoubleSide });
+const MAT_TOP   = new THREE.MeshPhongMaterial({ color:0xc8ddf0, specular:0x88aacc, shininess:60, transparent:true, opacity:0.32, side:THREE.DoubleSide });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GEOMETRY HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 const _YUP = new THREE.Vector3(0, 1, 0);
 
-// Straight cylinder from pA to pB
-function cylAB(pA, pB, r, mat) {
+// Square-section dowel from pA to pB
+function boxAB(pA, pB, w, mat) {
   const d   = pB.clone().sub(pA);
   const len = d.length();
   if (len < 0.01) return null;
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 14, 1), mat);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, len, w), mat);
   mesh.position.copy(pA).addScaledVector(d.normalize(), len * 0.5);
   mesh.quaternion.setFromUnitVectors(_YUP, d);
   mesh.castShadow = true; mesh.receiveShadow = true;
@@ -244,8 +245,8 @@ function makeBellGeo() {
   // Cubic bezier: horizontal start (dr/dy=0 at y=0) matching sphere equator tangent
   const P0 = [NODE_R, 0];
   const P1 = [NODE_R, BELL_L * 0.42]; // tangent straight out — no radius change initially
-  const P2 = [TUBE_R, BELL_L * 0.58]; // curves outward toward end
-  const P3 = [TUBE_R, BELL_L];
+  const P2 = [BELL_R, BELL_L * 0.58]; // curves outward toward end
+  const P3 = [BELL_R, BELL_L];
   for (let i = 0; i <= N; i++) {
     const t = i / N, mt = 1 - t;
     const r = mt**3*P0[0] + 3*mt**2*t*P1[0] + 3*mt*t**2*P2[0] + t**3*P3[0];
@@ -331,11 +332,11 @@ function buildScene(L, W, H) {
     scene.add(buildNode(+id, pos));
   }
 
-  // Dowel cylinders — from bell tip to bell tip
+  // Square dowels — from bell tip to bell tip
   for (const [,na,nb] of ALL_CONN) {
     const pts = dowelPts(na, nb, pos);
     if (!pts) continue;
-    const m = cylAB(pts[0], pts[1], TUBE_R, MAT_DOWEL);
+    const m = boxAB(pts[0], pts[1], BOX_W, MAT_DOWEL);
     if (m) scene.add(m);
   }
 
