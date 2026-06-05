@@ -219,9 +219,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
 renderer.outputEncoding      = THREE.sRGBEncoding;
 renderer.toneMapping         = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.shadowMap.enabled   = true;
-renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+renderer.toneMappingExposure = 0.80;
+renderer.shadowMap.enabled   = false;
 
 const scene  = new THREE.Scene();
 scene.background = new THREE.Color(0xf5f5f7);
@@ -230,27 +229,21 @@ const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 10000);
 
 // ── Studio lighting ─────────────────────────────────────────────────────────
 // Warm sky hemisphere
-// Clean, even product-photography lighting
-scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-const sun = new THREE.DirectionalLight(0xffffff, 1.1);
+// Balanced product lighting — no shadows
+scene.add(new THREE.AmbientLight(0xffffff, 0.30));
+const sun = new THREE.DirectionalLight(0xffffff, 0.75);
 sun.position.set(2, 4, 2.5);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = sun.shadow.camera.bottom = -200;
-sun.shadow.camera.right = sun.shadow.camera.top  =  200;
-sun.shadow.camera.far  = 800;
-sun.shadow.bias = -0.001;
 scene.add(sun);
-const soft = new THREE.DirectionalLight(0xf0f4ff, 0.45);
+const soft = new THREE.DirectionalLight(0xdde4ff, 0.28);
 soft.position.set(-2, 1.5, -1.5);
 scene.add(soft);
 
 // ── Clean minimal materials ──────────────────────────────────────────────────
 const MAT_NODE  = new THREE.MeshStandardMaterial({
-  color: 0xffffff, roughness: 0.25, metalness: 0.0
+  color: 0xdddbd6, roughness: 0.30, metalness: 0.0
 });
 const MAT_DOWEL = new THREE.MeshStandardMaterial({
-  color: 0xd4b896, roughness: 0.55, metalness: 0.0
+  color: 0xb8976a, roughness: 0.60, metalness: 0.0
 });
 const MAT_TOP = new THREE.MeshStandardMaterial({
   color: 0xe8f0f8, roughness: 0.04, metalness: 0.06,
