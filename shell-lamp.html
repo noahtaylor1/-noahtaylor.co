@@ -1,54 +1,245 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Shell Lamp — Noah Taylor</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    * { -webkit-font-smoothing:antialiased; }
+    .viewer-block {
+      width:100%; margin:40px 0 56px;
+      border-radius:12px; overflow:hidden;
+      background:#09090b;
+    }
+    #lamp-container {
+      width:100%; height:76vh; min-height:500px;
+      background:#09090b; cursor:grab; user-select:none; position:relative;
+    }
+    #lamp-container:active { cursor:grabbing; }
+    #lamp-canvas { display:block; width:100%!important; height:100%!important; }
+    .viewer-hint {
+      position:absolute; bottom:16px; right:20px;
+      font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+      font-size:10px; color:#3a3a42; letter-spacing:0.08em;
+      text-transform:uppercase; pointer-events:none;
+    }
+    .viewer-tag {
+      position:absolute; top:20px; left:24px; pointer-events:none;
+      font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+      font-size:11px; color:#3a3a42; letter-spacing:0.06em; text-transform:uppercase;
+    }
+  </style>
 </head>
 <body>
-  <nav>
-    <a href="index.html" class="nav-logo">Noah Taylor</a>
-    <ul class="nav-links">
-      <li><a href="work.html">Work</a></li>
-      <li><a href="index.html" class="active">Design Concepts</a></li>
-      <li><a href="resume.html">Resume</a></li>
-      <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
-    </ul>
-  </nav>
+<nav>
+  <a href="index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li><a href="work.html">Work</a></li>
+    <li><a href="index.html" class="active">Design Concepts</a></li>
+    <li><a href="resume.html">Resume</a></li>
+    <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+  </ul>
+</nav>
 
-  <main class="project-page">
-    <div class="project-header">
-      <h1>Shell Lamp</h1>
-      <p class="tagline">Life structure</p>
+<main class="project-page">
+  <div class="project-header">
+    <h1>Shell Lamp</h1>
+    <p class="tagline">Life structure</p>
+  </div>
+
+  <div class="project-body">
+    <p>In a continuing environmental crisis, I see consumer 3d printers as the solution to consolidating our material use as we enter the age of recyclable bioplastics. It's important that we give new qualities to these simple materials, boosting the repertoire of our tools. In the shell lamp, diffusion of light occurs through the natural channels of the structure, giving PLA a new function, shaping light. If both structure and beauty can be produced by the same material then we have limited our emissions to a single source, in the words of Neri Oxman, "A fruit bearing fruit tree".</p>
+
+    <!-- ── Inline 3D viewer ─────────────────────────────────────── -->
+    <div class="viewer-block">
+      <div id="lamp-container">
+        <canvas id="lamp-canvas"></canvas>
+        <div class="viewer-tag">Shell Lamp · Interactive 3D</div>
+        <div class="viewer-hint">Drag to rotate · Scroll to zoom</div>
+      </div>
     </div>
 
-    <div class="project-body">
-      <p>In a continuing environmental crisis, I see consumer 3d printers as the solution to consolidating our material use as we enter the age of recyclable bioplastics. It's important that we give new qualities to these simple materials, boosting the repertoire of our tools. In the shell lamp, diffusion of light occurs through the natural channels of the structure, giving PLA a new function, shaping light. If both structure and beauty can be produced by the same material then we have limited our emissions to a single source, in the words of Neri Oxman, "A fruit bearing fruit tree".</p>
+    <p>My inspiration began as I observed the recent popularity of salt and wicker lamps. Rather than being simply a light source, they act more like modern candles, emitting less light than a standard desk lamp, while behaving more like sculpture. Putting my own spin on the natural material lamp, I wanted to further the conversation between software and human collaboration. I see the shell lamp as a hybrid object enabled by nTopology software. Its design is not completely self-generated because I retain the power to choose the cellular size, shape, distribution, surface pattern, and the form that contains them. This lets me have more artistic control than the uneditable computer generated structures previously available. This is very important because as a designer I get to reclaim the choices that go into building a natural form. As humans we don't yet fully understand how these patterns are made but we are slowly gaining more control and artistic choice as our programs become more interactive.</p>
 
-      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/63b51b76-a019-4b22-956d-9eddcec4cb8e/Screen+Shot+2022-04-06+at+9.57.34+AM.png" alt="Shell Lamp" /></div>
+    <p><a href="https://designwanted.com/shell-lamp-noah-taylor/" target="_blank" rel="noopener">Read more at designwanted.com ↗</a></p>
 
-      <p>My inspiration began as I observed the recent popularity of salt and wicker lamps. Rather than being simply a light source, they act more like modern candles, emitting less light than a standard desk lamp, while behaving more like sculpture. Putting my own spin on the natural material lamp, I wanted to further the conversation between software and human collaboration. I see the shell lamp as a hybrid object enabled by nTopology software. Its design is not completely self-generated because I retain the power to choose the cellular size, shape, distribution, surface pattern, and the form that contains them. This lets me have more artistic control than the uneditable computer generated structures previously available. This is very important because as a designer I get to reclaim the choices that go into building a natural form. As humans we don't yet fully understand how these patterns are made but we are slowly gaining more control and artistic choice as our programs become more interactive.</p>
+    <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/07f51cbd-5878-454c-9795-19a09f7d8c62/Screen+Shot+2022-04-06+at+10.06.07+AM.png" alt="Shell Lamp detail"/></div>
+    <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/5e82147a-0150-499c-85e5-c79ca4f989ae/Screen+Shot+2022-04-06+at+10.10.27+AM.png" alt="Shell Lamp structure"/></div>
+    <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/f0bdbc3b-e568-412b-914f-10d3c0f15638/Screen+Shot+2022-06-08+at+1.24.55+PM.png" alt="Shell Lamp lit"/></div>
+  </div>
 
-      <p><a href="https://designwanted.com/shell-lamp-noah-taylor/" target="_blank" rel="noopener">Read more at designwanted.com ↗</a></p>
+  <div class="project-nav">
+    <a href="typographic-furniture.html">
+      <span class="label">← Previous</span>
+      <span class="title">Typographic Furniture</span>
+    </a>
+    <a href="box-lamp.html">
+      <span class="label">Next</span>
+      <span class="title">Box Lamp →</span>
+    </a>
+  </div>
+</main>
 
-      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/07f51cbd-5878-454c-9795-19a09f7d8c62/Screen+Shot+2022-04-06+at+10.06.07+AM.png" alt="Shell Lamp detail" /></div>
-      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/5e82147a-0150-499c-85e5-c79ca4f989ae/Screen+Shot+2022-04-06+at+10.10.27+AM.png" alt="Shell Lamp structure" /></div>
-      <div class="img-full"><img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/f0bdbc3b-e568-412b-914f-10d3c0f15638/Screen+Shot+2022-06-08+at+1.24.55+PM.png" alt="Shell Lamp lit" /></div>
-    </div>
+<footer>© 2026 Noah Taylor</footer>
 
-    <div class="project-nav">
-      <a href="typographic-furniture.html">
-        <span class="label">← Previous</span>
-        <span class="title">Typographic Furniture</span>
-      </a>
-      <a href="box-lamp.html">
-        <span class="label">Next</span>
-        <span class="title">Box Lamp →</span>
-      </a>
-    </div>
-  </main>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// SHELL LAMP — 3D Viewer
+// ─────────────────────────────────────────────────────────────────────────────
+const container = document.getElementById('lamp-container');
+const canvas    = document.getElementById('lamp-canvas');
 
-  <footer>© 2026 Noah Taylor</footer>
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
+renderer.outputEncoding      = THREE.sRGBEncoding;
+renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled   = true;
+renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x09090b);
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 2000);
+
+// ── Lighting ──────────────────────────────────────────────────────────────
+// Dark ambient — lamp interior light does the work
+scene.add(new THREE.AmbientLight(0x0a0a12, 1));
+
+// Key: warm point light at lamp centre — shines through lattice holes
+const innerLight = new THREE.PointLight(0xffb347, 20, 220, 2);
+innerLight.position.set(0, 0, 0);
+innerLight.castShadow = true;
+innerLight.shadow.mapSize.set(1024, 1024);
+scene.add(innerLight);
+
+// Bounce: dim warm fill from below (simulates table bounce)
+const bounce = new THREE.PointLight(0xff8822, 4, 120, 2);
+bounce.position.set(0, -36, 0);
+scene.add(bounce);
+
+// Rim: cool edge separation against dark bg
+const rim1 = new THREE.DirectionalLight(0x3355aa, 0.6);
+rim1.position.set(-3, 1, -4);
+scene.add(rim1);
+
+const rim2 = new THREE.DirectionalLight(0x112244, 0.3);
+rim2.position.set(2, -1, -2);
+scene.add(rim2);
+
+// ── Materials ─────────────────────────────────────────────────────────────
+// Fully solid — no transparency. DoubleSide means inner faces lit through holes glow.
+const MAT_LAMP = new THREE.MeshStandardMaterial({
+  color:    0xfff4e8,   // warm white PLA
+  roughness: 0.30,
+  metalness: 0.00,
+  emissive:  0xff7700,
+  emissiveIntensity: 0.06,
+  side: THREE.DoubleSide,
+});
+
+const MAT_TABLE = new THREE.MeshStandardMaterial({
+  color: 0x111009, roughness: 0.80, metalness: 0.02,
+});
+
+// ── Additive glow sphere inside lamp ─────────────────────────────────────
+const glowMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(5, 16, 12),
+  new THREE.MeshBasicMaterial({
+    color: 0xffcc55, transparent: true, opacity: 0.5,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  })
+);
+scene.add(glowMesh);
+
+// ── Table surface ─────────────────────────────────────────────────────────
+const table = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), MAT_TABLE);
+table.rotation.x = -Math.PI / 2;
+table.position.y = -34;
+table.receiveShadow = true;
+scene.add(table);
+
+// ── Binary STL parser → BufferGeometry ───────────────────────────────────
+async function loadSTL(url) {
+  const buf  = await fetch(url).then(r => r.arrayBuffer());
+  const view = new DataView(buf);
+  const n    = view.getUint32(80, true);
+  const pos  = new Float32Array(n * 9);
+  for (let i = 0; i < n; i++) {
+    const o = 84 + i * 50;
+    for (let v = 0; v < 3; v++) {
+      const vo = o + 12 + v * 12;
+      pos[(i*3+v)*3]   = view.getFloat32(vo,    true);
+      pos[(i*3+v)*3+1] = view.getFloat32(vo+4,  true);
+      pos[(i*3+v)*3+2] = view.getFloat32(vo+8,  true);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.computeVertexNormals(); // smooth normals from geometry
+  return geo;
+}
+
+(async () => {
+  const geo = await loadSTL('lamp02.stl');
+  const mesh = new THREE.Mesh(geo, MAT_LAMP);
+  // STL is Z-up; rotate so lamp stands along world Y
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.castShadow = true;
+  scene.add(mesh);
+})();
+
+// ── Orbit ─────────────────────────────────────────────────────────────────
+let theta = 0.5, phi = 1.15, dist = 130;
+const target = new THREE.Vector3(0, 0, 0);
+let drag = false, lx = 0, ly = 0;
+
+function applyCamera() {
+  camera.position.set(
+    target.x + dist * Math.sin(phi) * Math.sin(theta),
+    target.y + dist * Math.cos(phi),
+    target.z + dist * Math.sin(phi) * Math.cos(theta)
+  );
+  camera.lookAt(target);
+}
+
+container.addEventListener('mousedown', e => { drag=true; lx=e.clientX; ly=e.clientY; });
+window.addEventListener('mouseup',   () => drag=false);
+window.addEventListener('mousemove', e => {
+  if (!drag) return;
+  theta -= (e.clientX-lx)*0.008; phi = Math.max(0.1,Math.min(Math.PI-0.1,phi-(e.clientY-ly)*0.008));
+  lx=e.clientX; ly=e.clientY;
+});
+container.addEventListener('wheel', e => {
+  e.preventDefault(); dist = Math.max(50, Math.min(400, dist+e.deltaY*0.4));
+},{passive:false});
+let tx=0,ty=0;
+container.addEventListener('touchstart',e=>{if(e.touches.length===1){tx=e.touches[0].clientX;ty=e.touches[0].clientY;}},{passive:true});
+container.addEventListener('touchmove',e=>{
+  if(e.touches.length===1){theta-=(e.touches[0].clientX-tx)*0.01;phi=Math.max(0.1,Math.min(Math.PI-0.1,phi-(e.touches[0].clientY-ty)*0.01));tx=e.touches[0].clientX;ty=e.touches[0].clientY;}
+},{passive:true});
+
+// ── Resize ────────────────────────────────────────────────────────────────
+function onResize() {
+  const w=container.clientWidth, h=container.clientHeight;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize); onResize();
+
+// ── Render + breathing glow ───────────────────────────────────────────────
+let t = 0;
+(function animate() {
+  requestAnimationFrame(animate);
+  t += 0.010;
+  const pulse = 0.85 + Math.sin(t) * 0.15;
+  innerLight.intensity        = 20 * pulse;
+  glowMesh.material.opacity   = 0.45 * pulse + 0.05;
+  MAT_LAMP.emissiveIntensity  = 0.05 * pulse + 0.01;
+  applyCamera();
+  renderer.render(scene, camera);
+})();
+</script>
 </body>
 </html>
