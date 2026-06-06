@@ -110,14 +110,14 @@ scene.add(new THREE.AmbientLight(0x0a0a12, 1));
 
 // Key: warm point light at lamp centre — shines through lattice holes
 const innerLight = new THREE.PointLight(0xffb347, 20, 220, 2);
-innerLight.position.set(0, 0, 0);
+innerLight.position.set(0, 32, 0);   // lamp centre
 innerLight.castShadow = true;
 innerLight.shadow.mapSize.set(1024, 1024);
 scene.add(innerLight);
 
-// Bounce: dim warm fill from below (simulates table bounce)
+// Bounce: warm fill from below (table reflection)
 const bounce = new THREE.PointLight(0xff8822, 4, 120, 2);
-bounce.position.set(0, -36, 0);
+bounce.position.set(0, 4, 0);
 scene.add(bounce);
 
 // Rim: cool edge separation against dark bg
@@ -152,58 +152,47 @@ const glowMesh = new THREE.Mesh(
     blending: THREE.AdditiveBlending, depthWrite: false,
   })
 );
+glowMesh.position.set(0, 32, 0);
 scene.add(glowMesh);
 
 // ── Table surface ─────────────────────────────────────────────────────────
 const table = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), MAT_TABLE);
 table.rotation.x = -Math.PI / 2;
-table.position.y = -34;
+table.position.y = 0;   // lamp base sits here
 table.receiveShadow = true;
 scene.add(table);
 
-// ── Binary STL parser → BufferGeometry ───────────────────────────────────
-// Uses the per-face normals stored in the STL file — one normal per triangle,
-// expanded to all 3 vertices. This gives correct flat shading without
-// computeVertexNormals() (which breaks on non-manifold/decimated meshes).
-async function loadSTL(url) {
+// ── Compact binary loader ─────────────────────────────────────────────────
+// Format: [nV:u32][nF:u32][positions:f32 nV*3][indices:u32 nF*3]
+// Vertex-clustered from the original OBJ — proper shared topology so
+// computeVertexNormals() produces clean smooth normals.
+async function loadBin(url) {
   const buf  = await fetch(url).then(r => r.arrayBuffer());
   const view = new DataView(buf);
-  const n    = view.getUint32(80, true);
-  const pos  = new Float32Array(n * 9);
-  const nrm  = new Float32Array(n * 9);
-  for (let i = 0; i < n; i++) {
-    const o  = 84 + i * 50;
-    const nx = view.getFloat32(o,   true);
-    const ny = view.getFloat32(o+4, true);
-    const nz = view.getFloat32(o+8, true);
-    for (let v = 0; v < 3; v++) {
-      const vo = o + 12 + v * 12;
-      const base = (i*3+v)*3;
-      pos[base]   = view.getFloat32(vo,   true);
-      pos[base+1] = view.getFloat32(vo+4, true);
-      pos[base+2] = view.getFloat32(vo+8, true);
-      // Same face normal for all 3 vertices → flat shading per triangle
-      nrm[base]   = nx; nrm[base+1] = ny; nrm[base+2] = nz;
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
+  const nV   = view.getUint32(0, true);
+  const nF   = view.getUint32(4, true);
+  const pos  = new Float32Array(buf, 8, nV * 3);
+  const idx  = new Uint32Array(buf, 8 + nV * 12, nF * 3);
+  const geo  = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos.slice(), 3));
+  geo.setIndex(new THREE.BufferAttribute(idx.slice(), 1));
+  geo.computeVertexNormals();   // correct on connected mesh — smooth shading
   return geo;
 }
 
 (async () => {
-  const geo = await loadSTL('lamp02.stl');
+  const geo  = await loadBin('shelllamp.bin');
   const mesh = new THREE.Mesh(geo, MAT_LAMP);
-  // STL is Z-up; rotate so lamp stands along world Y
-  mesh.rotation.x = -Math.PI / 2;
+  // OBJ uses Y-up already — no rotation needed
   mesh.castShadow = true;
+  // After centring, lamp spans Y -32→+32. Shift up so base sits at y=0.
+  mesh.position.y = 32;
   scene.add(mesh);
 })();
 
 // ── Orbit ─────────────────────────────────────────────────────────────────
 let theta = 0.5, phi = 1.15, dist = 130;
-const target = new THREE.Vector3(0, 0, 0);
+const target = new THREE.Vector3(0, 32, 0);  // look at lamp centre
 let drag = false, lx = 0, ly = 0;
 
 function applyCamera() {
