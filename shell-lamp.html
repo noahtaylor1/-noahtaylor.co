@@ -129,6 +129,11 @@ const rim2 = new THREE.DirectionalLight(0x112244, 0.3);
 rim2.position.set(2, -1, -2);
 scene.add(rim2);
 
+// Top fill: dim neutral light from above to even out the top hemisphere
+const topFill = new THREE.DirectionalLight(0xfff0e0, 0.4);
+topFill.position.set(0, 1, 0);
+scene.add(topFill);
+
 // ── Materials ─────────────────────────────────────────────────────────────
 // Fully solid — no transparency. DoubleSide means inner faces lit through holes glow.
 const MAT_LAMP = new THREE.MeshStandardMaterial({
