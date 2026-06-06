@@ -132,11 +132,11 @@ scene.add(rim2);
 // ── Materials ─────────────────────────────────────────────────────────────
 // Fully solid — no transparency. DoubleSide means inner faces lit through holes glow.
 const MAT_LAMP = new THREE.MeshStandardMaterial({
-  color:    0xfff4e8,   // warm white PLA
-  roughness: 0.30,
+  color:     0xfff6ee,   // warm white PLA
+  roughness: 0.35,
   metalness: 0.00,
-  emissive:  0xff7700,
-  emissiveIntensity: 0.06,
+  emissive:  0xff8800,
+  emissiveIntensity: 0.20,  // strong enough to glow through lattice gaps
   side: THREE.DoubleSide,
 });
 
@@ -162,23 +162,33 @@ table.receiveShadow = true;
 scene.add(table);
 
 // ── Binary STL parser → BufferGeometry ───────────────────────────────────
+// Uses the per-face normals stored in the STL file — one normal per triangle,
+// expanded to all 3 vertices. This gives correct flat shading without
+// computeVertexNormals() (which breaks on non-manifold/decimated meshes).
 async function loadSTL(url) {
   const buf  = await fetch(url).then(r => r.arrayBuffer());
   const view = new DataView(buf);
   const n    = view.getUint32(80, true);
   const pos  = new Float32Array(n * 9);
+  const nrm  = new Float32Array(n * 9);
   for (let i = 0; i < n; i++) {
-    const o = 84 + i * 50;
+    const o  = 84 + i * 50;
+    const nx = view.getFloat32(o,   true);
+    const ny = view.getFloat32(o+4, true);
+    const nz = view.getFloat32(o+8, true);
     for (let v = 0; v < 3; v++) {
       const vo = o + 12 + v * 12;
-      pos[(i*3+v)*3]   = view.getFloat32(vo,    true);
-      pos[(i*3+v)*3+1] = view.getFloat32(vo+4,  true);
-      pos[(i*3+v)*3+2] = view.getFloat32(vo+8,  true);
+      const base = (i*3+v)*3;
+      pos[base]   = view.getFloat32(vo,   true);
+      pos[base+1] = view.getFloat32(vo+4, true);
+      pos[base+2] = view.getFloat32(vo+8, true);
+      // Same face normal for all 3 vertices → flat shading per triangle
+      nrm[base]   = nx; nrm[base+1] = ny; nrm[base+2] = nz;
     }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.computeVertexNormals(); // smooth normals from geometry
+  geo.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
   return geo;
 }
 
