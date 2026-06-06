@@ -182,11 +182,11 @@ async function loadBin(url) {
 
 (async () => {
   const geo  = await loadBin('shelllamp.bin');
+  geo.computeBoundingBox();
+  geo.center();                  // translate so geometric centre sits at origin
   const mesh = new THREE.Mesh(geo, MAT_LAMP);
-  // OBJ uses Y-up already — no rotation needed
   mesh.castShadow = true;
-  // After centring, lamp spans Y -32→+32. Shift up so base sits at y=0.
-  mesh.position.y = 32;
+  mesh.position.set(0, 32, 0);  // place centre exactly on the inner light
   scene.add(mesh);
 })();
 
