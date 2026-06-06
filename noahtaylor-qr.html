@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<title>noahtaylor.co — QR Code</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; background:#f5f5f7;
+    font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
+  }
+  .card {
+    background:#fff; border-radius:24px;
+    padding:40px; display:flex; flex-direction:column; align-items:center;
+    gap:20px; box-shadow:0 2px 24px rgba(0,0,0,0.08);
+  }
+  #qr canvas, #qr img { display:block; border-radius:8px; }
+  .label {
+    font-size:15px; font-weight:500; color:#1d1d1f;
+    letter-spacing:-0.01em;
+  }
+  .url { font-size:13px; color:#6e6e73; }
+  button {
+    margin-top:8px; padding:10px 22px; border:none; border-radius:980px;
+    background:#1d1d1f; color:#fff; font-size:13px; font-weight:500;
+    cursor:pointer; font-family:inherit; letter-spacing:-0.01em;
+  }
+  button:hover { background:#3a3a3c; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div id="qr"></div>
+  <div class="label">Noah Taylor</div>
+  <div class="url">noahtaylor.co</div>
+  <button onclick="dl()">Save PNG</button>
+</div>
+<script>
+new QRCode(document.getElementById('qr'), {
+  text: 'https://noahtaylor.co',
+  width: 300, height: 300,
+  colorDark: '#1d1d1f',
+  colorLight: '#ffffff',
+  correctLevel: QRCode.CorrectLevel.H
+});
+
+function dl() {
+  const canvas = document.querySelector('#qr canvas');
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'noahtaylor-qr.png';
+  a.click();
+}
+</script>
+</body>
+</html>

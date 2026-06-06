@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Lamp — Noah Taylor</title>
+  <link rel="stylesheet" href="style.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    * { -webkit-font-smoothing:antialiased; }
+
+    /* ── Viewer ───────────────────────────────────────────────────── */
+    .lamp-wrap {
+      width:100%; position:relative; margin:0 0 56px;
+      background:#09090b;
+    }
+    #lamp-container {
+      width:100%; height:80vh; min-height:520px;
+      background:#09090b; cursor:grab; user-select:none; position:relative;
+    }
+    #lamp-container:active { cursor:grabbing; }
+    #lamp-canvas { display:block; width:100%!important; height:100%!important; }
+    .lamp-hint {
+      position:absolute; bottom:16px; right:20px;
+      font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+      font-size:10px; color:#3a3a40; letter-spacing:0.08em;
+      text-transform:uppercase; pointer-events:none;
+    }
+    .lamp-label {
+      position:absolute; top:28px; left:32px; pointer-events:none;
+    }
+    .lamp-label h2 {
+      font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
+      font-size:15px; font-weight:400; color:#a0a0a8; letter-spacing:0.01em;
+      margin:0 0 2px;
+    }
+    .lamp-label p {
+      font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+      font-size:11px; color:#3a3a40; letter-spacing:0.04em;
+    }
+
+    /* ── Dark overrides for this page ──────────────────────────── */
+  </style>
+</head>
+<body>
+<nav>
+  <a href="index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li><a href="work.html">Work</a></li>
+    <li><a href="index.html" class="active">Design Concepts</a></li>
+    <li><a href="resume.html">Resume</a></li>
+    <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+  </ul>
+</nav>
+
+<main class="project-page">
+  <div class="project-header">
+    <h1>Lamp</h1>
+    <p class="tagline">Light as material</p>
+  </div>
+
+  <div class="project-body">
+    <p>A study in how form becomes inseparable from the quality of light it produces. The geometry is generated parametrically to control wall thickness, which in turn controls how light diffuses through the printed shell — thinner walls glow, thicker walls shadow.</p>
+
+    <!-- ── Inline 3D viewer ──────────────────────────────────────── -->
+    <div class="lamp-wrap">
+      <div id="lamp-container">
+        <canvas id="lamp-canvas"></canvas>
+        <div class="lamp-label">
+          <h2>Lamp 02</h2>
+          <p>Interactive 3D model</p>
+        </div>
+        <div class="lamp-hint">Drag to rotate · Scroll to zoom</div>
+      </div>
+    </div>
+
+    <p>The print material acts as a diffuser. Each layer contributes to a gradient of translucency from base to crown, shifting the perceived colour temperature of the light source as the viewing angle changes.</p>
+
+    <h2>Material as Optics</h2>
+    <p>Standard FDM printing at 0.2mm layer height produces a diffusion profile that closely approximates a Gaussian spread at thin wall sections. The outer surface is left matte to scatter ambient light, while the interior is smooth to maximize internal reflection toward the aperture.</p>
+
+    <h2>Process</h2>
+    <p>Form is derived from the light distribution target rather than aesthetic preference. A desired lux curve at 1m is specified, then the wall profile is iterated until the physical print matches the target within tolerance.</p>
+  </div>
+
+  <div class="project-nav">
+    <a href="nodes.html">
+      <span class="label">← Previous</span>
+      <span class="title">Nodes</span>
+    </a>
+    <a href="shell-lamp.html">
+      <span class="label">Next</span>
+      <span class="title">Shell Lamp →</span>
+    </a>
+  </div>
+</main>
+
+<footer>© 2026 Noah Taylor</footer>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// LAMP 3D VIEWER
+// ─────────────────────────────────────────────────────────────────────────────
+const container = document.getElementById('lamp-container');
+const canvas    = document.getElementById('lamp-canvas');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
+renderer.outputEncoding      = THREE.sRGBEncoding;
+renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.shadowMap.enabled   = true;
+renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+
+const scene  = new THREE.Scene();
+scene.background = new THREE.Color(0x09090b);
+scene.fog = new THREE.Fog(0x09090b, 250, 600);
+
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 2000);
+
+// ── Lighting ────────────────────────────────────────────────────────────────
+// Very dark ambient — lamp is the primary light source
+scene.add(new THREE.AmbientLight(0x111118, 1.0));
+
+// The lamp's bulb — warm point light at center
+const bulb = new THREE.PointLight(0xffcc66, 18, 200, 2);
+bulb.position.set(0, 0, 0);
+bulb.castShadow = true;
+bulb.shadow.mapSize.set(1024, 1024);
+bulb.shadow.camera.near = 1;
+bulb.shadow.camera.far = 200;
+scene.add(bulb);
+
+// Secondary warm fill from below (bounced off table)
+const bounce = new THREE.PointLight(0xff9933, 3, 120, 2);
+bounce.position.set(0, -28, 10);
+scene.add(bounce);
+
+// Cool environmental rim — makes lamp read against dark background
+const rim = new THREE.DirectionalLight(0x334466, 0.4);
+rim.position.set(-2, 1, -3);
+scene.add(rim);
+
+// ── Materials ────────────────────────────────────────────────────────────────
+const MAT_LAMP = new THREE.MeshStandardMaterial({
+  color: 0xfff4e6,
+  roughness: 0.25,
+  metalness: 0.0,
+  emissive: 0xff8800,
+  emissiveIntensity: 0.12,
+  transparent: true,
+  opacity: 0.94,
+  side: THREE.DoubleSide,
+});
+
+const MAT_TABLE = new THREE.MeshStandardMaterial({
+  color: 0x16120e,
+  roughness: 0.75,
+  metalness: 0.02,
+});
+
+// ── Inner glow sprite (additive blending — simulates bloom) ──────────────────
+const glowGeo = new THREE.SphereGeometry(7, 20, 16);
+const glowMat = new THREE.MeshBasicMaterial({
+  color: 0xffdd88,
+  transparent: true,
+  opacity: 0.35,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+scene.add(glowMesh);
+
+// Outer soft halo
+const haloGeo = new THREE.SphereGeometry(18, 16, 12);
+const haloMat = new THREE.MeshBasicMaterial({
+  color: 0xff9933,
+  transparent: true,
+  opacity: 0.08,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.BackSide,
+});
+scene.add(new THREE.Mesh(haloGeo, haloMat));
+
+// ── Table ───────────────────────────────────────────────────────────────────
+const tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), MAT_TABLE);
+tableMesh.rotation.x = -Math.PI / 2;
+tableMesh.position.y = -33;
+tableMesh.receiveShadow = true;
+scene.add(tableMesh);
+
+// ── STL Loader ───────────────────────────────────────────────────────────────
+async function loadSTL(url) {
+  const buf  = await fetch(url).then(r => r.arrayBuffer());
+  const view = new DataView(buf);
+  const n    = view.getUint32(80, true);
+  const pos  = new Float32Array(n * 9);
+  const nrm  = new Float32Array(n * 9);
+  for (let i = 0; i < n; i++) {
+    const o  = 84 + i * 50;
+    const nx = view.getFloat32(o,    true);
+    const ny = view.getFloat32(o+4,  true);
+    const nz = view.getFloat32(o+8,  true);
+    for (let v = 0; v < 3; v++) {
+      const vo = o + 12 + v * 12;
+      pos[(i*3+v)*3]   = view.getFloat32(vo,   true);
+      pos[(i*3+v)*3+1] = view.getFloat32(vo+4, true);
+      pos[(i*3+v)*3+2] = view.getFloat32(vo+8, true);
+      nrm[(i*3+v)*3]   = nx;
+      nrm[(i*3+v)*3+1] = ny;
+      nrm[(i*3+v)*3+2] = nz;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal',   new THREE.BufferAttribute(nrm, 3));
+  return geo;
+}
+
+(async () => {
+  const geo = await loadSTL('lamp02.stl');
+  const lampMesh = new THREE.Mesh(geo, MAT_LAMP);
+  // STL has Z as up axis — rotate so lamp stands in Y direction
+  lampMesh.rotation.x = -Math.PI / 2;
+  lampMesh.castShadow = true;
+  lampMesh.receiveShadow = false;
+  scene.add(lampMesh);
+})();
+
+// ── Camera & Orbit ───────────────────────────────────────────────────────────
+let theta = 0.6, phi = 1.2, camDist = 140;
+const camTarget = new THREE.Vector3(0, 0, 0);
+let isDragging = false, lastMX = 0, lastMY = 0;
+
+function applyCamera() {
+  camera.position.set(
+    camTarget.x + camDist * Math.sin(phi) * Math.sin(theta),
+    camTarget.y + camDist * Math.cos(phi),
+    camTarget.z + camDist * Math.sin(phi) * Math.cos(theta)
+  );
+  camera.lookAt(camTarget);
+}
+
+container.addEventListener('mousedown', e => { isDragging=true; lastMX=e.clientX; lastMY=e.clientY; });
+window.addEventListener('mouseup',   () => isDragging=false);
+window.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  theta -= (e.clientX - lastMX) * 0.008;
+  phi    = Math.max(0.15, Math.min(Math.PI-0.15, phi - (e.clientY - lastMY) * 0.008));
+  lastMX = e.clientX; lastMY = e.clientY;
+});
+container.addEventListener('wheel', e => {
+  e.preventDefault();
+  camDist = Math.max(50, Math.min(400, camDist + e.deltaY * 0.4));
+}, { passive:false });
+
+let ltX=0, ltY=0;
+container.addEventListener('touchstart', e => { if(e.touches.length===1){ltX=e.touches[0].clientX;ltY=e.touches[0].clientY;} }, {passive:true});
+container.addEventListener('touchmove', e => {
+  if(e.touches.length===1){
+    theta -= (e.touches[0].clientX-ltX)*0.012;
+    phi = Math.max(0.15,Math.min(Math.PI-0.15,phi-(e.touches[0].clientY-ltY)*0.012));
+    ltX=e.touches[0].clientX; ltY=e.touches[0].clientY;
+  }
+},{passive:true});
+
+// ── Resize ───────────────────────────────────────────────────────────────────
+function onResize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// ── Render loop with breathing glow ──────────────────────────────────────────
+let t = 0;
+(function animate() {
+  requestAnimationFrame(animate);
+  t += 0.012;
+  // Breathing pulse — subtle brightness oscillation
+  const pulse = 0.88 + Math.sin(t) * 0.12;
+  bulb.intensity = 18 * pulse;
+  glowMesh.material.opacity = 0.30 * pulse + 0.05;
+  MAT_LAMP.emissiveIntensity = 0.10 * pulse + 0.02;
+  applyCamera();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
