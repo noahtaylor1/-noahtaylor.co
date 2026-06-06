@@ -135,9 +135,9 @@ nav {
 
 /* PROJECT pages */
 .project-page {
-  max-width: 700px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 64px 48px 120px;
+  padding: 64px 64px 120px;
 }
 .project-header {
   margin-bottom: 48px;

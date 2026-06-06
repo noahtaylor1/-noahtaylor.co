@@ -61,6 +61,9 @@
       box-shadow:0 1px 4px rgba(0,0,0,0.18); cursor:pointer;
     }
 
+    /* Hide nav + footer when embedded in an iframe */
+    .embedded nav, .embedded footer { display:none !important; }
+
     /* Cut sheet */
     .cutsheet { padding:44px 48px 96px; background:#fff; }
     .cutsheet h2 {
@@ -98,6 +101,10 @@
   </style>
 </head>
 <body>
+<script>
+  // Add 'embedded' class when loaded inside an iframe so nav/footer hide
+  if (window.self !== window.top) document.body.classList.add('embedded');
+</script>
 <nav>
   <a href="index.html" class="nav-logo">Noah Taylor</a>
   <ul class="nav-links">
