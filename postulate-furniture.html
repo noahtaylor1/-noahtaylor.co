@@ -26,6 +26,12 @@
     <div class="project-body">
       <p>Postulate furniture is created from one series of six slatted sections and five hinged joints. Hinged through steel rods, they fold into many tables and chairs while also being capable of compacting completely flat. The concept was developed while exploring the possibilities of just how far the folding chair could be pushed.</p>
 
+      <!-- ── Folding animation ──────────────────────────────────────────── -->
+      <div class="postulate-anim-wrap">
+        <canvas id="postulate-canvas"></canvas>
+        <div class="postulate-anim-state" id="anim-state">Flat</div>
+      </div>
+
       <div class="img-grid-2">
         <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/f26eb12d-5ba9-44fb-82d9-c4c9243986da/ohmn-26.JPG" alt="Postulate chair" />
         <img src="https://images.squarespace-cdn.com/content/v1/608b112101d1457dd4c18fb5/65aab030-f04a-41e9-9f36-1bbdf0f57828/postulate3.jpg" alt="Postulate configurations" />
@@ -64,5 +70,170 @@
   </main>
 
   <footer>© 2026 Noah Taylor</footer>
+
+<script>
+// ── Postulate Furniture — Folding Chain Animation ──────────────────────────
+(function () {
+  var canvas = document.getElementById('postulate-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+
+  // Six panel lengths (A short brace, B=C=E long, D=F medium)
+  var PL = [52, 90, 90, 52, 90, 60];
+  var PW = 13; // slat thickness
+
+  // Build point chain from initial angle + relative hinge angles
+  // angles in degrees; canvas y is down, so sin is negated
+  function makeChain(ia, rel, ax, ay) {
+    var pts = [[ax, ay]];
+    var ang = ia * Math.PI / 180;
+    for (var i = 0; i < PL.length; i++) {
+      if (i > 0) ang += rel[i - 1] * Math.PI / 180;
+      pts.push([
+        pts[i][0] + Math.cos(ang) * PL[i],
+        pts[i][1] - Math.sin(ang) * PL[i]
+      ]);
+    }
+    return pts;
+  }
+
+  // Three configurations — worked out geometrically so they land on "floor" at y=390
+  var CHAINS = [
+    makeChain(0,  [0,    0,    0,    0,    0 ], 83,  220), // FLAT strip
+    makeChain(82, [0,  -82,  -85,    0,   90 ], 160, 390), // CHAIR
+    makeChain(85, [0,  -85,  -85,    0,   90 ], 95,  390)  // TABLE
+  ];
+  var LABELS = ['Flat', 'Chair', 'Table'];
+
+  function ease(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+  function lerpChain(a, b, t) {
+    var e = ease(Math.max(0, Math.min(1, t)));
+    return a.map(function (p, i) {
+      return [p[0] + (b[i][0] - p[0]) * e, p[1] + (b[i][1] - p[1]) * e];
+    });
+  }
+
+  // Panel colours — alternating warm wood tones
+  var COLORS = ['#c8bc9c','#b8ae88','#c8bc9c','#b8ae88','#c8bc9c','#b8ae88'];
+
+  function draw(pts) {
+    var W = 600, H = 420;
+    ctx.clearRect(0, 0, W, H);
+
+    // Subtle floor line
+    ctx.save();
+    ctx.strokeStyle = '#1e1e1e';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(20, 395); ctx.lineTo(580, 395);
+    ctx.stroke();
+    ctx.restore();
+
+    // Draw each panel
+    for (var i = 0; i < 6; i++) {
+      var x1 = pts[i][0], y1 = pts[i][1];
+      var x2 = pts[i+1][0], y2 = pts[i+1][1];
+      var ang = Math.atan2(y2 - y1, x2 - x1);
+      var len = Math.hypot(x2 - x1, y2 - y1);
+
+      ctx.save();
+      ctx.translate(x1, y1);
+      ctx.rotate(ang);
+
+      // Drop shadow
+      ctx.shadowColor = 'rgba(0,0,0,0.5)';
+      ctx.shadowBlur = 6;
+      ctx.shadowOffsetY = 3;
+
+      // Slat face
+      ctx.fillStyle = COLORS[i];
+      ctx.beginPath();
+      ctx.roundRect(0, -PW/2, len, PW, 2.5);
+      ctx.fill();
+
+      // Top edge highlight
+      ctx.shadowColor = 'transparent';
+      ctx.strokeStyle = 'rgba(255,255,240,0.18)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(2, -PW/2 + 1); ctx.lineTo(len - 2, -PW/2 + 1);
+      ctx.stroke();
+
+      // Bottom edge shadow
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(2, PW/2 - 1); ctx.lineTo(len - 2, PW/2 - 1);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // Hinge dots (steel rods)
+    for (var j = 1; j < 6; j++) {
+      var hx = pts[j][0], hy = pts[j][1];
+      ctx.beginPath();
+      ctx.arc(hx, hy, 5, 0, Math.PI*2);
+      ctx.fillStyle = '#2a2828';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(hx, hy, 2.5, 0, Math.PI*2);
+      ctx.fillStyle = '#888880';
+      ctx.fill();
+    }
+  }
+
+  // Resize canvas to fill container at device pixel ratio
+  var DPR = window.devicePixelRatio || 1;
+  function resize() {
+    var W = Math.min(canvas.parentElement.clientWidth, 600);
+    var H = Math.round(W * 420 / 600);
+    canvas.width  = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.scale(DPR * W / 600, DPR * H / 420);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  // State machine: hold 2.4s, transition 1.4s per state, 3 states
+  var HOLD = 2400, TRANS = 1400;
+  var CYCLE = (HOLD + TRANS) * 3;
+  var label = document.getElementById('anim-state');
+
+  function animate(ts) {
+    var t = ts % CYCLE;
+    var step = HOLD + TRANS;
+    var from, to, blend, lbl;
+
+    if (t < step) {
+      var f = t / step;
+      if (f < HOLD/step) { from=0; to=0; blend=1; lbl=LABELS[0]; }
+      else { from=0; to=1; blend=(f - HOLD/step)/(TRANS/step); lbl=''; }
+    } else if (t < 2*step) {
+      var f = (t - step) / step;
+      if (f < HOLD/step) { from=1; to=1; blend=1; lbl=LABELS[1]; }
+      else { from=1; to=2; blend=(f - HOLD/step)/(TRANS/step); lbl=''; }
+    } else {
+      var f = (t - 2*step) / step;
+      if (f < HOLD/step) { from=2; to=2; blend=1; lbl=LABELS[2]; }
+      else { from=2; to=0; blend=(f - HOLD/step)/(TRANS/step); lbl=''; }
+    }
+
+    var pts = (from === to) ? CHAINS[from] : lerpChain(CHAINS[from], CHAINS[to], blend);
+    draw(pts);
+
+    if (label) {
+      label.textContent = lbl;
+      label.style.opacity = lbl ? '1' : '0';
+    }
+
+    requestAnimationFrame(animate);
+  }
+  requestAnimationFrame(animate);
+})();
+</script>
+<script src="nav.js"></script>
 </body>
 </html>

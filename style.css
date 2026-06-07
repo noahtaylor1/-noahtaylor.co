@@ -278,10 +278,111 @@ footer {
   text-align: center;
 }
 
-/* Responsive */
+/* ── Apple-style nav blur ─────────────────────────────────────────────────── */
+nav {
+  background: rgba(0,0,0,0.82);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* ── Work link hover — no layout shift ───────────────────────────────────── */
+.work-link-item { transition: background 0.15s, padding-left 0.15s; }
+
+/* ── Project card label always visible on mobile ─────────────────────────── */
+@media (hover: none) {
+  .project-card-label { opacity: 1; }
+}
+
+/* ── Scroll reveal ────────────────────────────────────────────────────────── */
+.img-full, .img-grid-2, .gallery {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+}
+.img-full.revealed, .img-grid-2.revealed, .gallery.revealed {
+  opacity: 1; transform: none;
+}
+
+/* ── Hamburger button ─────────────────────────────────────────────────────── */
+.nav-toggle {
+  display: none;
+  background: none; border: none; cursor: pointer;
+  padding: 10px; margin: -10px;
+  flex-direction: column; gap: 5px;
+}
+.nav-toggle span {
+  display: block; width: 22px; height: 1.5px;
+  background: var(--text); border-radius: 1px;
+  transition: transform 0.25s, opacity 0.2s;
+}
+.nav-toggle.open span:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+.nav-toggle.open span:nth-child(2) { opacity: 0; }
+.nav-toggle.open span:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+
+/* ── Postulate animation block ───────────────────────────────────────────── */
+.postulate-anim-wrap {
+  width: 100%; margin: 40px 0 48px;
+  background: #09090b; border-radius: 12px; overflow: hidden;
+  position: relative;
+}
+#postulate-canvas { display: block; width: 100%; }
+.postulate-anim-state {
+  position: absolute; bottom: 16px; right: 20px;
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: #3a3a42;
+  font-family: var(--font); pointer-events: none;
+  transition: opacity 0.4s;
+}
+
+/* ── Responsive — tablet ─────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   nav { padding: 0 20px; }
-  .project-grid { grid-template-columns: 1fr; padding: 16px 20px; }
-  .work-page, .project-page, .resume-page { padding: 40px 20px 80px; }
-  .img-grid-2 { grid-template-columns: 1fr; }
+  .project-grid { grid-template-columns: 1fr; padding: 2px; gap: 2px; }
+  .work-page { padding: 48px 24px 80px; }
+  .project-page { padding: 48px 24px 100px; }
+  .resume-page { padding: 48px 24px 80px; }
+  .img-grid-2 { grid-template-columns: 1fr; gap: 4px; }
+  footer { padding: 20px 24px; }
+}
+
+/* ── Responsive — phone ──────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .nav-toggle { display: flex; }
+
+  .nav-links {
+    display: none;
+    position: absolute; top: 56px; left: 0; right: 0;
+    flex-direction: column; gap: 0;
+    background: rgba(0,0,0,0.97);
+    border-bottom: 1px solid var(--border);
+    padding: 4px 0 8px;
+  }
+  .nav-links.open { display: flex; }
+  .nav-links li { width: 100%; }
+  .nav-links a {
+    display: block; padding: 14px 24px;
+    font-size: 15px; border-bottom: none;
+    min-height: 48px; display: flex; align-items: center;
+  }
+  .nav-links a.active { border-bottom: none; border-left: 2px solid var(--text); }
+
+  .project-header h1 { font-size: 26px; }
+  .project-header .tagline { font-size: 15px; }
+  .project-body { font-size: 14.5px; }
+  .project-body h2 { font-size: 17px; margin-top: 36px; }
+  .work-page h1 { font-size: 24px; }
+  .work-page .subtitle { margin-bottom: 40px; }
+  .work-link-title { font-size: 15px; }
+
+  .project-nav { flex-direction: column; gap: 20px; }
+  .project-nav a:last-child { align-items: flex-end; }
+
+  #lamp-container { height: 65vw; min-height: 240px; }
+}
+
+/* ── Responsive — very small ─────────────────────────────────────────────── */
+@media (max-width: 390px) {
+  .project-page, .work-page, .resume-page { padding-left: 16px; padding-right: 16px; }
+  .project-header h1 { font-size: 22px; }
+  .project-body { font-size: 14px; }
 }
