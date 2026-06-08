@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Platter — Noah Taylor</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .platter-hero {
+      position: relative;
+      width: 100%;
+      height: 95vh;
+      overflow: hidden;
+    }
+    .platter-hero-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center 30%;
+      display: block;
+    }
+    .platter-hero-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.05) 30%, rgba(0,0,0,0.82) 100%);
+    }
+    .platter-hero-text {
+      position: absolute;
+      bottom: 60px;
+      left: 60px;
+    }
+    .platter-hero-text h1 {
+      font-size: clamp(54px, 9vw, 112px);
+      font-weight: 300;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      color: #f5f5f7;
+      margin-bottom: 14px;
+    }
+    .platter-hero-text p {
+      font-size: 12px;
+      color: rgba(245,245,247,0.5);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .scroll-track {
+      height: 400vh;
+      position: relative;
+    }
+    .sticky-stage {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: #000;
+    }
+    #c {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .scene {
+      position: absolute;
+      opacity: 0;
+      transition: opacity 0.65s ease;
+      pointer-events: none;
+      max-width: 320px;
+    }
+    .scene.on { opacity: 1; }
+    .scene-num {
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #6e6e73;
+      margin-bottom: 16px;
+    }
+    .scene h2 {
+      font-size: clamp(18px, 2.2vw, 28px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1.22;
+      color: #f5f5f7;
+      margin-bottom: 12px;
+    }
+    .scene p {
+      font-size: 13px;
+      line-height: 1.72;
+      color: #6e6e73;
+    }
+    #s0 { left: 7%;  top: 50%; transform: translateY(-50%); }
+    #s1 { right: 6%; top: 50%; transform: translateY(-50%); text-align: right; }
+    #s2 { right: 6%; top: 50%; transform: translateY(-50%); text-align: right; }
+    #s3 { left: 50%; bottom: 9%; transform: translateX(-50%); text-align: center; max-width: 480px; }
+    .scroll-hint {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #6e6e73;
+      transition: opacity 0.4s;
+    }
+    .scroll-hint.gone { opacity: 0; }
+    @media (max-width: 600px) {
+      .platter-hero-text { bottom: 40px; left: 28px; }
+      #s0, #s1, #s2 {
+        left: 50%; right: auto; top: auto;
+        bottom: 10%; transform: translateX(-50%);
+        text-align: center; max-width: 88vw;
+      }
+      #s3 { max-width: 88vw; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html" class="nav-logo">Noah Taylor</a>
+    <ul class="nav-links">
+      <li><a href="work.html">Work</a></li>
+      <li><a href="index.html">Concepts</a></li>
+      <li><a href="resume.html">Resume</a></li>
+      <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+    </ul>
+  </nav>
+
+  <section class="platter-hero">
+    <img class="platter-hero-img" src="platter-hero.jpg" alt="Turf Platter ceiling installation" />
+    <div class="platter-hero-overlay"></div>
+    <div class="platter-hero-text">
+      <h1>Platter</h1>
+      <p>Acoustic Ceiling Cloud &mdash; Turf Design</p>
+    </div>
+  </section>
+
+  <div class="scroll-track" id="track">
+    <div class="sticky-stage">
+      <canvas id="c"></canvas>
+
+      <div class="scene" id="s0">
+        <div class="scene-num">01</div>
+        <h2>Single material,<br>full size</h2>
+        <p>Platter is the first large acoustic panel to not require any metal stiffeners, made possible by its computationally generated stiffener matrix built directly into the felt substrate.</p>
+      </div>
+
+      <div class="scene" id="s1">
+        <div class="scene-num">02</div>
+        <h2>Hidden fastener,<br>zero gaps</h2>
+        <p>Platter's hidden hatch door lets screws be set through the bottom of the panel, allowing adjacent panels to sit perfectly flush — no visible hardware, no gaps at the joint.</p>
+      </div>
+
+      <div class="scene" id="s2">
+        <div class="scene-num">02 / cont.</div>
+        <h2>Endless field,<br>any scale</h2>
+        <p>Because all fasteners are concealed inside the panel cavity, an unlimited number of Platters can be butted together to create continuous ceiling fields at any scale.</p>
+      </div>
+
+      <div class="scene" id="s3">
+        <div class="scene-num">03</div>
+        <h2>Every condition</h2>
+        <p>Platter's ability to stack, layer, and overlap — at depths of 2&Prime;, 4&Prime;, and 6&Prime; — gives the architect an answer for every ceiling form and spatial condition.</p>
+      </div>
+
+      <div class="scroll-hint" id="hint">Scroll</div>
+    </div>
+  </div>
+
+  <footer>© 2026 Noah Taylor</footer>
+  <script src="nav.js"></script>
+
+  <script>
+  (() => {
+    const canvas = document.getElementById('c');
+    const ctx    = canvas.getContext('2d');
+    const track  = document.getElementById('track');
+    const hint   = document.getElementById('hint');
+    let W, H, SC; // SC = iso scale
+
+    function resize() {
+      W = canvas.width  = canvas.parentElement.offsetWidth;
+      H = canvas.height = canvas.parentElement.offsetHeight;
+      SC = Math.min(W * 0.00095, H * 0.00195, 1.5);
+    }
+    resize();
+    window.addEventListener('resize', () => { resize(); render(prog); });
+
+    /* ── helpers ── */
+    const clamp = (v, a=0, b=1) => Math.max(a, Math.min(b, v));
+    const ease  = t => t < .5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2;
+    const map   = (v, a, b) => ease(clamp((v-a)/(b-a)));
+
+    /* ── isometric projection ──
+       World axes: X=right, Y=up, Z=forward
+       Screen: iso standard — X→(cos30°,sin30°), Z→(-cos30°,sin30°), Y→(0,-1)
+    */
+    function iso(wx, wy, wz) {
+      return {
+        x: (wx - wz) * 0.866 * SC + W * 0.5,
+        y: (wx + wz) * 0.5  * SC - wy * SC + H * 0.52
+      };
+    }
+
+    /* ── rounded rect path in local (pre-transform) space ── */
+    function roundRect(x, y, w, h, r) {
+      r = Math.min(r, Math.min(w, h) / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y,     x + w, y + r,     r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x,     y + h, x,     y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x,     y,     x + r, y,          r);
+      ctx.closePath();
+    }
+
+    /* Left-half rounded rect (curved left end, flat right edge) */
+    function roundRectLeftHalf(x, y, w, h, r) {
+      r = Math.min(r, Math.min(w, h) / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w, y);       // flat top-right
+      ctx.lineTo(x + w, y + h);   // flat bottom-right
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
+    }
+
+    /* ── draw isometric top face ──
+       The iso transform maps:
+         local (1,0) → screen direction of world X
+         local (0,1) → screen direction of world Z
+       Origin = iso(wx, wy, wz) → local (0,0)
+    */
+    function drawTopFace(wx, wy, wz, wW, wL, r, color, outline, pathFn) {
+      const o = iso(wx, wy, wz);
+      ctx.save();
+      ctx.transform(
+        0.866 * SC,  0.5 * SC,    // local X → screen
+       -0.866 * SC,  0.5 * SC,    // local Z → screen
+        o.x,         o.y          // origin
+      );
+      (pathFn || roundRect)(0, 0, wW, wL, r);
+      ctx.fillStyle = color;
+      ctx.fill();
+      if (outline) {
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 0.85 / SC;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    /* ── draw depth face (right or front) ──
+       Both faces are parallelograms. depthPx = panel thickness in screen pixels.
+    */
+    function drawDepthFace(p0, p1, depthPx, color, outline) {
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineTo(p1.x, p1.y + depthPx);
+      ctx.lineTo(p0.x, p0.y + depthPx);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      if (outline) {
+        ctx.strokeStyle = outline;
+        ctx.lineWidth = 0.85;
+        ctx.stroke();
+      }
+    }
+
+    /* ── full platter ── */
+    function drawPlatter(wx, wy, wz, alpha, cfg) {
+      const { wW, wL, wR, depthPx, cTop, cRight, cFront, cLine } = cfg;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // Right face: right edge of panel (x=wx+wW)
+      const rb = iso(wx+wW, wy, wz);
+      const rf = iso(wx+wW, wy, wz+wL);
+      drawDepthFace(rb, rf, depthPx, cRight, cLine);
+
+      // Front face: front edge of panel (z=wz+wL)
+      const fl = iso(wx,    wy, wz+wL);
+      const fr = iso(wx+wW, wy, wz+wL);
+      drawDepthFace(fl, fr, depthPx, cFront, cLine);
+
+      // Top face
+      drawTopFace(wx, wy, wz, wW, wL, wR, cTop, cLine);
+
+      ctx.restore();
+    }
+
+    /* ── left-half platter (cut at x = wx + wW) ── */
+    function drawLeftHalf(wx, wy, wz, alpha, cfg) {
+      const { wW, wL, wR, depthPx, cTop, cRight, cFront, cLine, cCut } = cfg;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      // Front face for left half (same as full panel)
+      const fl = iso(wx,    wy, wz+wL);
+      const fr = iso(wx+wW, wy, wz+wL);
+      drawDepthFace(fl, fr, depthPx, cFront, cLine);
+
+      // Cut face at x = wx+wW (right edge of left half)
+      const cb = iso(wx+wW, wy, wz);
+      const cf = iso(wx+wW, wy, wz+wL);
+      drawDepthFace(cb, cf, depthPx, cCut, cLine);
+
+      // Top face (left half only)
+      drawTopFace(wx, wy, wz, wW, wL, wR, cTop, cLine, roundRectLeftHalf);
+
+      ctx.restore();
+    }
+
+    /* ── hatch door on cut face ── */
+    function drawHatch(wx, wy, wz, cfg, openAmt, alpha) {
+      if (openAmt <= 0.01) return;
+      const { wW, wL, depthPx, cTop } = cfg;
+
+      // Cut face runs from iso(wx+wW, wy, wz) to iso(wx+wW, wy, wz+wL)
+      const cb = iso(wx+wW, wy, wz);
+      const cf = iso(wx+wW, wy, wz+wL);
+      const faceDX = cf.x - cb.x;
+      const faceDY = cf.y - cb.y;
+      const faceLen = Math.sqrt(faceDX*faceDX + faceDY*faceDY);
+      const fndx = faceDX/faceLen, fndy = faceDY/faceLen;
+      // Perpendicular to face (points "outward" from cut face — toward viewer in this iso view)
+      const fperpX = -fndy, fperpY = fndx;
+
+      // Hatch occupies ~35-65% of the face length, bottom 70% of face depth
+      const t0 = 0.3, t1 = 0.7;
+      const dTop = depthPx * 0.3;  // from top edge of face
+
+      // Hatch top edge corners (on the face, before opening)
+      const h0x = cb.x + t0 * faceDX + dTop * 0;
+      const h0y = cb.y + t0 * faceDY + dTop;
+      const h1x = cb.x + t1 * faceDX + dTop * 0;
+      const h1y = cb.y + t1 * faceDY + dTop;
+
+      const hatchH = depthPx * 0.7;  // door height on the face
+
+      // Door hinge is at h0, h1 (top of door)
+      // Door swings outward (in fperpX, fperpY direction) by openAmt
+      const angle = openAmt * Math.PI / 2.2;
+      const swingX = Math.sin(angle) * hatchH * fperpX;
+      const swingY = Math.sin(angle) * hatchH * fperpY;
+      const dropY  = Math.cos(angle) * hatchH;
+
+      ctx.save();
+      ctx.globalAlpha = alpha * openAmt;
+
+      // Void (dark cavity)
+      const voidH = hatchH * (0.2 + 0.8 * openAmt);
+      ctx.beginPath();
+      ctx.moveTo(h0x, h0y);
+      ctx.lineTo(h1x, h1y);
+      ctx.lineTo(h1x, h1y + voidH);
+      ctx.lineTo(h0x, h0y + voidH);
+      ctx.closePath();
+      ctx.fillStyle = '#0d0d0d';
+      ctx.fill();
+
+      // Door flap
+      ctx.beginPath();
+      ctx.moveTo(h0x,          h0y);
+      ctx.lineTo(h1x,          h1y);
+      ctx.lineTo(h1x + swingX, h1y + dropY + swingY);
+      ctx.lineTo(h0x + swingX, h0y + dropY + swingY);
+      ctx.closePath();
+      const dg = ctx.createLinearGradient(h0x, h0y, h0x + swingX, h0y + dropY);
+      dg.addColorStop(0, cTop);
+      dg.addColorStop(1, '#8a8880');
+      ctx.fillStyle = dg;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      // Hinge line
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(h0x, h0y);
+      ctx.lineTo(h1x, h1y);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    /* ── cables ── */
+    function drawCables(wx, wy, wz, cfg, alpha) {
+      const { wW, wL } = cfg;
+      // 6 attachment points in 2×3 grid on top face
+      const pts = [
+        [wx + wW*0.22, wz + wL*0.28],
+        [wx + wW*0.50, wz + wL*0.28],
+        [wx + wW*0.78, wz + wL*0.28],
+        [wx + wW*0.22, wz + wL*0.72],
+        [wx + wW*0.50, wz + wL*0.72],
+        [wx + wW*0.78, wz + wL*0.72],
+      ];
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.55;
+      ctx.strokeStyle = '#aaa9a4';
+      ctx.lineWidth = 0.7;
+      pts.forEach(([x, z]) => {
+        const pt = iso(x, wy, z);
+        ctx.beginPath();
+        ctx.moveTo(pt.x, pt.y);
+        ctx.lineTo(pt.x, -10);
+        ctx.stroke();
+        ctx.save();
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.fillStyle = '#888';
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+      ctx.restore();
+    }
+
+    /* ── depth labels ── */
+    function drawLabels(p, panels) {
+      const la = clamp((p - 0.86) / 0.1);
+      if (la <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = la * 0.65;
+      ctx.font = '10px Helvetica Neue, Helvetica, sans-serif';
+      ctx.fillStyle = '#555';
+      ctx.strokeStyle = '#2a2a2a';
+      ctx.lineWidth = 0.7;
+      ctx.setLineDash([3, 5]);
+
+      panels.forEach(({ wx, wy, wz, cfg, label }) => {
+        const { wW, wL } = cfg;
+        // Label at front-right corner of panel
+        const pt = iso(wx + wW, wy, wz + wL);
+        ctx.beginPath();
+        ctx.moveTo(pt.x + 6, pt.y);
+        ctx.lineTo(pt.x + 32, pt.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillText(label, pt.x + 35, pt.y + 4);
+        ctx.setLineDash([3, 5]);
+      });
+      ctx.restore();
+    }
+
+    /* ── panel configs ── */
+    const CFG = {
+      p2: { wW:300, wL:220, wR:42, depthPx: 12*1, cTop:'#e2dfd6', cRight:'#c4c1b8', cFront:'#d0cec6', cLine:'rgba(0,0,0,0.55)', cCut:'#9a9890' },
+      p4: { wW:300, wL:220, wR:42, depthPx: 24*1, cTop:'#b4b1a8', cRight:'#969390', cFront:'#a6a49c', cLine:'rgba(0,0,0,0.55)', cCut:'#7a7874' },
+      p6: { wW:300, wL:220, wR:42, depthPx: 36*1, cTop:'#848280', cRight:'#686664', cFront:'#767472', cLine:'rgba(0,0,0,0.55)', cCut:'#545250' },
+    };
+
+    // Scale depthPx with SC
+    function scaledCfg(base) {
+      return { ...base, depthPx: base.depthPx * SC };
+    }
+
+    /* World positions (final) */
+    const WX2 = 120, WZ2 = 0,   WY2 = 55;  // 2" — back-right, highest
+    const WX4 =  60, WZ4 = 90,  WY4 = 28;  // 4" — middle
+    const WX6 =   0, WZ6 = 180, WY6 = 0;   // 6" — front-left, lowest
+
+    /* ── main render ── */
+    let prog = 0;
+
+    function render(p) {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, W, H);
+
+      // Subtle ceiling grid at top
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.022)';
+      ctx.lineWidth = 1;
+      const gs = 68;
+      for (let x = 0; x < W; x += gs) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, H*0.15); ctx.stroke(); }
+      for (let y = 0; y < H*0.15; y += gs) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+      ctx.restore();
+
+      const c2 = scaledCfg(CFG.p2);
+      const c4 = scaledCfg(CFG.p4);
+      const c6 = scaledCfg(CFG.p6);
+
+      // ── Panel 2" (rises in scene 0) ──
+      const a2Rise  = map(p, 0,    0.18);
+      const a2Alpha = clamp(map(p, 0,    0.12));
+      const wy2 = WY2 - 160 + a2Rise * 160;
+
+      // ── Panel 4" (rises as HALF in scene 1, becomes full partway through scene 2) ──
+      const a4Rise  = map(p, 0.27, 0.43);
+      const a4Alpha = clamp(map(p, 0.25, 0.33));
+      const wy4 = WY4 - 160 + a4Rise * 160;
+      // Hatch open: peaks at scene 1 middle, closes entering scene 2
+      const hOpen  = map(p, 0.37, 0.52);
+      const hClose = 1 - map(p, 0.62, 0.72);
+      const hatchAmt = Math.min(hOpen, hClose);
+      // Half→full: the right half rises separately in scene 2
+      const halfToFull = map(p, 0.62, 0.73); // 0 = left half only, 1 = full
+
+      // ── Panel 6" (rises in scene 2→3) ──
+      const a6Rise  = map(p, 0.62, 0.80);
+      const a6Alpha = clamp(map(p, 0.60, 0.68));
+      const wy6 = WY6 - 160 + a6Rise * 160;
+
+      // ── Draw back-to-front: 2", then 4", then 6" ──
+
+      // 2" panel
+      if (a2Alpha > 0) {
+        drawCables(WX2, wy2, WZ2, c2, a2Alpha);
+        drawPlatter(WX2, wy2, WZ2, a2Alpha, c2);
+      }
+
+      // 4" panel
+      if (a4Alpha > 0) {
+        if (halfToFull < 1) {
+          // Left half of panel 4"
+          drawCables(WX4, wy4, WZ4, c4, a4Alpha);
+          drawLeftHalf(WX4, wy4, WZ4, a4Alpha, c4);
+          drawHatch(WX4, wy4, WZ4, c4, hatchAmt, a4Alpha);
+
+          // Right half rises from below alongside the hatch closing
+          if (halfToFull > 0) {
+            const rhWy = wy4 - (1 - halfToFull) * 80; // rises from 80px below
+            const rhAlpha = a4Alpha * halfToFull;
+            // Draw the right half as a separate platter offset by wW/2 in X
+            const halfWW = c4.wW / 2;
+            const c4r = { ...c4, wW: halfWW };
+            const o = iso(WX4 + halfWW, wy4, WZ4);
+            ctx.save();
+            ctx.globalAlpha = rhAlpha;
+            // Right face
+            const rb = iso(WX4 + c4.wW, wy4, WZ4);
+            const rf = iso(WX4 + c4.wW, wy4, WZ4 + c4.wL);
+            drawDepthFace(rb, rf, c4r.depthPx, c4.cRight, c4.cLine);
+            // Front face of right half
+            const fl = iso(WX4 + halfWW, rhWy, WZ4 + c4.wL);
+            const fr = iso(WX4 + c4.wW,  rhWy, WZ4 + c4.wL);
+            drawDepthFace(fl, fr, c4r.depthPx, c4.cFront, c4.cLine);
+            // Top: right half rounded rect (curved right, flat left)
+            const oRH = iso(WX4 + halfWW, rhWy, WZ4);
+            ctx.save();
+            ctx.transform(0.866*SC, 0.5*SC, -0.866*SC, 0.5*SC, oRH.x, oRH.y);
+            const r = Math.min(c4.wR, Math.min(halfWW, c4.wL)/2);
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(halfWW - r, 0);
+            ctx.arcTo(halfWW, 0, halfWW, r, r);
+            ctx.lineTo(halfWW, c4.wL - r);
+            ctx.arcTo(halfWW, c4.wL, halfWW - r, c4.wL, r);
+            ctx.lineTo(0, c4.wL);
+            ctx.closePath();
+            ctx.fillStyle = c4.cTop;
+            ctx.fill();
+            ctx.strokeStyle = c4.cLine;
+            ctx.lineWidth = 0.85 / SC;
+            ctx.stroke();
+            ctx.restore();
+            ctx.restore();
+          }
+        } else {
+          // Full panel
+          drawCables(WX4, wy4, WZ4, c4, a4Alpha);
+          drawPlatter(WX4, wy4, WZ4, a4Alpha, c4);
+        }
+      }
+
+      // 6" panel
+      if (a6Alpha > 0) {
+        drawCables(WX6, wy6, WZ6, c6, a6Alpha);
+        drawPlatter(WX6, wy6, WZ6, a6Alpha, c6);
+      }
+
+      // Depth labels in scene 3
+      if (p > 0.85 && a2Alpha > 0 && a4Alpha > 0 && a6Alpha > 0) {
+        drawLabels(p, [
+          { wx: WX2, wy: wy2, wz: WZ2, cfg: c2, label: '2"' },
+          { wx: WX4, wy: wy4, wz: WZ4, cfg: c4, label: '4"' },
+          { wx: WX6, wy: wy6, wz: WZ6, cfg: c6, label: '6"' },
+        ]);
+      }
+    }
+
+    /* ── text scenes ── */
+    const ranges = [
+      [0.04, 0.23],  // s0
+      [0.28, 0.49],  // s1
+      [0.53, 0.72],  // s2
+      [0.78, 1.00],  // s3
+    ];
+    function updateText(p) {
+      ranges.forEach(([a, b], i) => {
+        document.getElementById(`s${i}`).classList.toggle('on', p >= a && p <= b);
+      });
+      hint.classList.toggle('gone', p > 0.04);
+    }
+
+    /* ── scroll ── */
+    let rafQ = false;
+    window.addEventListener('scroll', () => {
+      if (rafQ) return;
+      rafQ = true;
+      requestAnimationFrame(() => {
+        rafQ = false;
+        const rect  = track.getBoundingClientRect();
+        const total = track.offsetHeight - window.innerHeight;
+        prog = clamp(-rect.top / total);
+        render(prog);
+        updateText(prog);
+      });
+    });
+
+    render(0);
+    updateText(0);
+  })();
+  </script>
+</body>
+</html>
