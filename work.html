@@ -99,6 +99,8 @@
 
     /* Portfolio section */
     #portfolio-section { display: none; margin-top: 56px; }
+    /* Portfolio grid — labels always visible until thumbnails added */
+    .portfolio-card .project-card-label { opacity: 1; background: linear-gradient(transparent, rgba(0,0,0,0.75)); }
     .portfolio-project { margin-bottom: 72px; }
     .portfolio-project h2 {
       font-size: 20px; font-weight: 400;
@@ -180,28 +182,33 @@
 
     <!-- Revealed after correct password -->
     <div id="portfolio-section">
+      <div class="project-grid" style="margin-top:32px;">
 
-      <div class="portfolio-project">
-        <h2>Cushion and Point</h2>
-        <div class="portfolio-img">
-          <img src="portfolio/cushion-point.jpg" alt="Cushion and Point" />
-        </div>
+        <a class="project-card portfolio-card" href="#">
+          <div class="project-card-label">Cushion &amp; Point</div>
+        </a>
+
+        <a class="project-card portfolio-card" href="#">
+          <div class="project-card-label">Dart &amp; Pillow</div>
+        </a>
+
+        <a class="project-card portfolio-card" href="#">
+          <div class="project-card-label">Platter</div>
+        </a>
+
+        <a class="project-card portfolio-card" href="#">
+          <div class="project-card-label">Projects and Details</div>
+        </a>
+
+        <a class="project-card portfolio-card" href="#">
+          <div class="project-card-label">Shedd Aquarium Lobby</div>
+        </a>
+
+        <a class="project-card portfolio-card" href="#">
+          <div class="project-card-label">TURF Showroom</div>
+        </a>
+
       </div>
-
-      <div class="portfolio-project">
-        <h2>Platter</h2>
-        <div class="portfolio-img">
-          <img src="portfolio/platter.jpg" alt="Platter" />
-        </div>
-      </div>
-
-      <div class="portfolio-project">
-        <h2>Dart and Pillow</h2>
-        <div class="portfolio-img">
-          <img src="portfolio/dart-pillow.jpg" alt="Dart and Pillow" />
-        </div>
-      </div>
-
     </div>
   </main>
 
