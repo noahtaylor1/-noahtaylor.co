@@ -5,7 +5,7 @@ import {
   applyBuild, applyDiffTiles, tickSim, animateCats,
   serialize, deserialize,
 } from "./sim.js";
-import { PAL, drawTile, drawCat, drawRemoteCursor } from "./art.js";
+import { PAL, drawTile, drawCat, drawRemoteCursor, drawPlane, drawTrain } from "./art.js";
 import { HostNet, GuestNet } from "./net.js";
 
 const $ = s => document.querySelector(s);
@@ -173,12 +173,16 @@ function toast(msg) {
 const TOOLS = [
   ["hand", "✋", "Pan"],
   ["road", "🛣", "Road"],
+  ["avenue", "🚗", "Avenue"],
+  ["bike", "🚲", "Bikes"],
   ["rzone", "🏠", "Homes"],
   ["wzone", "🐟", "Jobs"],
   ["park", "🌳", "Park"],
-  ["track", "🚃", "Tram"],
+  ["track", "🚃", "Rails"],
   ["station", "🔔", "Stop"],
   ["plaza", "⛲", "Plaza"],
+  ["airport", "✈️", "Airport"],
+  ["monument", "🗿", "Monument"],
   ["statue", "🧶", "Statue"],
   ["bulldoze", "💥", "Clear"],
 ];
@@ -339,6 +343,101 @@ function sendCursorThrottled() {
   else net?.send({ t: "cursor", x: mouse.wx, y: mouse.wy });
 }
 
+// ---------- trains ----------
+// Each contiguous track group gets a train shuttling end to end. Paths are
+// rebuilt from the grid once a second (tracks change rarely; the walk is
+// cheap). Purely decorative, so host and guest each animate locally.
+let trainPaths = [], trainPathsBuilt = 0;
+
+function buildTrainPaths() {
+  const seen = new Uint8Array(W * H);
+  const isTrack = i => state.grid[i] === T.TRACK || state.grid[i] === T.STATION;
+  const paths = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i0 = y * W + x;
+    if (!isTrack(i0) || seen[i0]) continue;
+    // flood the group
+    const group = [];
+    const stack = [i0];
+    seen[i0] = 1;
+    while (stack.length) {
+      const i = stack.pop();
+      group.push(i);
+      const gx = i % W, gy = (i / W) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = gx + dx, ny = gy + dy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H) {
+          const ni = ny * W + nx;
+          if (isTrack(ni) && !seen[ni]) { seen[ni] = 1; stack.push(ni); }
+        }
+      }
+    }
+    if (group.length < 4) continue;
+    // walk from an endpoint (degree 1) if one exists, else anywhere
+    const deg = i => {
+      const gx = i % W, gy = (i / W) | 0;
+      let d = 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = gx + dx, ny = gy + dy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H && isTrack(ny * W + nx)) d++;
+      }
+      return d;
+    };
+    let start = group.find(i => deg(i) === 1) ?? group[0];
+    const path = [];
+    const used = new Set();
+    let cur = start;
+    while (cur !== undefined && !used.has(cur)) {
+      used.add(cur);
+      path.push([cur % W, (cur / W) | 0]);
+      const gx = cur % W, gy = (cur / W) | 0;
+      cur = undefined;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = gx + dx, ny = gy + dy;
+        if (nx >= 0 && ny >= 0 && nx < W && ny < H) {
+          const ni = ny * W + nx;
+          if (isTrack(ni) && !used.has(ni)) { cur = ni; break; }
+        }
+      }
+    }
+    if (path.length >= 4) paths.push(path);
+  }
+  return paths;
+}
+
+function trainPose(path, sTiles) {
+  const f = Math.max(0, Math.min(path.length - 1.001, sTiles));
+  const i = f | 0, t = f - i;
+  const [x0, y0] = path[i], [x1, y1] = path[i + 1];
+  return {
+    x: x0 + (x1 - x0) * t + 0.5,
+    y: y0 + (y1 - y0) * t + 0.5,
+    angle: Math.atan2(y1 - y0, x1 - x0),
+  };
+}
+
+function drawTrains(time) {
+  if (time - trainPathsBuilt > 1) {
+    trainPaths = buildTrainPaths();
+    trainPathsBuilt = time;
+  }
+  const SPEED = 2.2; // tiles/sec
+  for (let g = 0; g < trainPaths.length; g++) {
+    const path = trainPaths[g];
+    const span = path.length - 1;
+    // ping-pong along the line, each train offset in phase
+    const cyc = (time * SPEED + g * 3.7) % (span * 2);
+    const head = cyc <= span ? cyc : span * 2 - cyc;
+    const dir = cyc <= span ? 1 : -1;
+    const engine = trainPose(path, head);
+    if (dir < 0) engine.angle += Math.PI;
+    drawTrain(ctx, engine.x, engine.y, engine.angle, time, g, true);
+    const car = trainPose(path, head - dir * 0.9);
+    if (dir < 0) car.angle += Math.PI;
+    drawTrain(ctx, car.x, car.y, car.angle, time, g, false);
+  }
+}
+
 // ---------- render ----------
 let lastT = performance.now();
 function frame(now) {
@@ -379,6 +478,16 @@ function frame(now) {
   const x0 = Math.max(0, Math.floor(wx0) - 1), x1 = Math.min(W - 1, Math.ceil(wx1));
   const y0 = Math.max(0, Math.floor(wy0) - 1), y1 = Math.min(H - 1, Math.ceil(wy1));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) drawTile(ctx, state, x, y, time);
+
+  // trains on the rails
+  drawTrains(time);
+
+  // planes circling airports (drawn above neighboring tiles)
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (state.grid[idx(x, y)] === T.AIRPORT) {
+      drawPlane(ctx, x + 0.5, y + 0.5, time, state.variant[idx(x, y)]);
+    }
+  }
 
   // cats
   for (const c of state.cats) drawCat(ctx, c, time);

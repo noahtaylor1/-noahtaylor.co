@@ -9,23 +9,26 @@ const T = {
   RZONE: 2, HOUSE: 3,     // residential zone -> grows into house
   WZONE: 4, WORK: 5,      // work zone -> grows into workplace
   PARK: 6,
-  TRACK: 7, STATION: 8,   // tram
+  TRACK: 7, STATION: 8,   // tram/train
   PLAZA: 9, STATUE: 10,
+  AVENUE: 11,             // wide fast road
+  BIKE: 12,               // bike path
+  AIRPORT: 13, MONUMENT: 14,
 };
 
-const COST = { road: 5, rzone: 10, wzone: 15, park: 20, track: 12, station: 40, plaza: 40, statue: 500, bulldoze: 1 };
+const COST = { road: 5, avenue: 12, bike: 3, rzone: 10, wzone: 15, park: 20, track: 12, station: 40, plaza: 40, airport: 400, monument: 150, statue: 500, bulldoze: 1 };
 
-const TOOL_TILE = { road: T.ROAD, rzone: T.RZONE, wzone: T.WZONE, park: T.PARK, track: T.TRACK, station: T.STATION, plaza: T.PLAZA, statue: T.STATUE };
+const TOOL_TILE = { road: T.ROAD, avenue: T.AVENUE, bike: T.BIKE, rzone: T.RZONE, wzone: T.WZONE, park: T.PARK, track: T.TRACK, station: T.STATION, plaza: T.PLAZA, airport: T.AIRPORT, monument: T.MONUMENT, statue: T.STATUE };
 
 const LEVELS = [
   { pop: 0,   name: "Kitten Corner",   bonus: 0 },
-  { pop: 10,  name: "Pawville",        bonus: 100, unlock: "Parks unlocked!" },
-  { pop: 25,  name: "Whisker Heights", bonus: 200, unlock: "Trams unlocked!" },
-  { pop: 50,  name: "Purropolis",      bonus: 400, unlock: "Plazas unlocked!" },
+  { pop: 10,  name: "Pawville",        bonus: 100, unlock: "Parks, avenues & bike paths unlocked!" },
+  { pop: 25,  name: "Whisker Heights", bonus: 200, unlock: "Trains unlocked!" },
+  { pop: 50,  name: "Purropolis",      bonus: 400, unlock: "Plazas, airports & monuments unlocked!" },
   { pop: 100, name: "Meowtropolis",    bonus: 800, unlock: "Golden Yarn Statue unlocked!" },
 ];
 // tool -> level index required
-const TOOL_LEVEL = { road: 0, rzone: 0, wzone: 0, bulldoze: 0, hand: 0, park: 1, track: 2, station: 2, plaza: 3, statue: 4 };
+const TOOL_LEVEL = { road: 0, rzone: 0, wzone: 0, bulldoze: 0, hand: 0, park: 1, avenue: 1, bike: 1, track: 2, station: 2, plaza: 3, airport: 3, monument: 3, statue: 4 };
 
 const HOUSE_CAP = 2, WORK_CAP = 3, MAX_CATS = 150;
 const CAT_COLORS = ["#aecbfa", "#f9c9d4", "#b9bdc4", "#c8e6c9", "#ffe0a3", "#e1d5f5"];
@@ -138,7 +141,11 @@ function buildDistanceField(state) {
         q.push([nd, nx, ny]);
       }
     };
-    for (const [dx, dy] of N4) push(x + dx, y + dy, d + 1);
+    for (const [dx, dy] of N4) {
+      if (inB(x + dx, y + dy) && walkable(state, x + dx, y + dy)) {
+        push(x + dx, y + dy, d + stepCost(state, x + dx, y + dy));
+      }
+    }
     if (state.grid[i] === T.STATION) {
       for (const [sx, sy, hops] of stations.linked(x, y)) push(sx, sy, d + hops * 0.35);
     }
@@ -148,7 +155,15 @@ function buildDistanceField(state) {
 
 function walkable(state, x, y) {
   const t = state.grid[idx(x, y)];
-  return t === T.ROAD || t === T.STATION || t === T.PLAZA;
+  return t === T.ROAD || t === T.AVENUE || t === T.BIKE || t === T.STATION || t === T.PLAZA;
+}
+
+// per-tile commute cost: avenues are fast, bikes zippy, roads normal
+function stepCost(state, x, y) {
+  const t = state.grid[idx(x, y)];
+  if (t === T.AVENUE) return 0.55;
+  if (t === T.BIKE) return 0.7;
+  return 1;
 }
 
 // groups of contiguous track (+stations); returns station->other stations in
@@ -248,12 +263,18 @@ function tickSim(state) {
   _sgCache = null;
   const events = [];
 
-  // zone growth (needs road adjacency)
+  // zone growth (needs road/avenue adjacency)
+  let airports = 0;
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = idx(x, y);
     const t = state.grid[i];
+    if (t === T.AIRPORT) airports++;
     if (t === T.RZONE || t === T.WZONE) {
-      const nearRoad = N4.some(([dx, dy]) => inB(x + dx, y + dy) && state.grid[idx(x + dx, y + dy)] === T.ROAD);
+      const nearRoad = N4.some(([dx, dy]) => {
+        if (!inB(x + dx, y + dy)) return false;
+        const nt = state.grid[idx(x + dx, y + dy)];
+        return nt === T.ROAD || nt === T.AVENUE;
+      });
       if (nearRoad && ++state.growth[i] >= 2) {
         state.grid[i] = t === T.RZONE ? T.HOUSE : T.WORK;
         state.growth[i] = 0;
@@ -317,9 +338,9 @@ function tickSim(state) {
   state.pop = state.cats.length;
   state.happiness = homes ? 0.5 + 0.3 * (parkSum / homes) + 0.2 * (commuteSum / homes < 25 ? 1 : 0) : 1;
 
-  // income: +2 per working cat, plus a small "tuna stipend" so an
-  // over-spent young city can never get permanently stuck at 0
-  state.income = state.cats.length * 2 + 3;
+  // income: +2 per working cat, +25 tourist fish per airport, plus a small
+  // "tuna stipend" so an over-spent young city can never get stuck at 0
+  state.income = state.cats.length * 2 + 3 + airports * 25;
   state.fish += state.income;
 
   // level ups
@@ -339,7 +360,7 @@ function nearAmenity(state, x, y, r) {
     const nx = x + dx, ny = y + dy;
     if (inB(nx, ny)) {
       const t = state.grid[idx(nx, ny)];
-      if (t === T.PARK || t === T.PLAZA || t === T.STATUE) return true;
+      if (t === T.PARK || t === T.PLAZA || t === T.STATUE || t === T.MONUMENT) return true;
     }
   }
   return false;
