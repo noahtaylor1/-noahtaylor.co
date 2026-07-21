@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kitty City 🐾 — build a town together</title>
+<style>
+  * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: "Comic Sans MS", "Chalkboard SE", "Marker Felt", system-ui, sans-serif;
+    background: #fffdf7; color: #1a1a1a;
+  }
+  #game { display: block; cursor: crosshair; }
+
+  /* ---------- start overlay ---------- */
+  #startOverlay {
+    position: fixed; inset: 0; background: #fffdf7;
+    display: flex; align-items: center; justify-content: center; z-index: 30;
+  }
+  .startCard { text-align: center; max-width: 420px; padding: 24px; }
+  .startCard h1 { font-size: 40px; letter-spacing: 1px; margin: 6px 0 2px; }
+  .startCard p.tag { color: #777; margin-bottom: 18px; }
+  .field { margin: 14px 0; text-align: left; }
+  .field label { font-size: 14px; color: #555; display: block; margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; padding: 12px 14px; font-size: 17px; font-family: inherit;
+    border: 3px solid #1a1a1a; border-radius: 14px; background: #fff;
+  }
+  .swatches { display: flex; gap: 10px; }
+  .swatch {
+    width: 44px; height: 44px; border-radius: 50%; border: 3px solid #1a1a1a;
+    cursor: pointer; transition: transform .1s;
+  }
+  .swatch.sel { transform: scale(1.22); box-shadow: 0 0 0 4px #fffdf7, 0 0 0 7px #1a1a1a; }
+  .big {
+    display: block; width: 100%; padding: 15px; margin: 10px 0; font-size: 19px;
+    font-family: inherit; font-weight: 700; cursor: pointer;
+    border: 3px solid #1a1a1a; border-radius: 16px;
+    background: #f9c9d4; box-shadow: 0 4px 0 #1a1a1a; transition: transform .06s;
+  }
+  .big:active { transform: translateY(3px); box-shadow: 0 1px 0 #1a1a1a; }
+  .big.blue { background: #aecbfa; }
+  .big.gray { background: #e7e4de; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; top: 10px; left: 10px; right: 10px; z-index: 10;
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; pointer-events: none;
+  }
+  .chip {
+    background: #fff; border: 3px solid #1a1a1a; border-radius: 14px;
+    padding: 7px 13px; font-weight: 700; font-size: 15px;
+    box-shadow: 0 3px 0 #1a1a1a; pointer-events: auto; white-space: nowrap;
+  }
+  #levelChip { display: flex; align-items: center; gap: 8px; }
+  #levelBar { width: 90px; height: 10px; border: 2px solid #1a1a1a; border-radius: 6px; overflow: hidden; background: #fff; }
+  #levelFill { height: 100%; background: #ffd97a; width: 0%; transition: width .5s; }
+  #shareBar { display: flex; gap: 6px; align-items: center; pointer-events: auto; }
+  #shareLink {
+    width: 150px; padding: 7px 9px; font-size: 12px; font-family: inherit;
+    border: 3px solid #1a1a1a; border-radius: 12px; background: #fff;
+  }
+  #copyLink {
+    padding: 7px 11px; font-family: inherit; font-weight: 700; cursor: pointer;
+    border: 3px solid #1a1a1a; border-radius: 12px; background: #ffd97a;
+    box-shadow: 0 3px 0 #1a1a1a;
+  }
+  #peers { font-size: 13px; }
+
+  /* ---------- toolbar ---------- */
+  #toolbar {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 7px; z-index: 10; background: #fff;
+    border: 3px solid #1a1a1a; border-radius: 20px; padding: 8px;
+    box-shadow: 0 4px 0 #1a1a1a; max-width: 96vw; overflow-x: auto;
+  }
+  .tool {
+    display: flex; flex-direction: column; align-items: center; gap: 1px;
+    min-width: 58px; padding: 7px 6px; cursor: pointer; font-family: inherit;
+    border: 3px solid transparent; border-radius: 14px; background: #fffdf7;
+  }
+  .tool.sel { border-color: #1a1a1a; background: #ffe9f0; }
+  .tool.locked { opacity: 0.45; cursor: default; }
+  .ticon { font-size: 21px; }
+  .tlabel { font-size: 11px; font-weight: 700; }
+  .cost { font-size: 10px; color: #888; }
+
+  /* ---------- toast & overlay ---------- */
+  #toast {
+    display: none; position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+    background: #ffd97a; border: 3px solid #1a1a1a; border-radius: 16px;
+    padding: 12px 20px; font-weight: 700; z-index: 20; box-shadow: 0 4px 0 #1a1a1a;
+    max-width: 90vw; text-align: center;
+  }
+  #msgOverlay {
+    display: none; position: fixed; inset: 0; z-index: 40;
+    background: rgba(255,253,247,0.94); align-items: center; justify-content: center;
+  }
+  .msgCard {
+    text-align: center; padding: 30px; border: 3px solid #1a1a1a; border-radius: 22px;
+    background: #fff; box-shadow: 0 5px 0 #1a1a1a; max-width: 380px;
+  }
+  .msgCard h2 { margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="startOverlay">
+  <div class="startCard">
+    <canvas id="titleCats" width="300" height="150" style="width:260px"></canvas>
+    <h1>Kitty City</h1>
+    <p class="tag">build a purrfect town together 🐾</p>
+
+    <div class="field">
+      <label>your cat name</label>
+      <input type="text" id="nameInput" maxlength="14" placeholder="Captain Whiskers">
+    </div>
+    <div class="field">
+      <label>your cursor cat</label>
+      <div class="swatches">
+        <div class="swatch sel" data-c="#f9c9d4" style="background:#f9c9d4"></div>
+        <div class="swatch" data-c="#aecbfa" style="background:#aecbfa"></div>
+        <div class="swatch" data-c="#b9bdc4" style="background:#b9bdc4"></div>
+        <div class="swatch" data-c="#c8e6c9" style="background:#c8e6c9"></div>
+        <div class="swatch" data-c="#ffe0a3" style="background:#ffe0a3"></div>
+      </div>
+    </div>
+
+    <div id="hostButtons">
+      <button class="big" id="btnNew">Start a new city 🏗</button>
+      <button class="big gray" id="btnContinue" style="display:none">Continue our city 💾</button>
+      <p class="tag" style="margin-top:10px;font-size:13px">
+        you'll get a link to send your co-mayor — keep this tab open, it hosts the city!
+      </p>
+    </div>
+    <div id="joinButtons" style="display:none">
+      <button class="big blue" id="btnJoin">Join the city 🐾</button>
+    </div>
+  </div>
+</div>
+
+<div id="hud" style="display:none">
+  <div class="chip">🐟 <span id="fish">0</span> <small id="income">+0</small></div>
+  <div class="chip">🐱 <span id="pop">0</span></div>
+  <div class="chip" id="levelChip">
+    <span id="levelName">Kitten Corner</span>
+    <div id="levelBar"><div id="levelFill"></div></div>
+    <small id="levelNext"></small>
+  </div>
+  <div class="chip"><span id="mood">😺</span></div>
+  <div class="chip" id="shareBar" style="display:none">
+    💌 <input id="shareLink" readonly>
+    <button id="copyLink">copy</button>
+  </div>
+  <div class="chip" id="peers" style="display:none_when_empty"></div>
+</div>
+
+<div id="toolbar" style="display:none"></div>
+<div id="toast"></div>
+
+<div id="msgOverlay">
+  <div class="msgCard">
+    <h2 id="msgTitle"></h2>
+    <p id="msgBody"></p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>

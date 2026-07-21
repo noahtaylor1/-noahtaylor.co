@@ -1,0 +1,473 @@
+// Kitty City — main: rendering, input, UI, host/guest orchestration.
+
+import {
+  W, H, T, COST, TOOL_LEVEL, LEVELS, newState, idx, inB,
+  applyBuild, applyDiffTiles, tickSim, animateCats,
+  serialize, deserialize,
+} from "./sim.js";
+import { PAL, drawTile, drawCat, drawRemoteCursor } from "./art.js";
+import { HostNet, GuestNet } from "./net.js";
+
+const $ = s => document.querySelector(s);
+const canvas = $("#game"), ctx = canvas.getContext("2d");
+
+// ---------- app state ----------
+let state = newState();
+let isHost = false;
+let net = null;               // HostNet or GuestNet
+let me = { name: "cat", color: "#f9c9d4" };
+let tool = "road";
+let cam = { x: W / 2, y: H / 2, scale: 22 };
+let remoteCursors = new Map(); // id -> {x,y,name,color,seen}
+let painting = false, lastPaint = null, panning = false, panStart = null;
+let mouse = { x: 0, y: 0, wx: 0, wy: 0 };
+let toastTimer = null;
+const SAVE_KEY = "kittycity-save-v1";
+const TICK_MS = 2000;
+
+// ---------- boot / start screen ----------
+const params = new URLSearchParams(location.search);
+const joinRoom = params.get("room");
+
+function boot() {
+  drawTitleCats($("#titleCats"));
+  const saved = localStorage.getItem(SAVE_KEY);
+  if (joinRoom) {
+    $("#hostButtons").style.display = "none";
+    $("#joinButtons").style.display = "";
+  } else {
+    if (saved) $("#btnContinue").style.display = "";
+  }
+  // restore identity
+  try {
+    const id = JSON.parse(localStorage.getItem("kittycity-id") || "null");
+    if (id) { $("#nameInput").value = id.name; selectColor(id.color); }
+  } catch {}
+
+  $("#btnNew").onclick = () => startHost(newState());
+  $("#btnContinue").onclick = () => {
+    try { startHost(deserialize(localStorage.getItem(SAVE_KEY))); }
+    catch { startHost(newState()); }
+  };
+  $("#btnJoin").onclick = () => startGuest(joinRoom);
+  document.querySelectorAll(".swatch").forEach(el => {
+    el.onclick = () => selectColor(el.dataset.c);
+  });
+}
+
+function selectColor(c) {
+  me.color = c;
+  document.querySelectorAll(".swatch").forEach(el =>
+    el.classList.toggle("sel", el.dataset.c === c));
+}
+
+function identity() {
+  me.name = ($("#nameInput").value || "cat").slice(0, 14);
+  localStorage.setItem("kittycity-id", JSON.stringify(me));
+}
+
+// ---------- host ----------
+function startHost(initial) {
+  identity();
+  state = initial;
+  isHost = true;
+  net = new HostNet(onGuestOp, relayCursorLocal, showPeers);
+  net.getStateJson = () => serialize(state);
+  net.ready.then(roomId => {
+    const link = location.origin + location.pathname + "?room=" + roomId;
+    $("#shareLink").value = link;
+    $("#shareBar").style.display = "";
+    enterGame();
+    setInterval(hostTick, TICK_MS);
+    setInterval(() => localStorage.setItem(SAVE_KEY, serialize(state)), 15000);
+    addEventListener("beforeunload", () => localStorage.setItem(SAVE_KEY, serialize(state)));
+  }).catch(() => {
+    enterGame();
+    toast("Playing offline — multiplayer broker unreachable 😿");
+  });
+}
+
+function hostTick() {
+  const { grown, levelUp } = tickSim(state);
+  if (grown.length) net.broadcast({ t: "tiles", changed: grown, fish: state.fish });
+  net.broadcast({
+    t: "econ", fish: state.fish, pop: state.pop, level: state.level,
+    happiness: state.happiness, income: state.income, cats: state.cats,
+  });
+  if (levelUp) {
+    net.broadcast({ t: "levelup", ...levelUp });
+    onLevelUp(levelUp);
+  }
+  refreshHud();
+}
+
+function onGuestOp(d) {
+  const res = applyBuild(state, d.tool, d.tiles);
+  if (res) net.broadcast({ t: "tiles", changed: res.changed, fish: state.fish });
+  refreshHud();
+}
+
+function relayCursorLocal(msg) { noteCursor(msg); }
+
+// ---------- guest ----------
+function startGuest(roomId) {
+  identity();
+  isHost = false;
+  net = new GuestNet(roomId, { name: me.name, color: me.color }, {
+    onOpen: () => enterGame(),
+    onState: d => { state = deserialize(d.json); refreshHud(); },
+    onTiles: d => { applyDiffTiles(state, d.changed); state.fish = d.fish; refreshHud(); },
+    onEcon: d => {
+      state.fish = d.fish; state.pop = d.pop; state.level = d.level;
+      state.happiness = d.happiness; state.income = d.income; state.cats = d.cats;
+      refreshHud();
+    },
+    onLevelup: d => onLevelUp(d),
+    onCursor: d => noteCursor(d),
+    onPeers: d => showPeers(d.names),
+    onClosed: () => overlayMsg("Host napped 💤", "The city lives in your partner's tab — ask them to reopen it, then rejoin."),
+    onNoRoom: () => overlayMsg("No city here 🐾", "That room isn't open right now. Ask your partner to start the city, then use their fresh link."),
+  });
+}
+
+function overlayMsg(title, body) {
+  $("#msgTitle").textContent = title;
+  $("#msgBody").textContent = body;
+  $("#msgOverlay").style.display = "flex";
+}
+
+// ---------- shared ----------
+function enterGame() {
+  $("#startOverlay").style.display = "none";
+  $("#hud").style.display = "";
+  $("#toolbar").style.display = "";
+  buildToolbar();
+  refreshHud();
+  requestAnimationFrame(frame);
+}
+
+function noteCursor(d) {
+  if (d.id === myCursorId()) return;
+  remoteCursors.set(d.id, { ...d, seen: performance.now() });
+}
+function myCursorId() { return isHost ? "host" : net?.peer?.id; }
+
+function showPeers(names) {
+  $("#peers").textContent = names.length ? "🐱 " + names.join(", ") : "";
+}
+
+function onLevelUp(l) {
+  toast(`⭐ Level up: ${l.name}! ${l.unlock || ""} +${l.bonus} fish`);
+  buildToolbar();
+}
+
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.style.display = "none"), 4200);
+}
+
+// ---------- toolbar / hud ----------
+const TOOLS = [
+  ["hand", "✋", "Pan"],
+  ["road", "🛣", "Road"],
+  ["rzone", "🏠", "Homes"],
+  ["wzone", "🐟", "Jobs"],
+  ["park", "🌳", "Park"],
+  ["track", "🚃", "Tram"],
+  ["station", "🔔", "Stop"],
+  ["plaza", "⛲", "Plaza"],
+  ["statue", "🧶", "Statue"],
+  ["bulldoze", "💥", "Clear"],
+];
+
+function buildToolbar() {
+  const bar = $("#toolbar");
+  bar.innerHTML = "";
+  for (const [id, icon, label] of TOOLS) {
+    const locked = state.level < (TOOL_LEVEL[id] ?? 0);
+    const b = document.createElement("button");
+    b.className = "tool" + (tool === id ? " sel" : "") + (locked ? " locked" : "");
+    const cost = COST[id] ? `<span class="cost">${COST[id]}🐟</span>` : "";
+    b.innerHTML = locked
+      ? `<span class="ticon">🔒</span><span class="tlabel">${LEVELS[TOOL_LEVEL[id]].pop} cats</span>`
+      : `<span class="ticon">${icon}</span><span class="tlabel">${label}</span>${cost}`;
+    if (!locked) b.onclick = () => { tool = id; buildToolbar(); };
+    bar.appendChild(b);
+  }
+}
+
+let _lastLevelSeen = -1;
+function refreshHud() {
+  if (state.level !== _lastLevelSeen) {
+    _lastLevelSeen = state.level;
+    buildToolbar(); // unlocks reflect current level even when joining mid-game
+  }
+  $("#fish").textContent = Math.floor(state.fish);
+  $("#pop").textContent = state.pop;
+  $("#income").textContent = "+" + (state.income || 0);
+  const lvl = LEVELS[state.level];
+  const next = LEVELS[state.level + 1];
+  $("#levelName").textContent = lvl.name;
+  if (next) {
+    const prev = lvl.pop;
+    const frac = Math.min(1, (state.pop - prev) / (next.pop - prev));
+    $("#levelFill").style.width = (frac * 100).toFixed(0) + "%";
+    $("#levelNext").textContent = `${state.pop}/${next.pop}`;
+  } else {
+    $("#levelFill").style.width = "100%";
+    $("#levelNext").textContent = "MAX";
+  }
+  const h = state.happiness ?? 1;
+  $("#mood").textContent = h > 0.85 ? "😻" : h > 0.6 ? "😺" : "🙀";
+}
+
+$("#copyLink") && ($("#copyLink").onclick = async () => {
+  await navigator.clipboard.writeText($("#shareLink").value).catch(() => {});
+  $("#shareLink").select();
+  document.execCommand && document.execCommand("copy");
+  toast("Link copied! Send it to your co-mayor 💌");
+});
+
+// ---------- input ----------
+function resize() {
+  canvas.width = innerWidth * devicePixelRatio;
+  canvas.height = innerHeight * devicePixelRatio;
+  canvas.style.width = innerWidth + "px";
+  canvas.style.height = innerHeight + "px";
+}
+addEventListener("resize", resize);
+resize();
+
+function screenToWorld(sx, sy) {
+  return [
+    (sx - innerWidth / 2) / cam.scale + cam.x,
+    (sy - innerHeight / 2) / cam.scale + cam.y,
+  ];
+}
+
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  const pan = tool === "hand" || e.button === 1 || e.button === 2 || e.shiftKey;
+  if (pan) {
+    panning = true;
+    panStart = { sx: e.clientX, sy: e.clientY, cx: cam.x, cy: cam.y };
+  } else if (e.button === 0) {
+    painting = true;
+    lastPaint = null;
+    paintAt(e.clientX, e.clientY);
+  }
+});
+canvas.addEventListener("pointermove", e => {
+  mouse.x = e.clientX; mouse.y = e.clientY;
+  [mouse.wx, mouse.wy] = screenToWorld(e.clientX, e.clientY);
+  sendCursorThrottled();
+  if (panning && panStart) {
+    cam.x = panStart.cx - (e.clientX - panStart.sx) / cam.scale;
+    cam.y = panStart.cy - (e.clientY - panStart.sy) / cam.scale;
+  } else if (painting) {
+    paintAt(e.clientX, e.clientY);
+  }
+});
+addEventListener("pointerup", () => { painting = false; panning = false; lastPaint = null; });
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const [wx0, wy0] = screenToWorld(e.clientX, e.clientY);
+  cam.scale = Math.max(9, Math.min(52, cam.scale * (e.deltaY < 0 ? 1.12 : 0.89)));
+  const [wx1, wy1] = screenToWorld(e.clientX, e.clientY);
+  cam.x += wx0 - wx1; cam.y += wy0 - wy1;
+}, { passive: false });
+
+// pinch zoom
+let pinch = null;
+canvas.addEventListener("touchstart", e => {
+  if (e.touches.length === 2) {
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    pinch = { d, scale: cam.scale };
+  }
+}, { passive: true });
+canvas.addEventListener("touchmove", e => {
+  if (pinch && e.touches.length === 2) {
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    cam.scale = Math.max(9, Math.min(52, pinch.scale * d / pinch.d));
+  }
+}, { passive: true });
+canvas.addEventListener("touchend", () => (pinch = null));
+
+function paintAt(sx, sy) {
+  const [wx, wy] = screenToWorld(sx, sy);
+  const x = Math.floor(wx), y = Math.floor(wy);
+  if (!inB(x, y)) return;
+  if (lastPaint && lastPaint[0] === x && lastPaint[1] === y) return;
+  // Bresenham from lastPaint for smooth drag lines
+  const tiles = [];
+  if (lastPaint) {
+    let [x0, y0] = lastPaint;
+    const dx = Math.abs(x - x0), dy = Math.abs(y - y0);
+    const sxx = x0 < x ? 1 : -1, syy = y0 < y ? 1 : -1;
+    let err = dx - dy;
+    while (x0 !== x || y0 !== y) {
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x0 += sxx; }
+      if (e2 < dx) { err += dx; y0 += syy; }
+      tiles.push([x0, y0]);
+    }
+  } else tiles.push([x, y]);
+  lastPaint = [x, y];
+
+  if (isHost) {
+    const res = applyBuild(state, tool, tiles);
+    if (res) {
+      net?.broadcast({ t: "tiles", changed: res.changed, fish: state.fish });
+      refreshHud();
+    }
+  } else {
+    net?.send({ t: "op", tool, tiles });
+  }
+}
+
+let lastCursorSend = 0;
+function sendCursorThrottled() {
+  const now = performance.now();
+  if (now - lastCursorSend < 45) return;
+  lastCursorSend = now;
+  if (isHost) net?.sendCursor(mouse.wx, mouse.wy, me.name, me.color);
+  else net?.send({ t: "cursor", x: mouse.wx, y: mouse.wy });
+}
+
+// ---------- render ----------
+let lastT = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  animateCats(state, dt);
+  const time = now / 1000;
+
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.fillStyle = PAL.bg;
+  ctx.fillRect(0, 0, innerWidth, innerHeight);
+
+  ctx.translate(innerWidth / 2, innerHeight / 2);
+  ctx.scale(cam.scale, cam.scale);
+  ctx.translate(-cam.x, -cam.y);
+
+  // world plate
+  ctx.fillStyle = PAL.grass;
+  ctx.beginPath();
+  const m = 0.4;
+  ctx.roundRect(-m, -m, W + 2 * m, H + 2 * m, 1.2);
+  ctx.fill();
+  ctx.lineWidth = 0.14;
+  ctx.strokeStyle = PAL.ink;
+  ctx.stroke();
+
+  // faint grid
+  ctx.strokeStyle = "rgba(0,0,0,0.045)";
+  ctx.lineWidth = 0.02;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x++) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+  for (let y = 0; y <= H; y++) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+  ctx.stroke();
+
+  // visible tile range
+  const [wx0, wy0] = screenToWorld(0, 0);
+  const [wx1, wy1] = screenToWorld(innerWidth, innerHeight);
+  const x0 = Math.max(0, Math.floor(wx0) - 1), x1 = Math.min(W - 1, Math.ceil(wx1));
+  const y0 = Math.max(0, Math.floor(wy0) - 1), y1 = Math.min(H - 1, Math.ceil(wy1));
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) drawTile(ctx, state, x, y, time);
+
+  // cats
+  for (const c of state.cats) drawCat(ctx, c, time);
+
+  // hover highlight
+  const hx = Math.floor(mouse.wx), hy = Math.floor(mouse.wy);
+  if (inB(hx, hy) && tool !== "hand") {
+    ctx.strokeStyle = "rgba(0,0,0,0.5)";
+    ctx.setLineDash([0.12, 0.08]);
+    ctx.lineWidth = 0.06;
+    ctx.strokeRect(hx + 0.05, hy + 0.05, 0.9, 0.9);
+    ctx.setLineDash([]);
+  }
+
+  // remote cursors (fade after 4s)
+  const nowMs = performance.now();
+  for (const [id, cur] of remoteCursors) {
+    if (nowMs - cur.seen > 4000) { remoteCursors.delete(id); continue; }
+    drawRemoteCursor(ctx, cur, cam.scale);
+  }
+
+  requestAnimationFrame(frame);
+}
+
+// ---------- title art (three hugging cats, like the sample) ----------
+function drawTitleCats(cv) {
+  if (!cv) return;
+  const c = cv.getContext("2d");
+  const s = cv.width / 300;
+  c.scale(s, s);
+  c.lineWidth = 7;
+  c.strokeStyle = "#1a1a1a";
+  c.lineJoin = "round";
+  const cat = (x, y, w, h, color, earL, earR) => {
+    c.fillStyle = color;
+    c.beginPath();
+    c.moveTo(x - w / 2, y + h / 2);
+    c.quadraticCurveTo(x - w / 2 - 8, y - h / 2, x + earL[0], y + earL[1]);
+    c.lineTo(x + earL[2], y + earL[3]);
+    c.quadraticCurveTo(x, y - h / 2 - 6, x + earR[2], y + earR[3]);
+    c.lineTo(x + earR[0], y + earR[1]);
+    c.quadraticCurveTo(x + w / 2 + 8, y - h / 2, x + w / 2, y + h / 2);
+    c.closePath();
+    c.fill(); c.stroke();
+  };
+  cat(75, 78, 95, 90, "#aecbfa", [-42, -55, -18, -38], [42, -55, 18, -38]);
+  cat(225, 78, 95, 90, "#f9c9d4", [-42, -55, -18, -38], [42, -55, 18, -38]);
+  cat(150, 88, 88, 80, "#b9bdc4", [-38, -52, -15, -35], [38, -52, 15, -35]);
+  // gray cat face
+  c.fillStyle = "#1a1a1a";
+  const eye = (ex, ey) => {
+    c.fillStyle = "#f5a623"; c.beginPath(); c.arc(ex, ey, 11, 0, 7); c.fill(); c.stroke();
+    c.fillStyle = "#1a1a1a"; c.beginPath(); c.arc(ex, ey, 5, 0, 7); c.fill();
+    c.fillStyle = "#fff"; c.beginPath(); c.arc(ex - 2, ey - 3, 2.5, 0, 7); c.fill();
+  };
+  eye(128, 82); eye(172, 82);
+  c.strokeStyle = "#1a1a1a"; c.lineWidth = 4;
+  c.beginPath(); c.moveTo(146, 96); c.lineTo(150, 100); c.lineTo(154, 96); c.stroke();
+  // hugging arms
+  c.lineWidth = 7;
+  const arm = (x0, y0, x1, y1, color) => {
+    c.strokeStyle = "#1a1a1a";
+    c.fillStyle = color;
+    c.beginPath();
+    c.moveTo(x0, y0);
+    c.quadraticCurveTo((x0 + x1) / 2, y0 + 25, x1, y1);
+    c.lineTo(x1, y1 + 16);
+    c.quadraticCurveTo((x0 + x1) / 2, y0 + 42, x0, y0 + 18);
+    c.closePath();
+    c.fill(); c.stroke();
+  };
+  arm(95, 95, 138, 118, "#aecbfa");
+  arm(205, 95, 162, 118, "#f9c9d4");
+}
+
+boot();
+
+// console/debug hook (also handy for future troubleshooting)
+window.__kc = {
+  get state() { return state; },
+  get cursors() { return [...remoteCursors.values()]; },
+  build(t, tiles) {
+    if (isHost) {
+      const res = applyBuild(state, t, tiles);
+      if (res) { net?.broadcast({ t: "tiles", changed: res.changed, fish: state.fish }); refreshHud(); }
+      return !!res;
+    }
+    net?.send({ t: "op", tool: t, tiles });
+    return true;
+  },
+  gridCount(type) { return state.grid.reduce((n, v) => n + (v === type ? 1 : 0), 0); },
+};
