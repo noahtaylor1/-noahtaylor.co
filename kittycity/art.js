@@ -122,7 +122,9 @@ function drawTile(ctx, state, x, y, time) {
   ctx.lineCap = "round";
 
   // buildings lean a little, each its own way
-  if (t === T.HOUSE || t === T.WORK || t === T.STATION || t === T.STATUE) {
+  if (t === T.HOUSE || t === T.WORK || t === T.STATION || t === T.STATUE ||
+      t === T.MILL || t === T.CAFE || t === T.LAB || t === T.SOLAR ||
+      t === T.OILPLANT || t === T.SCHOOL) {
     ctx.translate(0.5, 0.5);
     ctx.rotate(jit(v, 999, 0.05));
     ctx.translate(-0.5, -0.5);
@@ -143,6 +145,12 @@ function drawTile(ctx, state, x, y, time) {
     case T.STATUE: drawStatue(ctx, v, time); break;
     case T.AIRPORT: drawAirport(ctx, v); break;
     case T.MONUMENT: drawMonument(ctx, v); break;
+    case T.MILL: drawMill(ctx, v); break;
+    case T.CAFE: drawCafe(ctx, v); break;
+    case T.LAB: drawLab(ctx, v, time); break;
+    case T.SOLAR: drawSolar(ctx, v); break;
+    case T.OILPLANT: drawOilPlant(ctx, v, time); break;
+    case T.SCHOOL: drawSchool(ctx, v); break;
   }
   ctx.restore();
 }
@@ -477,6 +485,188 @@ function drawMonument(ctx, v) {
   ctx.restore();
 }
 
+function drawMill(ctx, v) {
+  const c = vc(v, 4);
+  sketch(ctx, () => wrectPath(ctx, 0.1, 0.4, 0.62, 0.5, v, 0.035), c, v);
+  // slanted barn roof
+  sketch(ctx, () => {
+    ctx.beginPath();
+    ctx.moveTo(0.08, 0.44); ctx.lineTo(0.24, 0.2 + jit(v, 1, 0.03));
+    ctx.lineTo(0.58, 0.2 + jit(v, 2, 0.03)); ctx.lineTo(0.74, 0.44);
+    ctx.closePath();
+  }, c, v + 1);
+  // giant yarn ball silo
+  sketch(ctx, () => blobPath(ctx, 0.78, 0.56, 0.17, 0.17, v + 2, 0.12, 7), "#f9c9d4", v + 2);
+  ctx.lineWidth = 0.03;
+  wline(ctx, [[0.64, 0.5], [0.9, 0.48]], v + 3, 0.015); ctx.stroke();
+  wline(ctx, [[0.63, 0.6], [0.92, 0.6]], v + 4, 0.015); ctx.stroke();
+  wline(ctx, [[0.66, 0.68], [0.9, 0.7]], v + 5, 0.015); ctx.stroke();
+  ctx.lineWidth = LINE;
+  // stitched door
+  sketch(ctx, () => wrectPath(ctx, 0.3, 0.62, 0.18, 0.28, v + 6, 0.02), PAL.bg, v + 6);
+}
+
+function drawCafe(ctx, v) {
+  const c = vc(v, 5);
+  sketch(ctx, () => wrectPath(ctx, 0.14, 0.4, 0.72, 0.5, v, 0.03), c, v);
+  // striped awning
+  const aw = () => wrectPath(ctx, 0.1, 0.3, 0.8, 0.16, v + 1, 0.025);
+  sketch(ctx, aw, "#fffdf7", v + 1);
+  ctx.lineWidth = 0.04;
+  for (let k = 0; k < 4; k++) {
+    wline(ctx, [[0.2 + k * 0.18, 0.31], [0.2 + k * 0.18, 0.45]], v + 2 + k, 0.012);
+    ctx.stroke();
+  }
+  ctx.lineWidth = LINE;
+  // coffee cup sign with fishtail steam
+  sketch(ctx, () => wrectPath(ctx, 0.38, 0.56, 0.22, 0.18, v + 7, 0.02), PAL.bg, v + 7);
+  ctx.lineWidth = 0.035;
+  wline(ctx, [[0.45, 0.54], [0.43, 0.48], [0.47, 0.44]], v + 8, 0.012); ctx.stroke();
+  wline(ctx, [[0.53, 0.54], [0.55, 0.47], [0.51, 0.43]], v + 9, 0.012); ctx.stroke();
+  ctx.lineWidth = LINE;
+  // ears on the awning corners
+  sketch(ctx, () => { ctx.beginPath(); ctx.moveTo(0.12, 0.32); ctx.lineTo(0.16, 0.18); ctx.lineTo(0.26, 0.3); ctx.closePath(); }, c, v + 10);
+  sketch(ctx, () => { ctx.beginPath(); ctx.moveTo(0.88, 0.32); ctx.lineTo(0.84, 0.18); ctx.lineTo(0.74, 0.3); ctx.closePath(); }, c, v + 11);
+}
+
+function drawLab(ctx, v, time) {
+  sketch(ctx, () => wrectPath(ctx, 0.12, 0.38, 0.76, 0.52, v, 0.03), "#e1d5f5", v);
+  // antenna with ear-tips
+  ctx.lineWidth = 0.045;
+  wline(ctx, [[0.26, 0.38], [0.24, 0.14]], v + 1, 0.015); ctx.stroke();
+  ctx.lineWidth = LINE;
+  sketch(ctx, () => blobPath(ctx, 0.24, 0.11, 0.045, 0.045, v + 2, 0.2, 5), PAL.gold, v + 2);
+  // big flask window with bubbling catnip
+  const flask = () => {
+    ctx.beginPath();
+    ctx.moveTo(0.52, 0.48); ctx.lineTo(0.52, 0.58);
+    ctx.lineTo(0.42 + jit(v, 3, 0.015), 0.78); ctx.lineTo(0.7 - jit(v, 4, 0.015), 0.78);
+    ctx.lineTo(0.6, 0.58); ctx.lineTo(0.6, 0.48);
+    ctx.closePath();
+  };
+  sketch(ctx, flask, "#c8e6c9", v + 5);
+  // bubbles rise on a slow loop
+  ctx.fillStyle = PAL.ink;
+  for (let k = 0; k < 3; k++) {
+    const ph = ((time * 0.5 + k * 0.33) % 1);
+    ctx.globalAlpha = 1 - ph;
+    ctx.beginPath();
+    ctx.arc(0.56 + jit(v, 6 + k, 0.05), 0.72 - ph * 0.3, 0.018, 0, 7);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSolar(ctx, v) {
+  // tilted panel
+  const panel = () => {
+    ctx.beginPath();
+    ctx.moveTo(0.14 + jit(v, 1, 0.02), 0.62);
+    ctx.lineTo(0.34 + jit(v, 2, 0.02), 0.3);
+    ctx.lineTo(0.88 + jit(v, 3, 0.02), 0.34);
+    ctx.lineTo(0.72 + jit(v, 4, 0.02), 0.68);
+    ctx.closePath();
+  };
+  sketch(ctx, panel, "#aecbfa", v);
+  ctx.lineWidth = 0.03;
+  wline(ctx, [[0.3, 0.48], [0.78, 0.5]], v + 5, 0.012); ctx.stroke();
+  wline(ctx, [[0.42, 0.34], [0.32, 0.62]], v + 6, 0.012); ctx.stroke();
+  wline(ctx, [[0.62, 0.33], [0.52, 0.66]], v + 7, 0.012); ctx.stroke();
+  ctx.lineWidth = LINE;
+  // legs
+  ctx.lineWidth = 0.05;
+  wline(ctx, [[0.3, 0.62], [0.3, 0.84]], v + 8, 0.015); ctx.stroke();
+  wline(ctx, [[0.66, 0.66], [0.68, 0.86]], v + 9, 0.015); ctx.stroke();
+  ctx.lineWidth = LINE;
+  // sun doodle + a cat napping on the warm panel, obviously
+  sketch(ctx, () => blobPath(ctx, 0.16, 0.16, 0.09, 0.09, v + 10, 0.15, 6), PAL.gold, v + 10);
+  sketch(ctx, () => blobPath(ctx, 0.56, 0.38, 0.1, 0.055, v + 11, 0.15, 6), "#b9bdc4", v + 11);
+  ctx.lineWidth = 0.035;
+  wline(ctx, [[0.64, 0.4], [0.7, 0.36]], v + 12, 0.01); ctx.stroke(); // tail
+  ctx.lineWidth = LINE;
+}
+
+function drawOilPlant(ctx, v, time) {
+  // fat fish-oil tank
+  sketch(ctx, () => blobPath(ctx, 0.42, 0.62, 0.3, 0.26, v, 0.07, 8), "#d9d3c8", v);
+  ctx.lineWidth = 0.035;
+  wline(ctx, [[0.16, 0.56], [0.68, 0.54]], v + 1, 0.012); ctx.stroke();
+  ctx.lineWidth = LINE;
+  // fish label
+  blobPath(ctx, 0.4, 0.66, 0.09, 0.05, v + 2, 0.18, 6); ctx.stroke();
+  wline(ctx, [[0.49, 0.66], [0.56, 0.61], [0.56, 0.71], [0.49, 0.66]], v + 3, 0.01);
+  ctx.stroke();
+  // chimney + puffing smoke (animated loop)
+  sketch(ctx, () => wrectPath(ctx, 0.7, 0.24, 0.14, 0.42, v + 4, 0.02), "#c8c2b6", v + 4);
+  for (let k = 0; k < 3; k++) {
+    const ph = (time * 0.35 + k * 0.33) % 1;
+    ctx.globalAlpha = 0.5 * (1 - ph);
+    ctx.fillStyle = "#b9bdc4";
+    blobPath(ctx, 0.77 + ph * 0.12 + jit(v, 6 + k, 0.03), 0.2 - ph * 0.25, 0.07 + ph * 0.08, 0.06 + ph * 0.06, v + 8 + k, 0.2, 6);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawSchool(ctx, v) {
+  const c = vc(v, 1);
+  sketch(ctx, () => wrectPath(ctx, 0.1, 0.36, 0.8, 0.54, v, 0.03), c, v);
+  // peaked roof with a flag
+  sketch(ctx, () => {
+    ctx.beginPath();
+    ctx.moveTo(0.08, 0.4); ctx.lineTo(0.5 + jit(v, 1, 0.03), 0.16); ctx.lineTo(0.92, 0.4);
+    ctx.closePath();
+  }, c, v + 1);
+  ctx.lineWidth = 0.04;
+  wline(ctx, [[0.5, 0.18], [0.5, 0.04]], v + 2, 0.01); ctx.stroke();
+  ctx.lineWidth = LINE;
+  sketch(ctx, () => { ctx.beginPath(); ctx.moveTo(0.5, 0.05); ctx.lineTo(0.68, 0.09); ctx.lineTo(0.5, 0.14); ctx.closePath(); }, "#f9c9d4", v + 3);
+  // door + mortarboard sign
+  sketch(ctx, () => wrectPath(ctx, 0.42, 0.64, 0.16, 0.26, v + 4, 0.02), PAL.bg, v + 4);
+  sketch(ctx, () => wrectPath(ctx, 0.2, 0.46, 0.2, 0.05, v + 5, 0.012), PAL.ink, v + 5);
+  ctx.fillStyle = PAL.ink;
+  ctx.beginPath(); ctx.arc(0.3, 0.53, 0.025, 0, 7); ctx.fill();
+  ctx.lineWidth = 0.02;
+  wline(ctx, [[0.3, 0.53], [0.38, 0.56]], v + 6, 0.008); ctx.stroke();
+  ctx.lineWidth = LINE;
+}
+
+// --- infrastructure overlays (drawn by main.js after tiles) ---
+
+// blinking "no power" doodle over a browned-out building
+function drawUnpowered(ctx, x, y, time) {
+  if ((time * 2 | 0) % 2 === 0) return; // blink
+  ctx.save();
+  ctx.translate(x + 0.72, y + 0.1);
+  const v = ((x * 31 + y * 17) | 0) + boil(time);
+  ctx.lineWidth = 0.05;
+  ctx.strokeStyle = PAL.ink;
+  sketch(ctx, () => blobPath(ctx, 0, 0.08, 0.16, 0.16, v, 0.15, 6), "#ffe0a3", v);
+  // little lightning scribble
+  wline(ctx, [[0.03, -0.02], [-0.04, 0.08], [0.02, 0.08], [-0.03, 0.18]], v + 1, 0.012);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// angry red traffic scribble on a congested tile
+function drawCongestion(ctx, x, y, load, time) {
+  ctx.save();
+  ctx.translate(x, y);
+  const v = ((x * 53 + y * 29) | 0) + boil(time);
+  ctx.strokeStyle = "rgba(220,80,80,0.75)";
+  ctx.lineWidth = 0.045;
+  const n = Math.min(3, 1 + (load | 0));
+  for (let k = 0; k < n; k++) {
+    wline(ctx, [
+      [0.2 + jit(v, k * 3, 0.06), 0.3 + k * 0.2],
+      [0.5, 0.24 + k * 0.2 + jit(v, k * 3 + 1, 0.05)],
+      [0.8 - jit(v, k * 3 + 2, 0.06), 0.3 + k * 0.2],
+    ], v + k, 0.03);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // little plane that orbits each airport (drawn by main.js after all tiles)
 function drawPlane(ctx, cx, cy, time, seed) {
   const a = time * 0.9 + (seed % 977);
@@ -590,6 +780,18 @@ function drawCat(ctx, c, time) {
   ctx.beginPath(); ctx.arc(-s * 0.2, -s * 0.06, 0.032 + jit(v, 8, 0.008), 0, 7); ctx.fill();
   ctx.beginPath(); ctx.arc(s * 0.21, -s * 0.04, 0.032 + jit(v, 9, 0.008), 0, 7); ctx.fill();
   catMouth(ctx, 0, s * 0.12, 0.06, v);
+  // graduates wear a tiny crooked mortarboard
+  if (c.edu) {
+    ctx.save();
+    ctx.translate(0, -s * 0.62);
+    ctx.rotate(jit(v, 20, 0.2));
+    sketch(ctx, () => wrectPath(ctx, -0.13, -0.03, 0.26, 0.06, v + 21, 0.012), PAL.ink, v + 21);
+    ctx.lineWidth = 0.025;
+    wline(ctx, [[0.1, 0], [0.16, 0.1]], v + 22, 0.008); ctx.stroke();
+    ctx.fillStyle = PAL.gold;
+    ctx.beginPath(); ctx.arc(0.17, 0.12, 0.025, 0, 7); ctx.fill();
+    ctx.restore();
+  }
   ctx.restore();
 }
 
@@ -620,4 +822,4 @@ function drawRemoteCursor(ctx, cur, scale) {
   ctx.restore();
 }
 
-export { PAL, drawTile, drawCat, drawRemoteCursor, drawPlane, drawTrain };
+export { PAL, drawTile, drawCat, drawRemoteCursor, drawPlane, drawTrain, drawUnpowered, drawCongestion };

@@ -73,7 +73,8 @@
     position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 7px; z-index: 10; background: #fff;
     border: 3px solid #1a1a1a; border-radius: 20px; padding: 8px;
-    box-shadow: 0 4px 0 #1a1a1a; max-width: 96vw; overflow-x: auto;
+    box-shadow: 0 4px 0 #1a1a1a; max-width: 96vw;
+    flex-wrap: wrap; justify-content: center;
   }
   .tool {
     display: flex; flex-direction: column; align-items: center; gap: 1px;
@@ -150,6 +151,8 @@
     <small id="levelNext"></small>
   </div>
   <div class="chip"><span id="mood">😺</span></div>
+  <div class="chip"><span id="power">⚡ 0/0</span></div>
+  <div class="chip"><span id="grads">🎓 0</span></div>
   <div class="chip" id="shareBar" style="display:none">
     💌 <input id="shareLink" readonly>
     <button id="copyLink">copy</button>

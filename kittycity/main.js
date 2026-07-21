@@ -3,9 +3,9 @@
 import {
   W, H, T, COST, TOOL_LEVEL, LEVELS, newState, idx, inB,
   applyBuild, applyDiffTiles, tickSim, animateCats,
-  serialize, deserialize,
+  serialize, deserialize, computePower, computeCongestion,
 } from "./sim.js";
-import { PAL, drawTile, drawCat, drawRemoteCursor, drawPlane, drawTrain } from "./art.js";
+import { PAL, drawTile, drawCat, drawRemoteCursor, drawPlane, drawTrain, drawUnpowered, drawCongestion } from "./art.js";
 import { HostNet, GuestNet } from "./net.js";
 
 const $ = s => document.querySelector(s);
@@ -93,6 +93,7 @@ function hostTick() {
   net.broadcast({
     t: "econ", fish: state.fish, pop: state.pop, level: state.level,
     happiness: state.happiness, income: state.income, cats: state.cats,
+    grads: state.grads, powerCap: state.powerCap, powerDemand: state.powerDemand,
   });
   if (levelUp) {
     net.broadcast({ t: "levelup", ...levelUp });
@@ -120,6 +121,7 @@ function startGuest(roomId) {
     onEcon: d => {
       state.fish = d.fish; state.pop = d.pop; state.level = d.level;
       state.happiness = d.happiness; state.income = d.income; state.cats = d.cats;
+      state.grads = d.grads; state.powerCap = d.powerCap; state.powerDemand = d.powerDemand;
       refreshHud();
     },
     onLevelup: d => onLevelUp(d),
@@ -176,14 +178,20 @@ const TOOLS = [
   ["avenue", "🚗", "Avenue"],
   ["bike", "🚲", "Bikes"],
   ["rzone", "🏠", "Homes"],
-  ["wzone", "🐟", "Jobs"],
+  ["wzone", "🐟", "Market"],
+  ["mill", "🧶", "Mill"],
+  ["cafe", "☕", "Cafe"],
+  ["lab", "🧪", "Lab"],
+  ["solar", "☀️", "Solar"],
+  ["oilplant", "🏭", "Oil"],
+  ["school", "🎓", "School"],
   ["park", "🌳", "Park"],
   ["track", "🚃", "Rails"],
   ["station", "🔔", "Stop"],
   ["plaza", "⛲", "Plaza"],
   ["airport", "✈️", "Airport"],
   ["monument", "🗿", "Monument"],
-  ["statue", "🧶", "Statue"],
+  ["statue", "🏆", "Statue"],
   ["bulldoze", "💥", "Clear"],
 ];
 
@@ -225,7 +233,17 @@ function refreshHud() {
     $("#levelNext").textContent = "MAX";
   }
   const h = state.happiness ?? 1;
-  $("#mood").textContent = h > 0.85 ? "😻" : h > 0.6 ? "😺" : "🙀";
+  $("#mood").textContent = (h > 0.85 ? "😻" : h > 0.6 ? "😺" : h > 0.4 ? "😾" : "🙀")
+    + " " + Math.round(h * 100) + "%";
+  // power chip: green when capacity covers demand, red in brownout
+  const cap = state.powerCap ?? 0, dem = state.powerDemand ?? 0;
+  const pw = $("#power");
+  if (pw) {
+    pw.textContent = "⚡ " + dem + "/" + cap;
+    pw.style.color = dem > cap ? "#c0392b" : "#1a1a1a";
+  }
+  const gr = $("#grads");
+  if (gr) gr.textContent = "🎓 " + (state.grads ?? 0);
 }
 
 $("#copyLink") && ($("#copyLink").onclick = async () => {
@@ -440,6 +458,7 @@ function drawTrains(time) {
 
 // ---------- render ----------
 let lastT = performance.now();
+let _infraPower = null, _infraCong = null, _infraBuilt = -9;
 function frame(now) {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
@@ -478,6 +497,21 @@ function frame(now) {
   const x0 = Math.max(0, Math.floor(wx0) - 1), x1 = Math.min(W - 1, Math.ceil(wx1));
   const y0 = Math.max(0, Math.floor(wy0) - 1), y1 = Math.min(H - 1, Math.ceil(wy1));
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) drawTile(ctx, state, x, y, time);
+
+  // infrastructure overlays: derived locally from synced grid+cats, so host
+  // and guests see the same warnings without extra network traffic
+  if (time - _infraBuilt > 1) {
+    _infraPower = computePower(state);
+    _infraCong = computeCongestion(state);
+    _infraBuilt = time;
+  }
+  if (_infraPower) {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const i = idx(x, y);
+      if (_infraPower.unpowered[i]) drawUnpowered(ctx, x, y, time);
+      if (_infraCong[i] > 1) drawCongestion(ctx, x, y, _infraCong[i] - 1, time);
+    }
+  }
 
   // trains on the rails
   drawTrains(time);
