@@ -582,12 +582,15 @@
         meanR += Math.sqrt(dx * dx + dy * dy);
       }
       meanR /= N;
-      var P = Math.max(1, Math.round(meanR / opts.baseSpacing));
+      // One extra revolution started from the DEAD CENTER (t0 = 0) so the base
+      // fully closes -- no leftover hole in the middle. The innermost turn
+      // spirals from r=0 out to ~one baseSpacing, capping the center; the rest
+      // tile out to the rim as before.
+      var P = Math.max(1, Math.round(meanR / opts.baseSpacing)) + 1;
       var totalBase = P * N;
-      var t0 = Math.min(0.5, (opts.baseSpacing * 0.5) / (meanR || 1));  // start at ~half a pass from center
       var rimLen = ringLens[0];
       for (var kk = 0; kk <= totalBase; kk++) {
-        var tt = t0 + (1 - t0) * (kk / totalBase);
+        var tt = kk / totalBase;              // 0 (center) -> 1 (rim)
         var m = kk % N;
         var px = cx + (B[m * 3] - cx) * tt;
         var py = cy + (B[m * 3 + 1] - cy) * tt;
