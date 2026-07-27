@@ -950,25 +950,41 @@
     if (!lastSliced) return;
     var path = lastSliced.path;
     var n = path.length / 4;
-    var feed = currentFeedMmS();
     var heat = (viewMode === "heat");
 
-    // lap time per point (s) = local loop length / feed; log-scaled color
-    var laps = new Float64Array(n);
-    var minLap = Infinity, maxLap = -Infinity;
+    // local radius of curvature per point (mm), from the 3-point circumradius
+    // through each point's immediate neighbors -- small radius = tight turn,
+    // where adjacent passes crowd close together with little room to cool;
+    // log-scaled color, same as the old lap-time metric.
+    var RADIUS_CAP = 5000;   // mm -- straight/near-straight runs clamp here
+    var radii = new Float64Array(n);
+    var minR = Infinity, maxR = -Infinity;
     for (var i = 0; i < n; i++) {
-      var lap = Math.max(path[i * 4 + 3], 1e-3) / feed;
-      laps[i] = lap;
-      if (lap < minLap) minLap = lap;
-      if (lap > maxLap) maxLap = lap;
+      var i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1);
+      var ax = path[i0 * 4], ay = path[i0 * 4 + 1], az = path[i0 * 4 + 2];
+      var bx = path[i * 4], by = path[i * 4 + 1], bz = path[i * 4 + 2];
+      var cx = path[i1 * 4], cy = path[i1 * 4 + 1], cz = path[i1 * 4 + 2];
+      var a = Math.hypot(bx - cx, by - cy, bz - cz);
+      var b = Math.hypot(ax - cx, ay - cy, az - cz);
+      var c = Math.hypot(ax - bx, ay - by, az - bz);
+      var ux = bx - ax, uy = by - ay, uz = bz - az;
+      var vx = cx - ax, vy = cy - ay, vz = cz - az;
+      var crx = uy * vz - uz * vy, cry = uz * vx - ux * vz, crz = ux * vy - uy * vx;
+      var area2 = Math.hypot(crx, cry, crz);   // 2x triangle area
+      var r = area2 > 1e-9 ? (a * b * c) / (2 * area2) : RADIUS_CAP;
+      if (r > RADIUS_CAP || !isFinite(r)) r = RADIUS_CAP;
+      radii[i] = r;
+      if (r < minR) minR = r;
+      if (r > maxR) maxR = r;
     }
-    var lmin = Math.log(minLap), lmax = Math.log(maxLap);
+    var lmin = Math.log(Math.max(minR, 1e-3)), lmax = Math.log(Math.max(maxR, 1e-3));
     var lspan = Math.max(lmax - lmin, 1e-9);
 
     var tmp = new THREE.Color();
     function colorAt(i, target) {
       if (!heat) { target.setHex(0xffffff); return; }
-      target.copy(heatColor((Math.log(laps[i]) - lmin) / lspan));
+      // hot (red, t=0) = small radius; cool (blue, t=1) = large radius
+      target.copy(heatColor((Math.log(radii[i]) - lmin) / lspan));
     }
 
     // ---- CURVE mode: just the toolpath line ----------------------------
@@ -1055,8 +1071,9 @@
     // legend (heat view only)
     if (heat) {
       document.getElementById("legend").style.display = "block";
-      document.getElementById("legendmin").textContent = minLap.toFixed(1) + "s lap (HOT - heat builds)";
-      document.getElementById("legendmax").textContent = maxLap.toFixed(1) + "s lap (cool)";
+      document.getElementById("legendmin").textContent = minR.toFixed(1) + "mm radius (HOT - tight turn)";
+      document.getElementById("legendmax").textContent =
+        (maxR >= RADIUS_CAP ? "≥" + RADIUS_CAP : maxR.toFixed(1)) + "mm radius (cool)";
     }
   }
 

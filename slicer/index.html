@@ -115,11 +115,11 @@
       <input id="animslider" type="range" min="0" max="1000" value="1000">
     </div>
     <div id="legend">
-      <h3>Heat map -- lap time</h3>
+      <h3>Heat map -- tight radii</h3>
       <div id="legendbar"></div>
       <div class="lbl"><span id="legendmin"></span></div>
       <div class="lbl"><span id="legendmax"></span></div>
-      <div class="lbl" style="margin-top:4px">Red = the nozzle comes back around quickly (heat builds up); blue = long laps, more cooling time.</div>
+      <div class="lbl" style="margin-top:4px">Red = tight turn radius (adjacent passes crowd together, heat builds up); blue = open curve, more room to cool.</div>
     </div>
     <div id="dropzone">Drop FBX / OBJ / STL / 3DM</div>
     <div id="status"></div>
@@ -139,7 +139,7 @@
 <script src="vendor/rhino3dm_wasm_b64.js"></script>
 <!-- bump ?v= whenever slicer.js/app.js change, so browsers can't serve a
      stale cached copy (symptom: new buttons visible but doing nothing) -->
-<script src="slicer.js?v=15"></script>
-<script src="app.js?v=15"></script>
+<script src="slicer.js?v=16"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
