@@ -923,7 +923,7 @@
   }
 
   function currentFeedMmS() {
-    var beadArea = S.extrusionWidth * S.spacing;
+    var beadArea = GingerSlicer.beadArea(S.extrusionWidth, S.spacing);
     return Math.min(S.printSpeed, S.maxVolumetricSpeed / beadArea);
   }
 

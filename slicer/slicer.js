@@ -675,7 +675,7 @@
     var n = path.length / 4;
     if (n < 2) throw new Error("Empty path");
 
-    var beadArea = S.extrusionWidth * S.layerHeight;     // mm^2
+    var beadArea = api.beadArea(S.extrusionWidth, S.layerHeight); // mm^2
     var ePerMm = beadArea * S.extrusionMultiplier;       // filament area = 1mm^2
     var feedReq = S.printSpeed * 60;                     // mm/min
     var volCap = (S.maxVolumetricSpeed / beadArea) * 60; // mm/min
@@ -817,7 +817,15 @@
     };
   }
 
-  var api = { weld: weld, analyze: analyze, buildField: buildField, extractRing: extractRing, slicePath: slicePath, makeGcode: makeGcode };
+  // mm^2 cross-sectional area of the extruded bead -- a rectangle capped with
+  // two semicircular ends (the "stadium" shape slicers use), width x height.
+  // Mirrors bead_area() in rhino_curve_to_gcode_ginger_g1.py exactly, so the
+  // volumetric-speed cap matches the Rhino script for the same settings.
+  function beadArea(width, height) {
+    return width * height - (height * height) * (1 - Math.PI / 4);
+  }
+
+  var api = { weld: weld, analyze: analyze, buildField: buildField, extractRing: extractRing, slicePath: slicePath, makeGcode: makeGcode, beadArea: beadArea };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.GingerSlicer = api;
 })(typeof self !== "undefined" ? self : this);
