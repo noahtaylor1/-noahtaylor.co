@@ -12,6 +12,7 @@
     { group: "Model" },
     { key: "units", label: "Model units", type: "select", options: ["mm", "cm", "m", "inches"], value: "inches" },
     { key: "upAxis", label: "Up axis", type: "select", options: ["auto", "Y up", "Z up"], value: "auto" },
+    { key: "scalePct", label: "Scale (%)", type: "num", value: 100, step: 5, min: 1 },
 
     { group: "Toolpath" },
     { key: "spacing", label: "Distance between revolutions (mm)", type: "num", value: 3, step: 0.5, min: 0.2 },
@@ -82,7 +83,7 @@
   // Settings whose change requires RE-SLICING (geometry changes); everything
   // else only needs the preview/gcode rebuilt. Any button press updates the
   // model automatically -- no need to hit Slice again by hand.
-  var RESLICE_KEYS = ["units", "upAxis", "spacing", "baseOn", "baseSpacing",
+  var RESLICE_KEYS = ["units", "upAxis", "scalePct", "spacing", "baseOn", "baseSpacing",
                       "ptsPerRev", "seamDeg", "seamAtLowest", "traceTopRim",
                       "removeTopRevs", "smoothingOn", "smoothing"];
 
@@ -263,7 +264,7 @@
       status("Settings changed -- updating slice ...");
       resliceTimer = setTimeout(function () {
         resliceTimer = null;
-        if (item.key === "units" || item.key === "upAxis") buildGhost();
+        if (item.key === "units" || item.key === "upAxis" || item.key === "scalePct") buildGhost();
         runSlice();
       }, 350);
     } else {
@@ -733,7 +734,8 @@
 
   // -------------------------------------------------- transform raw -> mm Z-up
   function unitScale() {
-    return { mm: 1, cm: 10, m: 1000, inches: 25.4 }[S.units] || 1;
+    var u = { mm: 1, cm: 10, m: 1000, inches: 25.4 }[S.units] || 1;
+    return u * ((S.scalePct > 0 ? S.scalePct : 100) / 100);
   }
   function effectiveUpAxis() {
     if (S.upAxis === "Y up") return "y";
@@ -772,7 +774,7 @@
     el.textContent = "Size: " +
       (bb.max[0] - bb.min[0]).toFixed(1) + " x " +
       (bb.max[1] - bb.min[1]).toFixed(1) + " x " +
-      (bb.max[2] - bb.min[2]).toFixed(1) + " mm (X Y Z, after units/axis)";
+      (bb.max[2] - bb.min[2]).toFixed(1) + " mm (X Y Z, after units/axis/scale)";
   }
 
   // ------------------------------------------------------------ ghost mesh
