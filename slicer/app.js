@@ -24,6 +24,7 @@
     { key: "removeTopRevs", label: "Remove top revolutions (taper fix)", type: "num", value: 1, step: 1, min: 0 },
     { key: "smoothingOn", label: "Curve smoothing (de-jag)", type: "check", value: true },
     { key: "smoothing", label: "Smoothing strength (iterations)", type: "num", value: 3, step: 1, min: 1 },
+    { key: "heightOffPlate", label: "Height off build plate (mm)", type: "num", value: 4.1, step: 0.1, min: 0 },
 
     { group: "Preview bead" },
     { key: "visualBeadWidth", label: "Visual bead width (mm)", type: "num", value: 9, step: 0.5, min: 0.2 },
@@ -67,7 +68,6 @@
     { key: "bedCenterX", label: "Bed center X (mm)", type: "num", value: 400, step: 10, min: 0 },
     { key: "bedCenterY", label: "Bed center Y (mm)", type: "num", value: 400, step: 10, min: 0 },
     { key: "bedRotationDeg", label: "Rotation on bed (deg)", type: "num", value: 0, step: 5, min: -360 },
-    { key: "heightOffPlate", label: "Height off build plate (mm)", type: "num", value: 4.1, step: 0.1, min: 0 },
     { key: "purgeQuantity", label: "Purge quantity", type: "num", value: 5000, step: 500, min: 0 }
   ];
 
