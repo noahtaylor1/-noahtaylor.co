@@ -21,6 +21,11 @@
   #slicebtn:disabled { background: #2a3038; color: #5a6372; cursor: default; }
   #exportbtn { background: #39c46d; color: #08110b; }
   #exportbtn:disabled { background: #2a3038; color: #5a6372; cursor: default; }
+  #sendbtn { background: #d29922; color: #14171c; }
+  #sendbtn:disabled { background: #2a3038; color: #5a6372; cursor: default; }
+  #settings .row input[type=text] {
+    width: 150px; background: #14171c; color: #e8edf5; border: 1px solid #303845;
+    border-radius: 4px; padding: 3px 6px; font-size: 11px; }
   #filerow { padding: 0 14px 6px; }
   #filerow input { width: 100%; color: #7d8798; font-size: 12px; }
   #modelinfo, #stats { padding: 4px 14px; color: #9aa5b5; font-size: 12px; }
@@ -86,6 +91,7 @@
     <div id="actions">
       <button id="slicebtn" disabled>Slice</button>
       <button id="exportbtn" disabled>Export gcode</button>
+      <button id="sendbtn" disabled title="Upload to the Ginger G1 via your print relay (Printer panel)">Send</button>
     </div>
     <div id="filerow"><input type="file" id="filein" accept=".fbx,.obj,.stl,.3dm"></div>
     <div id="modelinfo">No model loaded.</div>
@@ -133,7 +139,7 @@
 <script src="vendor/rhino3dm_wasm_b64.js"></script>
 <!-- bump ?v= whenever slicer.js/app.js change, so browsers can't serve a
      stale cached copy (symptom: new buttons visible but doing nothing) -->
-<script src="slicer.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="slicer.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

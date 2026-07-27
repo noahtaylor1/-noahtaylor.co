@@ -68,8 +68,16 @@
     { key: "bedCenterX", label: "Bed center X (mm)", type: "num", value: 400, step: 10, min: 0 },
     { key: "bedCenterY", label: "Bed center Y (mm)", type: "num", value: 400, step: 10, min: 0 },
     { key: "bedRotationDeg", label: "Rotation on bed (deg)", type: "num", value: 0, step: 5, min: -360 },
-    { key: "purgeQuantity", label: "Purge quantity", type: "num", value: 5000, step: 500, min: 0 }
+    { key: "purgeQuantity", label: "Purge quantity", type: "num", value: 5000, step: 500, min: 0 },
+
+    { group: "Printer" },
+    { key: "relayUrl", label: "Relay URL", type: "text", value: "https://applemachine.local:9876" },
+    { key: "relayToken", label: "Relay token", type: "text", value: "" },
+    { key: "sendStart", label: "Start print after send", type: "check", value: false }
   ];
+
+  // Printer settings persist per-device (the token never ships in this file)
+  var PERSIST_KEYS = ["relayUrl", "relayToken", "sendStart"];
 
   // Settings whose change requires RE-SLICING (geometry changes); everything
   // else only needs the preview/gcode rebuilt. Any button press updates the
@@ -191,6 +199,11 @@
       inp = document.createElement("input");
       inp.type = "checkbox";
       inp.checked = item.value;
+    } else if (item.type === "text") {
+      inp = document.createElement("input");
+      inp.type = "text";
+      inp.value = item.value;
+      inp.spellcheck = false;
     } else {
       inp = document.createElement("input");
       inp.type = "number";
@@ -209,14 +222,29 @@
       if (item.group) return;
       var inp = inputs[item.key];
       if (item.type === "check") S[item.key] = inp.checked;
-      else if (item.type === "select") S[item.key] = inp.value;
+      else if (item.type === "select" || item.type === "text") S[item.key] = inp.value;
       else S[item.key] = parseFloat(inp.value) || 0;
     });
   }
 
+  // restore persisted printer settings for this device
+  PERSIST_KEYS.forEach(function (k) {
+    var v = null;
+    try { v = localStorage.getItem("ginger_" + k); } catch (e) {}
+    if (v === null) return;
+    var inp = inputs[k];
+    if (!inp) return;
+    if (inp.type === "checkbox") { inp.checked = (v === "true"); S[k] = inp.checked; }
+    else { inp.value = v; S[k] = v; }
+  });
+
   var resliceTimer = null;
   function onSettingChange(item) {
     readSettings();
+    if (PERSIST_KEYS.indexOf(item.key) >= 0) {
+      try { localStorage.setItem("ginger_" + item.key, String(S[item.key])); } catch (e) {}
+      return;   // printer settings never touch the slice/preview
+    }
     if (item.key === "nozzle") {
       // nozzle picks a default extrusion width + visual bead width (editable afterward)
       var w = NOZZLE_WIDTHS[S.nozzle];
@@ -885,6 +913,7 @@
         (lastSliced.base ? lastSliced.base.passes + " base passes, " : "") +
         (lastSliced.path.length / 4).toFixed(0) + " points." + w);
       document.getElementById("exportbtn").disabled = false;
+      document.getElementById("sendbtn").disabled = false;
     } catch (err) {
       status("SLICE ERROR: " + err.message, true);
     }
@@ -1072,6 +1101,38 @@
       "Revolutions: " + lastSliced.revs +
       (lastSliced.base ? " | Base passes: " + lastSliced.base.passes : "");
   }
+
+  // ------------------------------------------------- send to printer
+  document.getElementById("sendbtn").addEventListener("click", function () {
+    if (!lastSliced) return;
+    readSettings();
+    var url = (S.relayUrl || "").replace(/\/+$/, "");
+    if (!url) { status("Set the Relay URL in the Printer panel first.", true); return; }
+    if (!S.relayToken) { status("Set the Relay token in the Printer panel first (it lives on the relay Mac, not in this page).", true); return; }
+    buildGcode();
+    var btn = document.getElementById("sendbtn");
+    btn.disabled = true;
+    var fname = rawName + "_ginger.gcode";
+    status("Sending " + fname + " to the printer via " + url + " ...");
+    fetch(url + "/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: S.relayToken, filename: fname, gcode: lastGcode.text, start: !!S.sendStart })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      btn.disabled = false;
+      if (res.ok) {
+        status("Sent " + res.filename + (res.started
+          ? " -- PRINT STARTED on the G1."
+          : " -- uploaded to the printer (start it from the touchscreen / Mainsail)."));
+      } else {
+        status("Printer send failed: " + (res.error || JSON.stringify(res)), true);
+      }
+    }).catch(function (err) {
+      btn.disabled = false;
+      status("Could not reach the relay at " + url + ". First time on this device? Open " +
+        url + "/health in a new tab, accept the certificate warning, then retry. (" + err + ")", true);
+    });
+  });
 
   document.getElementById("exportbtn").addEventListener("click", function () {
     if (!lastSliced) return;
