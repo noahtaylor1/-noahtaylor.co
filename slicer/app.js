@@ -15,7 +15,7 @@
     { key: "scalePct", label: "Scale (%)", type: "num", value: 100, step: 5, min: 1 },
 
     { group: "Toolpath" },
-    { key: "spacing", label: "Distance between revolutions (mm)", type: "num", value: 3, step: 0.5, min: 0.2 },
+    { key: "spacing", label: "Distance between revolutions (mm)", type: "num", value: 2, step: 0.5, min: 0.2 },
     { key: "baseOn", label: "Close the bottom (flat base spiral)", type: "check", value: true },
     { key: "baseSpacing", label: "Base spiral pass spacing (mm)", type: "num", value: 9.5, step: 0.5, min: 0.5 },
     { key: "ptsPerRev", label: "Points per revolution", type: "num", value: 256, step: 16, min: 32 },
