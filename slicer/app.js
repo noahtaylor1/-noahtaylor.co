@@ -6,7 +6,12 @@
   // Defaults mirror rhino_curve_to_gcode_ginger_g1.py (8mm nozzle,
   // Generic PETG GF standards: bed 65, zones 190, retraction 100@50,
   // PA 0.3/0.5, rotation 456/8000, flat 11mm/s, accel 500).
-  var NOZZLE_WIDTHS = { "8": 9.5, "5": 6.0, "3": 3.6 };
+  // Mirrors NOZZLE_PROFILES in rhino_curve_to_gcode_ginger_g1.py. Widths are
+  // nozzle_diameter x 1.2 (EXTRUSION_WIDTH_MULTIPLIER) except 8mm, which has a
+  // confirmed override (9.5) from a real OrcaSlicer process profile. Max layer
+  // height is that script's per-nozzle physical clamp on LAYER_HEIGHT/spacing.
+  var NOZZLE_WIDTHS = { "8": 9.5, "5": 6.0, "3": 3.6, "1.8": 2.16, "1": 1.2 };
+  var NOZZLE_MAX_LAYER_HEIGHT = { "8": 5.0, "5": 3.5, "3": 2.5, "1.8": 2.5, "1": 1.8 };
 
   var SCHEMA = [
     { group: "Model" },
@@ -32,7 +37,7 @@
     { key: "visualBeadHeight", label: "Visual bead height (mm)", type: "num", value: 3, step: 0.5, min: 0.2 },
 
     { group: "Nozzle / Extrusion" },
-    { key: "nozzle", label: "Nozzle size (mm)", type: "select", options: ["8", "5", "3"], value: "8" },
+    { key: "nozzle", label: "Nozzle size (mm)", type: "select", options: ["8", "5", "3", "1.8", "1"], value: "8" },
     { key: "extrusionWidth", label: "Extrusion width (mm)", type: "num", value: 9.5, step: 0.1, min: 0.2 },
     { key: "extrusionMultiplier", label: "Extrusion rate (flow multiplier)", type: "num", value: 1.0, step: 0.01, min: 0 },
     { key: "maxVolumetricSpeed", label: "Max volumetric speed (mm^3/s)", type: "num", value: 200, step: 5, min: 1 },
@@ -246,6 +251,7 @@
       try { localStorage.setItem("ginger_" + item.key, String(S[item.key])); } catch (e) {}
       return;   // printer settings never touch the slice/preview
     }
+    var clampMsg = "";
     if (item.key === "nozzle") {
       // nozzle picks a default extrusion width + visual bead width (editable afterward)
       var w = NOZZLE_WIDTHS[S.nozzle];
@@ -253,6 +259,15 @@
       S.extrusionWidth = w;
       inputs.visualBeadWidth.value = w;
       S.visualBeadWidth = w;
+      // clamp spacing to this nozzle's max layer height, same as LAYER_HEIGHT
+      // clamping in rhino_curve_to_gcode_ginger_g1.py's apply_nozzle_profile()
+      var maxLH = NOZZLE_MAX_LAYER_HEIGHT[S.nozzle];
+      if (maxLH && S.spacing > maxLH) {
+        clampMsg = "Spacing " + S.spacing.toFixed(2) + "mm exceeds " + S.nozzle +
+          "mm nozzle max (" + maxLH.toFixed(2) + "mm) -- clamped.";
+        inputs.spacing.value = maxLH;
+        S.spacing = maxLH;
+      }
     }
     updateModelInfo();
     if (!rawSoup) return;
@@ -261,7 +276,7 @@
       // geometry changed -- re-slice automatically (debounced so typing a
       // number doesn't fire once per keystroke)
       if (resliceTimer) clearTimeout(resliceTimer);
-      status("Settings changed -- updating slice ...");
+      status("Settings changed -- updating slice ..." + (clampMsg ? " " + clampMsg : ""));
       resliceTimer = setTimeout(function () {
         resliceTimer = null;
         if (item.key === "units" || item.key === "upAxis" || item.key === "scalePct") buildGhost();
