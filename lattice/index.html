@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lattice Filler</title>
+<style>
+  :root {
+    --bg: #1c1e22; --panel: #26292f; --panel2: #2e323a;
+    --text: #d7dae0; --dim: #8a9099; --accent: #4fc37f; --accent2: #5aa7e8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.5 -apple-system, "Helvetica Neue", sans-serif;
+         background: var(--bg); color: var(--text); overflow: hidden; }
+  #viewport { position: fixed; inset: 0; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 280px;
+           background: var(--panel); border: 1px solid #3a3f48; border-radius: 10px;
+           padding: 14px 16px; z-index: 10; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
+  h1 { font-size: 15px; margin: 0 0 10px; }
+  h1 small { color: var(--dim); font-weight: 400; font-size: 11px; }
+  .row { margin: 9px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .row label { color: var(--dim); }
+  select, input[type=number] {
+    background: var(--panel2); color: var(--text); border: 1px solid #444a55;
+    border-radius: 6px; padding: 4px 6px; width: 130px; font: inherit; }
+  input[type=checkbox] { accent-color: var(--accent); }
+  button { width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 7px;
+           font: inherit; font-weight: 600; cursor: pointer;
+           background: var(--panel2); color: var(--text); }
+  button.primary { background: var(--accent); color: #10241a; }
+  button.blue { background: var(--accent2); color: #0d2337; }
+  button:disabled { opacity: .35; cursor: default; }
+  #drop { border: 1.5px dashed #4a505c; border-radius: 8px; padding: 14px;
+          text-align: center; color: var(--dim); cursor: pointer; }
+  #drop.hover { border-color: var(--accent); color: var(--accent); }
+  #status { margin-top: 10px; padding: 8px 10px; background: var(--panel2);
+            border-radius: 7px; min-height: 34px; color: var(--dim);
+            white-space: pre-line; font-size: 12px; }
+  #bar { height: 4px; background: #3a3f48; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  #barFill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .fixed-note { color: var(--dim); font-size: 11px; }
+</style>
+</head>
+<body>
+<div id="viewport"></div>
+<div id="panel">
+  <h1>Lattice Filler <small>10 mm cells</small></h1>
+  <div id="drop">Drop a .3dm / .stl / .obj here<br>or click to browse</div>
+  <input type="file" id="file" accept=".3dm,.stl,.obj" style="display:none">
+  <div class="row"><label>Lattice</label><select id="lattice"></select></div>
+  <div class="row"><label>Cell edges</label><input type="checkbox" id="edges" checked></div>
+  <div class="row"><label>Strut radius (mm)</label><input type="number" id="radius" value="1.2" min="0.2" max="4" step="0.1"></div>
+  <div class="row"><label>Joint smoothing (mm)</label><input type="number" id="blend" value="0.7" min="0.1" max="3" step="0.1"></div>
+  <div class="row"><label>Detail (voxel mm)</label><input type="number" id="detail" value="0.4" min="0.25" max="1.5" step="0.05"></div>
+  <div class="row"><label>Show input</label><input type="checkbox" id="showInput" checked></div>
+  <button id="generate" class="primary" disabled>Generate lattice</button>
+  <button id="solid" class="blue" disabled>Build smooth mesh</button>
+  <button id="export" disabled>Export STL</button>
+  <div id="status">Load a model to begin.</div>
+  <div id="bar"><div id="barFill"></div></div>
+</div>
+
+<script>
+  // ES modules don't load over file:// — the UI would render but do nothing
+  if (location.protocol === 'file:') {
+    addEventListener('DOMContentLoaded', () => {
+      document.getElementById('status').textContent =
+        'This page must be served over http, not opened as a file.\n' +
+        'Run: python3 -m http.server 8741  (in this folder)\n' +
+        'then open http://localhost:8741';
+      document.getElementById('status').style.color = '#e8a75a';
+    });
+  }
+</script>
+<script src="vendor/rhino3dm.min.js"></script>
+<script src="vendor/rhino3dm_wasm_b64.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three.module.js",
+    "three/addons/": "./vendor/"
+  }
+}
+</script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
