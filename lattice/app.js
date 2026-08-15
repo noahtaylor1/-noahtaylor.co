@@ -473,9 +473,9 @@ async function buildSolid() {
     await frame(); await frame();
     const t0 = performance.now();
     state.solid = await buildSmoothMesh(state.lattice, {
-      radius: parseFloat(ui.radius.value) || 1.2,
-      blend: parseFloat(ui.blend.value) || 0.7,
-      voxel: parseFloat(ui.detail.value) || 0.4,
+      radius: parseFloat(ui.radius.value) || 0.8,
+      blend: parseFloat(ui.blend.value) || 2,
+      voxel: parseFloat(ui.detail.value) || 0.1,
       accel: state.accel,
       onProgress: async (n, total, phase) => {
         status((phase === 'stamping' ? 'Evaluating strut field … '
@@ -494,7 +494,7 @@ async function buildSolid() {
     g.setAttribute('normal', new THREE.BufferAttribute(state.solid.normals, 3));
     g.setIndex(new THREE.BufferAttribute(state.solid.indices, 1));
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x5aa7e8, metalness: 0.1, roughness: 0.5,
+      color: 0xffffff, metalness: 0.05, roughness: 0.6,
     });
     state.solidMesh = new THREE.Mesh(g, mat);
     scene.add(state.solidMesh);
