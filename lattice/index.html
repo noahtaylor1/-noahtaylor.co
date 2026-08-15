@@ -23,6 +23,8 @@
   select, input[type=number] {
     background: var(--panel2); color: var(--text); border: 1px solid #444a55;
     border-radius: 6px; padding: 4px 6px; width: 130px; font: inherit; }
+  .dims { display: flex; gap: 4px; }
+  .dims input[type=number] { width: 46px; padding: 4px 4px; }
   input[type=checkbox] { accent-color: var(--accent); }
   button { width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 7px;
            font: inherit; font-weight: 600; cursor: pointer;
@@ -47,6 +49,18 @@
   <h1>Lattice Filler <small>10 mm cells</small></h1>
   <div id="drop">Drop a .3dm / .stl / .obj here<br>or click to browse</div>
   <input type="file" id="file" accept=".3dm,.stl,.obj" style="display:none">
+  <div class="row"><label>Primitive</label><select id="prim">
+    <option value="cube">Cube</option>
+    <option value="cylinder">Cylinder</option>
+    <option value="sphere">Sphere</option>
+  </select></div>
+  <div class="row"><label id="dimsLabel">W × D × H (mm)</label><span class="dims">
+    <input type="number" id="dimA" value="100" min="10" step="10">
+    <input type="number" id="dimB" value="100" min="10" step="10">
+    <input type="number" id="dimC" value="100" min="10" step="10">
+  </span></div>
+  <button id="loadPrim">Load primitive</button>
+  <div class="row"><label>Scale %</label><input type="number" id="scale" value="100" min="1" max="1000" step="10"></div>
   <div class="row"><label>Lattice</label><select id="lattice"></select></div>
   <div class="row"><label>Cell edges</label><input type="checkbox" id="edges" checked></div>
   <div class="row"><label>Strut radius (mm)</label><input type="number" id="radius" value="1.2" min="0.2" max="4" step="0.1"></div>

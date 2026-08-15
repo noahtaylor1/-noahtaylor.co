@@ -44,7 +44,8 @@ renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, came
 // state
 // ---------------------------------------------------------------------------
 const state = {
-  soup: null,        // Float64Array triangle soup (mm)
+  soup: null,        // Float64Array triangle soup (mm), after scaling
+  baseSoup: null,    // unscaled soup as loaded/built
   fileName: null,
   accel: null,
   lattice: null,     // result of generateLattice
@@ -60,6 +61,9 @@ const ui = {
   radius: $('radius'), blend: $('blend'), detail: $('detail'), showInput: $('showInput'),
   generate: $('generate'), solid: $('solid'), export: $('export'),
   status: $('status'), barFill: $('barFill'),
+  prim: $('prim'), dimsLabel: $('dimsLabel'),
+  dimA: $('dimA'), dimB: $('dimB'), dimC: $('dimC'),
+  loadPrim: $('loadPrim'), scale: $('scale'),
 };
 
 for (const key of Object.keys(LATTICES)) {
@@ -120,7 +124,19 @@ async function loadFromArrayBuffer(name, buffer) {
   else throw new Error('Unsupported file type: .' + ext);
 
   if (!soup || soup.length === 0) throw new Error('No triangles found in file.');
+  ui.scale.value = 100;
+  setModel(name, soup);
+}
 
+// shared entry for uploads and primitives; applies the current Scale %
+function setModel(name, baseSoup) {
+  state.baseSoup = baseSoup;
+  const pct = (parseFloat(ui.scale.value) || 100) / 100;
+  let soup = baseSoup;
+  if (pct !== 1) {
+    soup = new Float64Array(baseSoup.length);
+    for (let i = 0; i < baseSoup.length; i++) soup[i] = baseSoup[i] * pct;
+  }
   state.soup = soup;
   state.fileName = name.replace(/\.[^.]+$/, '');
   state.accel = null;
@@ -134,10 +150,86 @@ async function loadFromArrayBuffer(name, buffer) {
   ui.export.disabled = true;
 
   const b = bboxOfSoup(soup);
-  status(`${name}\n${(soup.length / 9).toLocaleString()} triangles, ` +
+  status(`${name}${pct !== 1 ? ' @ ' + (pct * 100) + '%' : ''}\n` +
+    `${(soup.length / 9).toLocaleString()} triangles, ` +
     `${(b.maxX - b.minX).toFixed(1)} × ${(b.maxY - b.minY).toFixed(1)} × ${(b.maxZ - b.minZ).toFixed(1)} mm`);
   fitCamera(b);
 }
+
+// ---------------------------------------------------------------------------
+// primitives (triangle soups in mm, sitting on z=0, centred in x/y)
+// ---------------------------------------------------------------------------
+function boxPrimitive(w, d, h) {
+  const x0 = -w / 2, x1 = w / 2, y0 = -d / 2, y1 = d / 2, z0 = 0, z1 = h;
+  const v = [
+    [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+    [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
+  ];
+  const quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]];
+  const out = [];
+  for (const [a, b, c, d2] of quads) out.push(...v[a], ...v[b], ...v[c], ...v[a], ...v[c], ...v[d2]);
+  return new Float64Array(out);
+}
+
+function cylinderPrimitive(dia, h, segs = 96) {
+  const r = dia / 2, out = [];
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+    const x0 = r * Math.cos(a0), y0 = r * Math.sin(a0);
+    const x1 = r * Math.cos(a1), y1 = r * Math.sin(a1);
+    out.push(x0, y0, 0, x1, y1, 0, x1, y1, h,  x0, y0, 0, x1, y1, h, x0, y0, h); // wall
+    out.push(0, 0, 0, x1, y1, 0, x0, y0, 0);   // bottom cap
+    out.push(0, 0, h, x0, y0, h, x1, y1, h);   // top cap
+  }
+  return new Float64Array(out);
+}
+
+function spherePrimitive(dia, rings = 48, segs = 96) {
+  const r = dia / 2, cz = r, out = [];
+  const pt = (ri, si) => {
+    const phi = (ri / rings) * Math.PI, th = (si / segs) * Math.PI * 2;
+    return [r * Math.sin(phi) * Math.cos(th), r * Math.sin(phi) * Math.sin(th), cz + r * Math.cos(phi)];
+  };
+  for (let ri = 0; ri < rings; ri++) {
+    for (let si = 0; si < segs; si++) {
+      const a = pt(ri, si), b = pt(ri + 1, si), c = pt(ri + 1, si + 1), d = pt(ri, si + 1);
+      if (ri > 0) out.push(...a, ...b, ...c);
+      if (ri < rings - 1) out.push(...a, ...c, ...d);
+    }
+  }
+  return new Float64Array(out);
+}
+
+const PRIM_DIMS = {
+  cube: { label: 'W × D × H (mm)', inputs: 3 },
+  cylinder: { label: 'Ø × H (mm)', inputs: 2 },
+  sphere: { label: 'Ø (mm)', inputs: 1 },
+};
+
+function updateDimInputs() {
+  const cfg = PRIM_DIMS[ui.prim.value];
+  ui.dimsLabel.textContent = cfg.label;
+  ui.dimB.style.display = cfg.inputs >= 2 ? '' : 'none';
+  ui.dimC.style.display = cfg.inputs >= 3 ? '' : 'none';
+}
+ui.prim.addEventListener('change', updateDimInputs);
+updateDimInputs();
+
+ui.loadPrim.addEventListener('click', () => {
+  const a = parseFloat(ui.dimA.value) || 100;
+  const b = parseFloat(ui.dimB.value) || 100;
+  const c = parseFloat(ui.dimC.value) || 100;
+  const type = ui.prim.value;
+  let soup, name;
+  if (type === 'cube') { soup = boxPrimitive(a, b, c); name = `cube ${a}×${b}×${c}`; }
+  else if (type === 'cylinder') { soup = cylinderPrimitive(a, b); name = `cylinder Ø${a}×${b}`; }
+  else { soup = spherePrimitive(a); name = `sphere Ø${a}`; }
+  setModel(name, soup);
+});
+
+ui.scale.addEventListener('change', () => {
+  if (state.baseSoup) setModel(state.fileName || 'model', state.baseSoup);
+});
 
 function soupFromGeometry(geometry, scale = 1) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -164,8 +256,7 @@ function soupFromObj(buffer) {
 let rhinoPromise = null;
 async function soupFrom3dm(buffer) {
   if (!rhinoPromise) {
-    // wasm is embedded as base64 (vendor/rhino3dm_wasm_b64.js) so the page
-    // needs no external fetch — same pattern as the slicer
+    // wasm embedded as base64 (vendor/rhino3dm_wasm_b64.js) — no external fetch
     const b = atob(RHINO3DM_WASM_B64);
     const bin = new Uint8Array(b.length);
     for (let i = 0; i < b.length; i++) bin[i] = b.charCodeAt(i);
