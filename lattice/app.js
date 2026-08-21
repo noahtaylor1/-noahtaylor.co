@@ -32,7 +32,7 @@ scene.add(grid);
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h);
-  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
@@ -65,6 +65,22 @@ const ui = {
   dimA: $('dimA'), dimB: $('dimB'), dimC: $('dimC'),
   loadPrim: $('loadPrim'), scale: $('scale'),
 };
+
+// ---------------------------------------------------------------------------
+// mobile: the panel is a bottom sheet, and the device has far less memory
+// ---------------------------------------------------------------------------
+const isTouchLayout = () =>
+  window.matchMedia('(max-width: 700px), (pointer: coarse) and (max-width: 1024px)').matches;
+
+$('panelHead').addEventListener('click', () => {
+  if (isTouchLayout()) document.body.classList.toggle('sheet-closed');
+});
+
+// a phone can't hold a 20M-sample field plus the mesh; keep it modest
+const sampleBudget = () => (isTouchLayout() ? 5e6 : 20e6);
+
+// finest practical voxel differs hugely between a laptop and a phone
+if (isTouchLayout()) $('detail').value = '0.4';
 
 for (const key of Object.keys(LATTICES)) {
   const opt = document.createElement('option');
@@ -477,6 +493,7 @@ async function buildSolid() {
       blend: parseFloat(ui.blend.value) || 2,
       voxel: parseFloat(ui.detail.value) || 0.1,
       accel: state.accel,
+      maxSamples: sampleBudget(),
       onProgress: async (n, total, phase) => {
         status((phase === 'stamping' ? 'Evaluating strut field … '
           : phase === 'trimming' ? 'Trimming to surface … ' : 'Extracting surface … ') +
@@ -504,6 +521,8 @@ async function buildSolid() {
     status(`Smooth mesh ready in ${dt}s — ${s.tris.toLocaleString()} triangles at ` +
       `${s.voxel.toFixed(2)}mm detail (~${(s.tris * 50 / 1e6).toFixed(0)} MB STL).`);
     ui.export.disabled = false;
+    // on a phone the sheet covers the model — collapse it to reveal the result
+    if (isTouchLayout()) document.body.classList.add('sheet-closed');
   } catch (err) {
     console.error(err);
     status('Smooth mesh build failed: ' + err.message);

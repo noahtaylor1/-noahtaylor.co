@@ -512,8 +512,9 @@ export async function buildSmoothMesh(result, opts) {
   // caps produce degenerate sign patterns (checkerboard faces -> bad topology)
   mnx -= 0.371 * voxel; mny -= 0.293 * voxel; mnz -= 0.417 * voxel;
 
-  // keep the dense field under ~20M samples; coarsen the voxel if needed
-  const MAX_SAMPLES = 20e6;
+  // keep the dense field under a sample budget; coarsen the voxel if needed.
+  // Callers on memory-constrained devices (phones) pass a smaller budget.
+  const MAX_SAMPLES = opts.maxSamples || 20e6;
   let nx, ny, nz;
   for (;;) {
     nx = Math.ceil((mxx - mnx) / voxel) + 1;

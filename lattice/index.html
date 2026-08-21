@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Lattice Filler</title>
 <style>
   :root {
@@ -40,14 +40,63 @@
             white-space: pre-line; font-size: 12px; }
   #bar { height: 4px; background: #3a3f48; border-radius: 2px; margin-top: 6px; overflow: hidden; }
   #barFill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
-  .fixed-note { color: var(--dim); font-size: 11px; }
+  .only-touch { display: none; }
+  #sheetGrip { display: none; }
+
+  /* ---- phones / small touch screens: controls become a bottom sheet ---- */
+  @media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
+    .only-touch { display: inline; }
+    .only-mouse { display: none; }
+    #panel {
+      top: auto; bottom: 0; left: 0; right: 0; width: auto;
+      max-height: 70vh; padding: 0;
+      border-width: 1px 0 0 0; border-radius: 14px 14px 0 0;
+      display: flex; flex-direction: column;
+    }
+    h1 {
+      margin: 0; padding: 13px 16px; border-bottom: 1px solid #3a3f48;
+      display: flex; align-items: center; gap: 8px; cursor: pointer;
+      user-select: none; -webkit-user-select: none; font-size: 16px;
+    }
+    h1 small { display: block; }
+    #sheetGrip { display: block; margin-left: auto; color: var(--dim);
+                 font-size: 18px; line-height: 1; transition: transform .2s; }
+    body.sheet-closed #sheetGrip { transform: rotate(180deg); }
+    body.sheet-closed #panelBody { display: none; }
+    #panelBody {
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+      padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    }
+    /* 16px keeps iOS from zooming the page when a field is focused */
+    select, input[type=number] { font-size: 16px; padding: 8px 8px; width: 45%; min-height: 42px; }
+    .dims { flex: 1; }
+    .dims input[type=number] { width: 100%; min-width: 0; padding: 8px 4px; text-align: center; }
+    .row { margin: 12px 0; }
+    .row label { flex: 1; }
+    input[type=checkbox] { width: 24px; height: 24px; }
+    button { min-height: 46px; margin-top: 10px; font-size: 15px; }
+    #drop { padding: 18px 12px; }
+    #status { font-size: 13px; }
+  }
+
+  /* landscape phones are wide and short — a side panel beats a bottom sheet */
+  @media (pointer: coarse) and (max-height: 500px) and (orientation: landscape) {
+    #panel {
+      top: 0; bottom: 0; left: 0; right: auto;
+      width: min(320px, 46vw); max-height: none;
+      border-radius: 0 14px 14px 0; border-width: 0 1px 0 0;
+      padding-left: env(safe-area-inset-left, 0px);
+    }
+    #panelBody { padding-bottom: 16px; }
+  }
 </style>
 </head>
 <body>
 <div id="viewport"></div>
 <div id="panel">
-  <h1>Lattice Filler <small>10 mm cells</small></h1>
-  <div id="drop">Drop a .3dm / .stl / .obj here<br>or click to browse</div>
+  <h1 id="panelHead">Lattice Filler <small>10 mm cells</small><span id="sheetGrip">⌄</span></h1>
+  <div id="panelBody">
+  <div id="drop"><span class="only-mouse">Drop a .3dm / .stl / .obj here<br>or click to browse</span><span class="only-touch">Tap to choose a<br>.3dm / .stl / .obj file</span></div>
   <input type="file" id="file" accept=".3dm,.stl,.obj" style="display:none">
   <div class="row"><label>Primitive</label><select id="prim">
     <option value="cube">Cube</option>
@@ -72,6 +121,7 @@
   <button id="export" disabled>Export STL</button>
   <div id="status">Load a model to begin.</div>
   <div id="bar"><div id="barFill"></div></div>
+  </div>
 </div>
 
 <script>
