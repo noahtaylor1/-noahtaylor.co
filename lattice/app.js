@@ -541,26 +541,29 @@ function fitView(resetDirection) {
     : camera.position.clone().sub(controls.target).normalize();
   if (!isFinite(dir.lengthSq()) || dir.lengthSq() < 1e-9) dir.copy(DEFAULT_DIR);
 
-  // offset the target so the model centres in the visible rect, not the canvas
-  const forward = dir.clone().negate();
-  const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
-  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-  const perPx = (2 * dist * tanY) / H;
+  // The orbit pivot is the bounding-box centre, always. To keep the model
+  // clear of an open bottom sheet we shift the *projection* (setViewOffset)
+  // rather than the target — moving the target would make the model spin
+  // around an off-centre point when the user drags.
   const dxPx = (ins.l + Wv / 2) - W / 2;
   const dyPx = (ins.t + Hv / 2) - H / 2;
-  const offset = right.clone().multiplyScalar(dxPx * perPx)
-    .add(up.clone().multiplyScalar(-dyPx * perPx));
+  if (Math.abs(dxPx) < 0.5 && Math.abs(dyPx) < 0.5) camera.clearViewOffset();
+  else camera.setViewOffset(W, H, -dxPx, -dyPx, W, H);
 
-  controls.target.copy(centre).sub(offset);
-  camera.position.copy(controls.target).addScaledVector(dir, dist);
-  camera.near = Math.max(dist / 1000, 0.01);
-  camera.far = dist + radius * 8;
-  camera.updateProjectionMatrix();
+  controls.target.copy(centre);
+  const place = (d) => {
+    camera.position.copy(controls.target).addScaledVector(dir, d);
+    camera.near = Math.max(d / 1000, 0.01);
+    camera.far = d + radius * 8;
+    camera.updateProjectionMatrix();
+  };
+  place(dist);
 
   // The bounding sphere is a loose fit — a box's silhouette is much smaller
   // than the sphere around it, which would leave a third of the frame empty.
-  // Refine against the actually projected corners: measure, rescale distance,
-  // recentre. Converges in a couple of passes.
+  // Refine the distance against the actually projected corners. The pivot
+  // stays put; only the distance changes, measured as the largest overhang
+  // on either side of the (on-axis) centre.
   const corners = [];
   for (let i = 0; i < 8; i++) {
     corners.push(new THREE.Vector3(
@@ -568,11 +571,11 @@ function fitView(resetDirection) {
       i & 2 ? box.max.y : box.min.y,
       i & 4 ? box.max.z : box.min.z));
   }
-  const targetW = Wv / FIT_MARGIN, targetH = Hv / FIT_MARGIN;
-  const wantCx = ins.l + Wv / 2, wantCy = ins.t + Hv / 2;
+  const halfTargetW = Wv / FIT_MARGIN / 2, halfTargetH = Hv / FIT_MARGIN / 2;
+  const cx = ins.l + Wv / 2, cy = ins.t + Hv / 2;
   const v = new THREE.Vector3();
 
-  for (let pass = 0; pass < 4; pass++) {
+  for (let pass = 0; pass < 5; pass++) {
     camera.updateMatrixWorld();
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const c of corners) {
@@ -581,24 +584,15 @@ function fitView(resetDirection) {
       minX = Math.min(minX, px); maxX = Math.max(maxX, px);
       minY = Math.min(minY, py); maxY = Math.max(maxY, py);
     }
-    const gotW = maxX - minX, gotH = maxY - minY;
-    if (!(gotW > 0 && gotH > 0)) break;
+    const overhangX = Math.max(cx - minX, maxX - cx);
+    const overhangY = Math.max(cy - minY, maxY - cy);
+    if (!(overhangX > 0 && overhangY > 0)) break;
 
-    const scale = Math.max(gotW / targetW, gotH / targetH);
-    const newDist = THREE.MathUtils.clamp(
-      camera.position.distanceTo(controls.target) * scale, radius * 0.05, radius * 500);
-
-    // recentre using the measured rect, then apply the new distance
-    const perPx2 = (2 * newDist * tanY) / H;
-    const recentre = right.clone().multiplyScalar((((minX + maxX) / 2) - wantCx) * perPx2)
-      .add(up.clone().multiplyScalar(-(((minY + maxY) / 2) - wantCy) * perPx2));
-    controls.target.add(recentre);
-    camera.position.copy(controls.target).addScaledVector(dir, newDist);
-    camera.near = Math.max(newDist / 1000, 0.01);
-    camera.far = newDist + radius * 8;
-    camera.updateProjectionMatrix();
-
-    if (Math.abs(scale - 1) < 0.005) break;
+    const scale = Math.max(overhangX / halfTargetW, overhangY / halfTargetH);
+    if (!isFinite(scale) || scale <= 0) break;
+    place(THREE.MathUtils.clamp(
+      camera.position.distanceTo(controls.target) * scale, radius * 0.05, radius * 500));
+    if (Math.abs(scale - 1) < 0.004) break;
   }
   controls.update();
 }
@@ -759,6 +753,29 @@ function downloadSTL() {
 window.latticeApp = {
   state, loadFromArrayBuffer, generate, buildSolid, fitView,
   exportSTLBytes: () => exportBinarySTL(state.solid, 'x'),
+  // test hook: orbit pivot vs the bounding-box centre
+  probePivot: () => {
+    const box = visibleBounds();
+    if (!box) return null;
+    const c = box.getCenter(new THREE.Vector3());
+    return {
+      centre: [c.x, c.y, c.z],
+      target: [controls.target.x, controls.target.y, controls.target.z],
+      offBy: controls.target.distanceTo(c),
+      viewOffset: camera.view && camera.view.enabled
+        ? { x: camera.view.offsetX, y: camera.view.offsetY } : null,
+    };
+  },
+  orbit: (rad) => {   // simulate a horizontal orbit drag about the pivot
+    const off = camera.position.clone().sub(controls.target);
+    const s = Math.sin(rad), cs = Math.cos(rad);
+    camera.position.set(
+      controls.target.x + off.x * cs - off.y * s,
+      controls.target.y + off.x * s + off.y * cs,
+      camera.position.z);
+    camera.lookAt(controls.target);
+    controls.update();
+  },
   // test hook: where the visible content lands on screen, in pixels
   probeFraming: () => {
     const box = visibleBounds();
