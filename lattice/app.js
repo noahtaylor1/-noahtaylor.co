@@ -36,7 +36,13 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener('resize', resize);
+let refitTimer = null;
+function scheduleRefit() {
+  clearTimeout(refitTimer);
+  refitTimer = setTimeout(() => fitView(false), 120);
+}
+window.addEventListener('resize', () => { resize(); scheduleRefit(); });
+window.addEventListener('orientationchange', scheduleRefit);
 resize();
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
@@ -73,7 +79,9 @@ const isTouchLayout = () =>
   window.matchMedia('(max-width: 700px), (pointer: coarse) and (max-width: 1024px)').matches;
 
 $('panelHead').addEventListener('click', () => {
-  if (isTouchLayout()) document.body.classList.toggle('sheet-closed');
+  if (!isTouchLayout()) return;
+  document.body.classList.toggle('sheet-closed');
+  fitView(false);
 });
 
 // a phone can't hold a 20M-sample field plus the mesh; keep it modest
@@ -169,7 +177,7 @@ function setModel(name, baseSoup) {
   status(`${name}${pct !== 1 ? ' @ ' + (pct * 100) + '%' : ''}\n` +
     `${(soup.length / 9).toLocaleString()} triangles, ` +
     `${(b.maxX - b.minX).toFixed(1)} × ${(b.maxY - b.minY).toFixed(1)} × ${(b.maxZ - b.minZ).toFixed(1)} mm`);
-  fitCamera(b);
+  fitView(true);
 }
 
 // ---------------------------------------------------------------------------
@@ -382,16 +390,125 @@ function showInputMesh() {
 
 ui.showInput.addEventListener('change', () => {
   if (state.inputMesh) state.inputMesh.visible = ui.showInput.checked;
+  fitView(false);
 });
 
-function fitCamera(b) {
-  const cx = (b.minX + b.maxX) / 2, cy = (b.minY + b.maxY) / 2, cz = (b.minZ + b.maxZ) / 2;
-  const size = Math.max(b.maxX - b.minX, b.maxY - b.minY, b.maxZ - b.minZ);
-  controls.target.set(cx, cy, cz);
-  const d = size * 1.6 + 20;
-  camera.position.set(cx + d * 0.7, cy - d, cz + d * 0.6);
-  camera.far = d * 20;
+// ---------------------------------------------------------------------------
+// Framing: keep whatever is on screen fully visible, inside the area the
+// control panel doesn't cover. Called whenever the content or the layout
+// changes — not while the user is orbiting, so it never fights their input.
+// ---------------------------------------------------------------------------
+const FIT_MARGIN = 1.12;
+const DEFAULT_DIR = new THREE.Vector3(0.7, -1, 0.6).normalize();
+
+// bounds of every object currently drawn
+function visibleBounds() {
+  const box = new THREE.Box3();
+  let any = false;
+  for (const key of ['solidMesh', 'latticeLines', 'inputMesh']) {
+    const obj = state[key];
+    if (obj && obj.visible) { box.expandByObject(obj); any = true; }
+  }
+  return any && !box.isEmpty() ? box : null;
+}
+
+// Pixels of the viewport the lattice must stay clear of. The floating side
+// panel only overlaps a corner, so the lattice is framed to the whole view
+// there; an open full-width bottom sheet genuinely hides its half of the
+// screen, so that one counts.
+function viewInsets() {
+  const r = $('panel').getBoundingClientRect();
+  const W = window.innerWidth, H = window.innerHeight;
+  const ins = { l: 0, r: 0, t: 0, b: 0 };
+  if (r.width >= W * 0.9) ins.b = Math.max(0, H - r.top) + 8;
+  return ins;
+}
+
+function fitView(resetDirection) {
+  const box = visibleBounds();
+  if (!box) return;
+  const centre = box.getCenter(new THREE.Vector3());
+  const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3);
+
+  const W = window.innerWidth, H = window.innerHeight;
+  const ins = viewInsets();
+  // never let the panel squeeze the framing area to nothing
+  const Wv = Math.max(W - ins.l - ins.r, W * 0.3);
+  const Hv = Math.max(H - ins.t - ins.b, H * 0.3);
+
+  // half-angles of the *visible* sub-rect of the frustum
+  const fovY = THREE.MathUtils.degToRad(camera.fov);
+  const tanY = Math.tan(fovY / 2);
+  const halfV = Math.atan(tanY * (Hv / H));
+  const halfH = Math.atan(tanY * camera.aspect * (Wv / W));
+  const dist = FIT_MARGIN * Math.max(radius / Math.sin(halfV), radius / Math.sin(halfH));
+
+  // keep the user's current orbit unless we're framing a brand-new model
+  const dir = resetDirection
+    ? DEFAULT_DIR.clone()
+    : camera.position.clone().sub(controls.target).normalize();
+  if (!isFinite(dir.lengthSq()) || dir.lengthSq() < 1e-9) dir.copy(DEFAULT_DIR);
+
+  // offset the target so the model centres in the visible rect, not the canvas
+  const forward = dir.clone().negate();
+  const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+  const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+  const perPx = (2 * dist * tanY) / H;
+  const dxPx = (ins.l + Wv / 2) - W / 2;
+  const dyPx = (ins.t + Hv / 2) - H / 2;
+  const offset = right.clone().multiplyScalar(dxPx * perPx)
+    .add(up.clone().multiplyScalar(-dyPx * perPx));
+
+  controls.target.copy(centre).sub(offset);
+  camera.position.copy(controls.target).addScaledVector(dir, dist);
+  camera.near = Math.max(dist / 1000, 0.01);
+  camera.far = dist + radius * 8;
   camera.updateProjectionMatrix();
+
+  // The bounding sphere is a loose fit — a box's silhouette is much smaller
+  // than the sphere around it, which would leave a third of the frame empty.
+  // Refine against the actually projected corners: measure, rescale distance,
+  // recentre. Converges in a couple of passes.
+  const corners = [];
+  for (let i = 0; i < 8; i++) {
+    corners.push(new THREE.Vector3(
+      i & 1 ? box.max.x : box.min.x,
+      i & 2 ? box.max.y : box.min.y,
+      i & 4 ? box.max.z : box.min.z));
+  }
+  const targetW = Wv / FIT_MARGIN, targetH = Hv / FIT_MARGIN;
+  const wantCx = ins.l + Wv / 2, wantCy = ins.t + Hv / 2;
+  const v = new THREE.Vector3();
+
+  for (let pass = 0; pass < 4; pass++) {
+    camera.updateMatrixWorld();
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const c of corners) {
+      v.copy(c).project(camera);
+      const px = (v.x * 0.5 + 0.5) * W, py = (-v.y * 0.5 + 0.5) * H;
+      minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+      minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+    }
+    const gotW = maxX - minX, gotH = maxY - minY;
+    if (!(gotW > 0 && gotH > 0)) break;
+
+    const scale = Math.max(gotW / targetW, gotH / targetH);
+    const newDist = THREE.MathUtils.clamp(
+      camera.position.distanceTo(controls.target) * scale, radius * 0.05, radius * 500);
+
+    // recentre using the measured rect, then apply the new distance
+    const perPx2 = (2 * newDist * tanY) / H;
+    const recentre = right.clone().multiplyScalar((((minX + maxX) / 2) - wantCx) * perPx2)
+      .add(up.clone().multiplyScalar(-(((minY + maxY) / 2) - wantCy) * perPx2));
+    controls.target.add(recentre);
+    camera.position.copy(controls.target).addScaledVector(dir, newDist);
+    camera.near = Math.max(newDist / 1000, 0.01);
+    camera.far = newDist + radius * 8;
+    camera.updateProjectionMatrix();
+
+    if (Math.abs(scale - 1) < 0.005) break;
+  }
+  controls.update();
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +582,7 @@ async function generate() {
       lg, new THREE.LineBasicMaterial({ color: 0x4fc37f }));
     scene.add(state.latticeLines);
     if (state.inputMesh) state.inputMesh.material.opacity = 0.12;
+    fitView(false);
 
     const s = state.lattice.stats;
     status(`Lattice ready in ${dt}s — ${s.kept.toLocaleString()} struts, ` +
@@ -523,6 +641,7 @@ async function buildSolid() {
     ui.export.disabled = false;
     // on a phone the sheet covers the model — collapse it to reveal the result
     if (isTouchLayout()) document.body.classList.add('sheet-closed');
+    fitView(false);
   } catch (err) {
     console.error(err);
     status('Smooth mesh build failed: ' + err.message);
@@ -545,4 +664,25 @@ function downloadSTL() {
 }
 
 // exposed for testing / scripting
-window.latticeApp = { state, loadFromArrayBuffer, generate, buildSolid, exportSTLBytes: () => exportBinarySTL(state.solid, 'x') };
+window.latticeApp = {
+  state, loadFromArrayBuffer, generate, buildSolid, fitView,
+  exportSTLBytes: () => exportBinarySTL(state.solid, 'x'),
+  // test hook: where the visible content lands on screen, in pixels
+  probeFraming: () => {
+    const box = visibleBounds();
+    if (!box) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < 8; i++) {
+      v.set(i & 1 ? box.max.x : box.min.x,
+            i & 2 ? box.max.y : box.min.y,
+            i & 4 ? box.max.z : box.min.z).project(camera);
+      const px = (v.x * 0.5 + 0.5) * window.innerWidth;
+      const py = (-v.y * 0.5 + 0.5) * window.innerHeight;
+      minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+      minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+    }
+    return { minX, minY, maxX, maxY, insets: viewInsets(),
+             W: window.innerWidth, H: window.innerHeight };
+  },
+};

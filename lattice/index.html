@@ -88,6 +88,8 @@
       padding-left: env(safe-area-inset-left, 0px);
     }
     #panelBody { padding-bottom: 16px; }
+    /* collapsed, the panel should shrink to its header, not stay full height */
+    body.sheet-closed #panel { bottom: auto; width: auto; border-radius: 0 0 14px 0; }
   }
 </style>
 </head>
