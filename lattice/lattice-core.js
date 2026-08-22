@@ -407,34 +407,30 @@ export async function generateLattice(accel, opts) {
   const nodeKeys = new Set(); // joints that keep their exact lattice position
   const nodes = [];
 
-  // Struts are clipped flush to the surface so the lattice reaches the wall on
-  // curved shapes (a whole-struts-only rule leaves scallops up to most of a
-  // cell wide). Two guards keep that from producing the sliver "hairs" that
-  // clipping caused before: fragments shorter than MIN_FRAG are dropped, and
-  // so is any fragment whose interior runs along the surface instead of
-  // crossing it.
-  const minFrag = Math.max(0.3 * s, 10 * MIN_SEG);
-
+  // Rhino-style rule: a strut is kept only if the WHOLE node-to-node segment
+  // lies inside the solid (boundary counts as inside). No partial struts are
+  // ever created, so every kept strut runs joint to joint. clipSegment
+  // returning a single full-span interval is an exact containment test that
+  // also rejects struts tunnelling across gaps between bodies. On top of
+  // that, struts whose interior runs along or grazes the surface are dropped:
+  // the surface would clip their pipes into slivers ("hairs"). Only the ends
+  // are allowed surface contact, so diagonals may still land on face nodes.
   for (let n = 0; n < total; n++) {
     const o = n * 6;
     const ax = struts[o], ay = struts[o + 1], az = struts[o + 2];
     const bx = struts[o + 3], by = struts[o + 4], bz = struts[o + 5];
-    const dx = bx - ax, dy = by - ay, dz = bz - az;
-    const segLen = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const intervals = clipSegment(accel, ax, ay, az, bx, by, bz);
+    // "whole" within the usual boundary tolerance: a node sitting a float-hair
+    // outside the surface must not disqualify its strut, so allow the interval
+    // to start/end up to TOL_ON short of the endpoints
+    const segLen = Math.sqrt((bx - ax) ** 2 + (by - ay) ** 2 + (bz - az) ** 2);
     const epsT = TOL_ON / Math.max(segLen, 1e-6);
-
-    for (const [t0, t1] of clipSegment(accel, ax, ay, az, bx, by, bz)) {
-      if ((t1 - t0) * segLen < minFrag) continue;
-      const sx = ax + dx * t0, sy = ay + dy * t0, sz = az + dz * t0;
-      const ex = ax + dx * t1, ey = ay + dy * t1, ez = az + dz * t1;
-      if (axisGrazesSurface(accel, sx, sy, sz, ex, ey, ez)) continue;
-
-      // an end is a lattice joint only if the clip left it where it started;
-      // the other kind terminates on the model surface
-      const aNode = t0 < epsT, bNode = t1 > 1 - epsT;
-      segments.push({ ax: sx, ay: sy, az: sz, bx: ex, by: ey, bz: ez, aNode, bNode });
-      if (aNode) addNode(nodeKeys, nodes, sx, sy, sz, q);
-      if (bNode) addNode(nodeKeys, nodes, ex, ey, ez, q);
+    const whole = intervals.length === 1 &&
+      intervals[0][0] < epsT && intervals[0][1] > 1 - epsT;
+    if (whole && !axisGrazesSurface(accel, ax, ay, az, bx, by, bz)) {
+      segments.push({ ax, ay, az, bx, by, bz, aNode: true, bNode: true });
+      addNode(nodeKeys, nodes, ax, ay, az, q);
+      addNode(nodeKeys, nodes, bx, by, bz, q);
     }
     if (opts.onProgress && n % 4096 === 0) await opts.onProgress(n, total);
   }

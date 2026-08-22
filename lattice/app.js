@@ -609,108 +609,19 @@ ui.export.addEventListener('click', () => downloadSTL());
 // degree-2 ends are corner V-spikes that the smooth blend fuses into a
 // single protruding stub. Repeats until stable so removals cascade.
 // Post-filter only; the generator's output is untouched.
-// A strut end that sits on a lattice node must be a real joint: shared by at
-// least MIN_JOINT struts, and not the tip of a spur. Ends produced by clipping
-// against the model surface are exempt — they terminate on the wall, which is
-// support enough. Two tests have to agree before a node is dropped:
-//
-//   1. one-sidedness — sum the unit vectors to its neighbours and divide by
-//      their count. A node buried in the lattice has struts pulling every way
-//      and scores ~0; a node on a thin spur has them all pulling one way.
-//   2. the input surface under it is curved. On a flat face the one-sided
-//      nodes ARE the face — trimming them would eat the whole surface layer
-//      (measured: 602 of a 100mm cube's nodes look "one-sided"). On a curved
-//      surface the same signature is the stair-step spur that reads as sharp
-//      (measured: all 102 on a Ø100 sphere, and only the barrel of a cylinder,
-//      never its flat ends).
-const MIN_JOINT = 3;          // fewer connections than this and the end is loose
-const SPIKE_MAX_DEGREE = 5;   // well-connected nodes are never spurs
-const SPIKE_BIAS = 0.60;      // 0 = balanced in all directions, 1 = all one way
-const CURVED_DEG = 15;        // surface-normal spread that counts as curved
-const CURVE_REACH = 12;       // mm around the node to sample the surface over
-
-// Largest angle between input-surface normals near a point, in degrees.
-function surfaceCurvature(accel, x, y, z) {
-  const cs = accel.cs, soup = accel.soup;
-  const gi = Math.floor((x - accel.oX) / cs);
-  const gj = Math.floor((y - accel.oY) / cs);
-  const gk = Math.floor((z - accel.oZ) / cs);
-  const seen = new Set(), normals = [];
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dz = -1; dz <= 1; dz++) {
-        const ix = gi + dx, iy = gj + dy, iz = gk + dz;
-        if (ix < 0 || iy < 0 || iz < 0 || ix >= accel.nX || iy >= accel.nY || iz >= accel.nZ) continue;
-        const tris = accel.bins3d.get((ix * accel.nY + iy) * accel.nZ + iz);
-        if (!tris) continue;
-        for (const t of tris) {
-          if (seen.has(t)) continue;
-          seen.add(t);
-          const o = t * 9;
-          const cx = (soup[o] + soup[o + 3] + soup[o + 6]) / 3;
-          const cy = (soup[o + 1] + soup[o + 4] + soup[o + 7]) / 3;
-          const cz = (soup[o + 2] + soup[o + 5] + soup[o + 8]) / 3;
-          if ((cx - x) ** 2 + (cy - y) ** 2 + (cz - z) ** 2 > CURVE_REACH * CURVE_REACH) continue;
-          const ux = soup[o + 3] - soup[o], uy = soup[o + 4] - soup[o + 1], uz = soup[o + 5] - soup[o + 2];
-          const vx = soup[o + 6] - soup[o], vy = soup[o + 7] - soup[o + 1], vz = soup[o + 8] - soup[o + 2];
-          const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-          const L = Math.sqrt(nx * nx + ny * ny + nz * nz);
-          if (L < 1e-9) continue;
-          normals.push([nx / L, ny / L, nz / L]);
-        }
-      }
-    }
-  }
-  let minDot = 1;
-  for (let i = 0; i < normals.length; i++) {
-    for (let j = i + 1; j < normals.length; j++) {
-      const d = normals[i][0] * normals[j][0] + normals[i][1] * normals[j][1] + normals[i][2] * normals[j][2];
-      if (d < minDot) minDot = d;
-    }
-  }
-  return Math.acos(Math.max(-1, Math.min(1, minDot))) * 180 / Math.PI;
-}
-
-function removeDanglingStruts(segments, accel) {
+const MIN_JOINT = 3;
+function removeDanglingStruts(segments) {
   const q = (v) => Math.round(v * 1024);
-  const key = (x, y, z) => q(x) + ',' + q(y) + ',' + q(z);
-  const curvature = new Map();   // node key -> degrees, computed at most once
+  const keyA = (g) => q(g.ax) + ',' + q(g.ay) + ',' + q(g.az);
+  const keyB = (g) => q(g.bx) + ',' + q(g.by) + ',' + q(g.bz);
   let segs = segments;
-
   for (;;) {
-    const nodes = new Map();
-    const tally = (x, y, z, ox, oy, oz) => {
-      const k = key(x, y, z);
-      let n = nodes.get(k);
-      if (!n) { n = { x, y, z, sx: 0, sy: 0, sz: 0, deg: 0 }; nodes.set(k, n); }
-      const dx = ox - x, dy = oy - y, dz = oz - z;
-      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-      n.sx += dx / len; n.sy += dy / len; n.sz += dz / len; n.deg++;
-    };
+    const deg = new Map();
     for (const g of segs) {
-      if (g.aNode) tally(g.ax, g.ay, g.az, g.bx, g.by, g.bz);
-      if (g.bNode) tally(g.bx, g.by, g.bz, g.ax, g.ay, g.az);
+      deg.set(keyA(g), (deg.get(keyA(g)) || 0) + 1);
+      deg.set(keyB(g), (deg.get(keyB(g)) || 0) + 1);
     }
-
-    const drop = new Set();
-    for (const [k, n] of nodes) {
-      if (n.deg < MIN_JOINT) { drop.add(k); continue; }
-      if (!accel || n.deg > SPIKE_MAX_DEGREE) continue;
-      const bias = Math.sqrt(n.sx * n.sx + n.sy * n.sy + n.sz * n.sz) / n.deg;
-      if (bias < SPIKE_BIAS) continue;
-      let curve = curvature.get(k);
-      if (curve === undefined) {
-        curve = surfaceCurvature(accel, n.x, n.y, n.z);
-        curvature.set(k, curve);
-      }
-      if (curve > CURVED_DEG) drop.add(k);
-    }
-    if (!drop.size) return segs;
-
-    // removing a spur can expose the node behind it, so repeat until stable
-    const keep = segs.filter((g) =>
-      !(g.aNode && drop.has(key(g.ax, g.ay, g.az))) &&
-      !(g.bNode && drop.has(key(g.bx, g.by, g.bz))));
+    const keep = segs.filter((g) => deg.get(keyA(g)) >= MIN_JOINT && deg.get(keyB(g)) >= MIN_JOINT);
     if (keep.length === segs.length) return segs;
     segs = keep;
   }
@@ -738,7 +649,7 @@ async function generate() {
     const dt = ((performance.now() - t0) / 1000).toFixed(1);
 
     const before = state.lattice.segments.length;
-    state.lattice.segments = removeDanglingStruts(state.lattice.segments, state.accel);
+    state.lattice.segments = removeDanglingStruts(state.lattice.segments);
     state.lattice.stats.kept = state.lattice.segments.length;
     state.lattice.stats.dangling = before - state.lattice.segments.length;
 
@@ -842,31 +753,6 @@ function downloadSTL() {
 window.latticeApp = {
   state, loadFromArrayBuffer, generate, buildSolid, fitView,
   exportSTLBytes: () => exportBinarySTL(state.solid, 'x'),
-  THREE,
-  // test hook: generation output before any strut filtering
-  generateRaw: async () => {
-    if (!state.accel) state.accel = buildAccel(state.soup, SPACING);
-    return generateLattice(state.accel, {
-      spacing: SPACING, lattice: ui.lattice.value, cellEdges: ui.edges.checked,
-    });
-  },
-  // test hook: drop coloured markers at given [x,y,z] triples
-  markNodes: (pts, colour) => {
-    const g = new THREE.SphereGeometry(1.6, 8, 6);
-    const m = new THREE.MeshBasicMaterial({ color: colour || 0xff3355 });
-    const inst = new THREE.InstancedMesh(g, m, pts.length / 3);
-    const mat = new THREE.Matrix4();
-    for (let i = 0; i < pts.length; i += 3) {
-      mat.makeTranslation(pts[i], pts[i + 1], pts[i + 2]);
-      inst.setMatrixAt(i / 3, mat);
-    }
-    inst.name = 'debugMarkers';
-    scene.add(inst);
-    return pts.length / 3;
-  },
-  clearMarks: () => {
-    for (const o of scene.children.filter((c) => c.name === 'debugMarkers')) scene.remove(o);
-  },
   // test hook: orbit pivot vs the bounding-box centre
   probePivot: () => {
     const box = visibleBounds();
