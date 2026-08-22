@@ -78,11 +78,103 @@ const ui = {
 const isTouchLayout = () =>
   window.matchMedia('(max-width: 700px), (pointer: coarse) and (max-width: 1024px)').matches;
 
-$('panelHead').addEventListener('click', () => {
-  if (!isTouchLayout()) return;
-  document.body.classList.toggle('sheet-closed');
-  fitView(false);
-});
+// The sheet is dragged up from the bottom by its handle or title bar, and
+// snaps to peek / half / full. Tapping the bar (no drag) toggles it.
+const sheet = (() => {
+  const panel = $('panel'), pull = $('sheetPull'), head = $('panelHead');
+  const barHeight = () => pull.offsetHeight + head.offsetHeight;
+
+  function snaps() {
+    const H = window.innerHeight;
+    const peek = barHeight();
+    // never open taller than the content actually needs
+    const needed = peek + $('panelBody').scrollHeight + 8;
+    return {
+      peek,
+      half: Math.min(Math.round(H * 0.46), needed),
+      full: Math.min(Math.round(H * 0.86), needed),
+    };
+  }
+
+  let settleTimer = null;
+  function setHeight(px, animate) {
+    document.documentElement.style.setProperty('--sheet-h', Math.round(px) + 'px');
+    document.body.classList.toggle('sheet-closed', px <= barHeight() + 4);
+    if (animate) {
+      // refit once the height animation has actually landed; the timer is a
+      // fallback for when no transition runs (reduced motion, hidden tab)
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => fitView(false), 320);
+    }
+  }
+
+  function snapTo(px) {
+    const s = snaps();
+    const options = [s.peek, s.half, s.full];
+    let best = options[0];
+    for (const o of options) if (Math.abs(o - px) < Math.abs(best - px)) best = o;
+    setHeight(best, true);
+    return best;
+  }
+
+  // drag state
+  let dragging = false, startY = 0, startH = 0, moved = 0, startTime = 0;
+
+  function onDown(e) {
+    if (!isTouchLayout()) return;
+    dragging = true; moved = 0; startTime = Date.now();
+    startY = e.clientY;
+    startH = panel.getBoundingClientRect().height;
+    document.body.classList.add('sheet-dragging');
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* synthetic or stale pointer */ }
+  }
+
+  function onMove(e) {
+    if (!dragging) return;
+    const dy = startY - e.clientY;            // up is positive
+    moved = Math.max(moved, Math.abs(dy));
+    const s = snaps();
+    const h = Math.min(Math.max(startH + dy, s.peek), Math.max(s.full, s.peek));
+    setHeight(h, false);
+    e.preventDefault();
+  }
+
+  function onUp(e) {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('sheet-dragging');
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
+    const s = snaps();
+    const isTap = moved < 6 && Date.now() - startTime < 400;
+    if (isTap) {
+      const atPeek = panel.getBoundingClientRect().height <= s.peek + 4;
+      setHeight(atPeek ? s.half : s.peek, true);
+    } else {
+      snapTo(panel.getBoundingClientRect().height);
+    }
+  }
+
+  panel.addEventListener('transitionend', (e) => {
+    if (e.propertyName === 'height') { clearTimeout(settleTimer); fitView(false); }
+  });
+
+  for (const el of [pull, head]) {
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+  }
+
+  return {
+    open: () => setHeight(snaps().half, true),
+    close: () => setHeight(snaps().peek, true),
+    reset: () => { if (isTouchLayout()) setHeight(snaps().half, false); },
+  };
+})();
+
+// start at half height so the model and the controls are both visible
+sheet.reset();
+window.addEventListener('orientationchange', () => setTimeout(sheet.reset, 250));
 
 // a phone can't hold a 20M-sample field plus the mesh; keep it modest
 const sampleBudget = () => (isTouchLayout() ? 5e6 : 20e6);
@@ -639,9 +731,9 @@ async function buildSolid() {
     status(`Smooth mesh ready in ${dt}s — ${s.tris.toLocaleString()} triangles at ` +
       `${s.voxel.toFixed(2)}mm detail (~${(s.tris * 50 / 1e6).toFixed(0)} MB STL).`);
     ui.export.disabled = false;
-    // on a phone the sheet covers the model — collapse it to reveal the result
-    if (isTouchLayout()) document.body.classList.add('sheet-closed');
-    fitView(false);
+    // on a phone the sheet covers the model — drop it to reveal the result
+    if (isTouchLayout()) sheet.close();
+    else fitView(false);
   } catch (err) {
     console.error(err);
     status('Smooth mesh build failed: ' + err.message);

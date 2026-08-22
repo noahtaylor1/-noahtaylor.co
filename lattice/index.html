@@ -42,6 +42,7 @@
   #barFill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
   .only-touch { display: none; }
   #sheetGrip { display: none; }
+  #sheetPull { display: none; }
 
   /* ---- phones / small touch screens: controls become a bottom sheet ---- */
   @media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
@@ -49,22 +50,34 @@
     .only-mouse { display: none; }
     #panel {
       top: auto; bottom: 0; left: 0; right: 0; width: auto;
-      max-height: 70vh; padding: 0;
+      height: var(--sheet-h, 46vh); max-height: 92vh; padding: 0;
       border-width: 1px 0 0 0; border-radius: 14px 14px 0 0;
       display: flex; flex-direction: column;
+      transition: height .22s cubic-bezier(.32,.72,0,1);
+      touch-action: none;   /* the sheet handles its own drag gestures */
+    }
+    body.sheet-dragging #panel { transition: none; }
+    /* grab area: the pill and the title bar both drag the sheet */
+    #sheetPull { display: block; padding: 9px 0 3px; text-align: center;
+                 cursor: grab; flex: 0 0 auto; }
+    #sheetPull::before {
+      content: ''; display: inline-block; width: 40px; height: 5px;
+      border-radius: 3px; background: #545b68;
     }
     h1 {
-      margin: 0; padding: 13px 16px; border-bottom: 1px solid #3a3f48;
-      display: flex; align-items: center; gap: 8px; cursor: pointer;
+      margin: 0; padding: 4px 16px 12px; border-bottom: 1px solid #3a3f48;
+      display: flex; align-items: center; gap: 8px; cursor: grab;
       user-select: none; -webkit-user-select: none; font-size: 16px;
+      flex: 0 0 auto;
     }
     h1 small { display: block; }
     #sheetGrip { display: block; margin-left: auto; color: var(--dim);
                  font-size: 18px; line-height: 1; transition: transform .2s; }
     body.sheet-closed #sheetGrip { transform: rotate(180deg); }
-    body.sheet-closed #panelBody { display: none; }
     #panelBody {
+      flex: 1 1 auto; min-height: 0;
       overflow-y: auto; -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain; touch-action: pan-y;
       padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
     }
     /* 16px keeps iOS from zooming the page when a field is focused */
@@ -83,11 +96,13 @@
   @media (pointer: coarse) and (max-height: 500px) and (orientation: landscape) {
     #panel {
       top: 0; bottom: 0; left: 0; right: auto;
-      width: min(320px, 46vw); max-height: none;
+      width: min(320px, 46vw); height: auto; max-height: none;
       border-radius: 0 14px 14px 0; border-width: 0 1px 0 0;
       padding-left: env(safe-area-inset-left, 0px);
     }
     #panelBody { padding-bottom: 16px; }
+    #sheetPull { display: none; }
+    body.sheet-closed #panelBody { display: none; }
     /* collapsed, the panel should shrink to its header, not stay full height */
     body.sheet-closed #panel { bottom: auto; width: auto; border-radius: 0 0 14px 0; }
   }
@@ -96,6 +111,7 @@
 <body>
 <div id="viewport"></div>
 <div id="panel">
+  <div id="sheetPull"></div>
   <h1 id="panelHead">Lattice Filler <small>10 mm cells</small><span id="sheetGrip">⌄</span></h1>
   <div id="panelBody">
   <div id="drop"><span class="only-mouse">Drop a .3dm / .stl / .obj here<br>or click to browse</span><span class="only-touch">Tap to choose a<br>.3dm / .stl / .obj file</span></div>
