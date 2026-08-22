@@ -609,8 +609,10 @@ ui.export.addEventListener('click', () => downloadSTL());
 // degree-2 ends are corner V-spikes that the smooth blend fuses into a
 // single protruding stub. Repeats until stable so removals cascade.
 // Post-filter only; the generator's output is untouched.
-// A strut end must be a real joint: shared by at least MIN_JOINT struts, and
-// not the tip of a spur. Two tests have to agree before a node is dropped:
+// A strut end that sits on a lattice node must be a real joint: shared by at
+// least MIN_JOINT struts, and not the tip of a spur. Ends produced by clipping
+// against the model surface are exempt — they terminate on the wall, which is
+// support enough. Two tests have to agree before a node is dropped:
 //
 //   1. one-sidedness — sum the unit vectors to its neighbours and divide by
 //      their count. A node buried in the lattice has struts pulling every way
@@ -686,8 +688,8 @@ function removeDanglingStruts(segments, accel) {
       n.sx += dx / len; n.sy += dy / len; n.sz += dz / len; n.deg++;
     };
     for (const g of segs) {
-      tally(g.ax, g.ay, g.az, g.bx, g.by, g.bz);
-      tally(g.bx, g.by, g.bz, g.ax, g.ay, g.az);
+      if (g.aNode) tally(g.ax, g.ay, g.az, g.bx, g.by, g.bz);
+      if (g.bNode) tally(g.bx, g.by, g.bz, g.ax, g.ay, g.az);
     }
 
     const drop = new Set();
@@ -707,7 +709,8 @@ function removeDanglingStruts(segments, accel) {
 
     // removing a spur can expose the node behind it, so repeat until stable
     const keep = segs.filter((g) =>
-      !drop.has(key(g.ax, g.ay, g.az)) && !drop.has(key(g.bx, g.by, g.bz)));
+      !(g.aNode && drop.has(key(g.ax, g.ay, g.az))) &&
+      !(g.bNode && drop.has(key(g.bx, g.by, g.bz))));
     if (keep.length === segs.length) return segs;
     segs = keep;
   }
