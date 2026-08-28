@@ -69,7 +69,7 @@ const ui = {
   status: $('status'), barFill: $('barFill'),
   prim: $('prim'), dimsLabel: $('dimsLabel'),
   dimA: $('dimA'), dimB: $('dimB'), dimC: $('dimC'),
-  loadPrim: $('loadPrim'), scale: $('scale'),
+  loadPrim: $('loadPrim'), scale: $('scale'), wholeCells: $('wholeCells'),
 };
 
 // ---------------------------------------------------------------------------
@@ -643,6 +643,7 @@ async function generate() {
       spacing: SPACING,
       lattice: ui.lattice.value,
       cellEdges: ui.edges.checked,
+      wholeCells: ui.wholeCells.checked,
       onProgress: async (n, total) => { progress(n / total); await frame(); },
     });
     progress(0);
@@ -696,7 +697,7 @@ async function buildSolid() {
       radius: parseFloat(ui.radius.value) || 0.8,
       blend: parseFloat(ui.blend.value) || 2,
       voxel: parseFloat(ui.detail.value) || 0.1,
-      accel: state.accel,
+      accel: ui.wholeCells.checked ? null : state.accel,
       maxSamples: sampleBudget(),
       onProgress: async (n, total, phase) => {
         status((phase === 'stamping' ? 'Evaluating strut field … '

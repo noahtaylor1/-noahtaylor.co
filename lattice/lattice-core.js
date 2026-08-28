@@ -353,6 +353,59 @@ export function clipSegment(accel, ax, ay, az, bx, by, bz) {
 // Lattice generation
 // ---------------------------------------------------------------------------
 
+
+// True if a cell-sized box overlaps the solid at all: either it contains a
+// point of the solid, or the surface passes through it. Used by whole-cell
+// mode, where a cell that so much as touches the model is built in full.
+function cellTouchesSolid(accel, cx, cy, cz, s) {
+  // Test a slightly shrunken cell, so a cell that merely abuts the surface
+  // doesn't count. Without this a 100mm cube (faces exactly on grid planes)
+  // would pull in the ring of cells beyond each face and come out 120mm.
+  const eps = Math.min(0.02 * s, 0.2);
+  const lo = { x: cx + eps, y: cy + eps, z: cz + eps };
+  const hi = { x: cx + s - eps, y: cy + s - eps, z: cz + s - eps };
+
+  // a corner or the centre inside is the cheap, common case
+  for (const [px, py, pz] of [
+    [cx + s / 2, cy + s / 2, cz + s / 2],
+    [lo.x, lo.y, lo.z], [hi.x, lo.y, lo.z], [lo.x, hi.y, lo.z], [hi.x, hi.y, lo.z],
+    [lo.x, lo.y, hi.z], [hi.x, lo.y, hi.z], [lo.x, hi.y, hi.z], [hi.x, hi.y, hi.z],
+  ]) {
+    if (insideOrOn(accel, px, py, pz)) return true;
+  }
+  // otherwise the surface may still cut through the cell without any corner
+  // landing inside — look for a triangle whose bounds overlap the cell
+  const soup = accel.soup, cs = accel.cs;
+  const i0 = clampi(Math.floor((cx - accel.oX) / cs), 0, accel.nX - 1);
+  const i1 = clampi(Math.floor((cx + s - accel.oX) / cs), 0, accel.nX - 1);
+  const j0 = clampi(Math.floor((cy - accel.oY) / cs), 0, accel.nY - 1);
+  const j1 = clampi(Math.floor((cy + s - accel.oY) / cs), 0, accel.nY - 1);
+  const k0 = clampi(Math.floor((cz - accel.oZ) / cs), 0, accel.nZ - 1);
+  const k1 = clampi(Math.floor((cz + s - accel.oZ) / cs), 0, accel.nZ - 1);
+  const seen = new Set();
+  for (let i = i0; i <= i1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      for (let k = k0; k <= k1; k++) {
+        const tris = accel.bins3d.get((i * accel.nY + j) * accel.nZ + k);
+        if (!tris) continue;
+        for (const t of tris) {
+          if (seen.has(t)) continue;
+          seen.add(t);
+          const o = t * 9;
+          if (Math.min(soup[o], soup[o + 3], soup[o + 6]) >= hi.x) continue;
+          if (Math.max(soup[o], soup[o + 3], soup[o + 6]) <= lo.x) continue;
+          if (Math.min(soup[o + 1], soup[o + 4], soup[o + 7]) >= hi.y) continue;
+          if (Math.max(soup[o + 1], soup[o + 4], soup[o + 7]) <= lo.y) continue;
+          if (Math.min(soup[o + 2], soup[o + 5], soup[o + 8]) >= hi.z) continue;
+          if (Math.max(soup[o + 2], soup[o + 5], soup[o + 8]) <= lo.z) continue;
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 export async function generateLattice(accel, opts) {
   const s = opts.spacing;
   const lat = LATTICES[opts.lattice];
@@ -380,6 +433,8 @@ export async function generateLattice(accel, opts) {
   const y0 = (b.minY + b.maxY) / 2 - (ny * s) / 2;
   const z0 = (b.minZ + b.maxZ) / 2 - (nz * s) / 2;
 
+  const wholeCells = !!opts.wholeCells;
+
   // unique candidate struts, keyed by quantised endpoints
   const seen = new Set();
   const struts = [];
@@ -388,6 +443,9 @@ export async function generateLattice(accel, opts) {
     for (let j = 0; j < ny; j++) {
       for (let k = 0; k < nz; k++) {
         const cx = x0 + i * s, cy = y0 + j * s, cz = z0 + k * s;
+        // whole-cell mode builds every cell the model touches, complete, so
+        // the lattice ends on flat grid planes instead of the model surface
+        if (wholeCells && !cellTouchesSolid(accel, cx, cy, cz, s)) continue;
         for (const [f1, f2] of edges) {
           const ax = cx + f1[0] * s, ay = cy + f1[1] * s, az = cz + f1[2] * s;
           const bx = cx + f2[0] * s, by = cy + f2[1] * s, bz = cz + f2[2] * s;
@@ -419,6 +477,15 @@ export async function generateLattice(accel, opts) {
     const o = n * 6;
     const ax = struts[o], ay = struts[o + 1], az = struts[o + 2];
     const bx = struts[o + 3], by = struts[o + 4], bz = struts[o + 5];
+    if (wholeCells) {
+      // the cell already qualified; its struts are kept whole even where they
+      // run outside the model, which is what squares off the sides
+      segments.push({ ax, ay, az, bx, by, bz, aNode: true, bNode: true });
+      addNode(nodeKeys, nodes, ax, ay, az, q);
+      addNode(nodeKeys, nodes, bx, by, bz, q);
+      if (opts.onProgress && n % 4096 === 0) await opts.onProgress(n, total);
+      continue;
+    }
     const intervals = clipSegment(accel, ax, ay, az, bx, by, bz);
     // "whole" within the usual boundary tolerance: a node sitting a float-hair
     // outside the surface must not disqualify its strut, so allow the interval
