@@ -5,9 +5,11 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=502348f1';
+} from './lattice-core.js?v=f2d4c18c';
 
-const SPACING = 10; // mm — fixed cubic cell size
+// Cell size is driven by the lever. The spatial index is binned by it too,
+// so changing it invalidates the cached accel.
+const cellSize = () => parseFloat(document.getElementById('cell').value) || 10;
 
 // ---------------------------------------------------------------------------
 // three.js scene
@@ -50,8 +52,7 @@ renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, came
 // state
 // ---------------------------------------------------------------------------
 const state = {
-  soup: null,        // Float64Array triangle soup (mm), after scaling
-  baseSoup: null,    // unscaled soup as loaded/built
+  soup: null,        // Float64Array triangle soup (mm)
   fileName: null,
   accel: null,
   lattice: null,     // result of generateLattice
@@ -69,7 +70,8 @@ const ui = {
   status: $('status'), barFill: $('barFill'),
   prim: $('prim'), dimsLabel: $('dimsLabel'),
   dimA: $('dimA'), dimB: $('dimB'), dimC: $('dimC'),
-  loadPrim: $('loadPrim'), scale: $('scale'), wholeCells: $('wholeCells'),
+  loadPrim: $('loadPrim'), cell: $('cell'), cellOut: $('cellOut'),
+  cellLabel: $('cellLabel'), wholeCells: $('wholeCells'),
 };
 
 // ---------------------------------------------------------------------------
@@ -240,19 +242,11 @@ async function loadFromArrayBuffer(name, buffer) {
   else throw new Error('Unsupported file type: .' + ext);
 
   if (!soup || soup.length === 0) throw new Error('No triangles found in file.');
-  ui.scale.value = 100;
   setModel(name, soup);
 }
 
-// shared entry for uploads and primitives; applies the current Scale %
-function setModel(name, baseSoup) {
-  state.baseSoup = baseSoup;
-  const pct = (parseFloat(ui.scale.value) || 100) / 100;
-  let soup = baseSoup;
-  if (pct !== 1) {
-    soup = new Float64Array(baseSoup.length);
-    for (let i = 0; i < baseSoup.length; i++) soup[i] = baseSoup[i] * pct;
-  }
+// shared entry for uploads and primitives
+function setModel(name, soup) {
   state.soup = soup;
   state.fileName = name.replace(/\.[^.]+$/, '');
   state.accel = null;
@@ -266,7 +260,7 @@ function setModel(name, baseSoup) {
   ui.export.disabled = true;
 
   const b = bboxOfSoup(soup);
-  status(`${name}${pct !== 1 ? ' @ ' + (pct * 100) + '%' : ''}\n` +
+  status(`${name}\n` +
     `${(soup.length / 9).toLocaleString()} triangles, ` +
     `${(b.maxX - b.minX).toFixed(1)} × ${(b.maxY - b.minY).toFixed(1)} × ${(b.maxZ - b.minZ).toFixed(1)} mm`);
   fitView(true);
@@ -343,9 +337,25 @@ ui.loadPrim.addEventListener('click', () => {
   setModel(name, soup);
 });
 
-ui.scale.addEventListener('change', () => {
-  if (state.baseSoup) setModel(state.fileName || 'model', state.baseSoup);
+function syncCellLabel() {
+  ui.cellOut.value = ui.cell.value;
+  ui.cellLabel.textContent = ui.cell.value;
+}
+ui.cell.addEventListener('input', syncCellLabel);
+ui.cell.addEventListener('change', () => {
+  syncCellLabel();
+  // the index is binned by cell size, and any existing lattice is now stale
+  state.accel = null;
+  state.lattice = null;
+  state.solid = null;
+  clearObject('latticeLines');
+  clearObject('solidMesh');
+  if (state.inputMesh) state.inputMesh.material.opacity = 0.28;
+  ui.solid.disabled = true;
+  ui.export.disabled = true;
+  if (state.soup) status(`Cell size ${ui.cell.value} mm — generate to apply.`);
 });
+syncCellLabel();
 
 function soupFromGeometry(geometry, scale = 1) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -634,13 +644,13 @@ async function generate() {
     if (!state.accel) {
       status('Building spatial index …');
       await frame();
-      state.accel = buildAccel(state.soup, SPACING);
+      state.accel = buildAccel(state.soup, cellSize());
     }
     status('Generating ' + ui.lattice.value + ' lattice …');
     await frame();
     const t0 = performance.now();
     state.lattice = await generateLattice(state.accel, {
-      spacing: SPACING,
+      spacing: cellSize(),
       lattice: ui.lattice.value,
       cellEdges: ui.edges.checked,
       wholeCells: ui.wholeCells.checked,
@@ -744,7 +754,7 @@ async function buildSolid() {
 
 function downloadSTL() {
   if (!state.solid) return;
-  const name = (state.fileName || 'lattice') + '_' + ui.lattice.value + '_10mm.stl';
+  const name = (state.fileName || 'lattice') + '_' + ui.lattice.value + '_' + ui.cell.value + 'mm.stl';
   const buf = exportBinarySTL(state.solid, name);
   const blob = new Blob([buf], { type: 'application/octet-stream' });
   const a = document.createElement('a');
@@ -760,9 +770,9 @@ window.latticeApp = {
   state, loadFromArrayBuffer, generate, buildSolid, fitView,
   // test hook: generation output before the joint filter runs
   generateRaw: async () => {
-    if (!state.accel) state.accel = buildAccel(state.soup, SPACING);
+    if (!state.accel) state.accel = buildAccel(state.soup, cellSize());
     return generateLattice(state.accel, {
-      spacing: SPACING, lattice: ui.lattice.value, cellEdges: ui.edges.checked,
+      spacing: cellSize(), lattice: ui.lattice.value, cellEdges: ui.edges.checked,
       wholeCells: ui.wholeCells.checked,
     });
   },
