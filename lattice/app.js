@@ -697,7 +697,7 @@ async function buildSolid() {
       radius: parseFloat(ui.radius.value) || 0.8,
       blend: parseFloat(ui.blend.value) || 2,
       voxel: parseFloat(ui.detail.value) || 0.1,
-      accel: ui.wholeCells.checked ? null : state.accel,
+      accel: state.accel,
       maxSamples: sampleBudget(),
       onProgress: async (n, total, phase) => {
         status((phase === 'stamping' ? 'Evaluating strut field … '
@@ -753,6 +753,14 @@ function downloadSTL() {
 // exposed for testing / scripting
 window.latticeApp = {
   state, loadFromArrayBuffer, generate, buildSolid, fitView,
+  // test hook: generation output before the joint filter runs
+  generateRaw: async () => {
+    if (!state.accel) state.accel = buildAccel(state.soup, SPACING);
+    return generateLattice(state.accel, {
+      spacing: SPACING, lattice: ui.lattice.value, cellEdges: ui.edges.checked,
+      wholeCells: ui.wholeCells.checked,
+    });
+  },
   exportSTLBytes: () => exportBinarySTL(state.solid, 'x'),
   // test hook: orbit pivot vs the bounding-box centre
   probePivot: () => {

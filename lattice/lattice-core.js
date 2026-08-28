@@ -15,10 +15,19 @@
 // the generator). To add a new type, add an entry here — nothing else needed.
 // ---------------------------------------------------------------------------
 
+// All 12 edges of the unit cell, not just the three from its origin corner.
+// Relying on neighbouring cells to supply the other nine works everywhere
+// except the far boundary, where there is no neighbour — that left the max-X/
+// Y/Z faces without their in-plane edges, so the joint filter ate them and
+// only some sides came out flat. Duplicates between cells are removed by the
+// generator, so the interior is unchanged.
 const CUBIC_EDGES = [
-  [[0, 0, 0], [1, 0, 0]],
-  [[0, 0, 0], [0, 1, 0]],
-  [[0, 0, 0], [0, 0, 1]],
+  [[0, 0, 0], [1, 0, 0]], [[0, 1, 0], [1, 1, 0]],
+  [[0, 0, 1], [1, 0, 1]], [[0, 1, 1], [1, 1, 1]],
+  [[0, 0, 0], [0, 1, 0]], [[1, 0, 0], [1, 1, 0]],
+  [[0, 0, 1], [0, 1, 1]], [[1, 0, 1], [1, 1, 1]],
+  [[0, 0, 0], [0, 0, 1]], [[1, 0, 0], [1, 0, 1]],
+  [[0, 1, 0], [0, 1, 1]], [[1, 1, 0], [1, 1, 1]],
 ];
 
 function fccEdges() {
@@ -354,10 +363,10 @@ export function clipSegment(accel, ax, ay, az, bx, by, bz) {
 // ---------------------------------------------------------------------------
 
 
-// True if a cell-sized box overlaps the solid at all: either it contains a
-// point of the solid, or the surface passes through it. Used by whole-cell
-// mode, where a cell that so much as touches the model is built in full.
-function cellTouchesSolid(accel, cx, cy, cz, s) {
+// True if a cell-sized box lies entirely within the solid: all eight corners
+// inside, and no surface passing through it. Whole-cell mode keeps only these,
+// so every cell built is complete and none of it sticks out of the model.
+function cellInsideSolid(accel, cx, cy, cz, s) {
   // Test a slightly shrunken cell, so a cell that merely abuts the surface
   // doesn't count. Without this a 100mm cube (faces exactly on grid planes)
   // would pull in the ring of cells beyond each face and come out 120mm.
@@ -365,16 +374,16 @@ function cellTouchesSolid(accel, cx, cy, cz, s) {
   const lo = { x: cx + eps, y: cy + eps, z: cz + eps };
   const hi = { x: cx + s - eps, y: cy + s - eps, z: cz + s - eps };
 
-  // a corner or the centre inside is the cheap, common case
+  // every corner (and the centre) must be in the solid
   for (const [px, py, pz] of [
     [cx + s / 2, cy + s / 2, cz + s / 2],
     [lo.x, lo.y, lo.z], [hi.x, lo.y, lo.z], [lo.x, hi.y, lo.z], [hi.x, hi.y, lo.z],
     [lo.x, lo.y, hi.z], [hi.x, lo.y, hi.z], [lo.x, hi.y, hi.z], [hi.x, hi.y, hi.z],
   ]) {
-    if (insideOrOn(accel, px, py, pz)) return true;
+    if (!insideOrOn(accel, px, py, pz)) return false;
   }
-  // otherwise the surface may still cut through the cell without any corner
-  // landing inside — look for a triangle whose bounds overlap the cell
+  // corners can all be inside while the surface still cuts through the middle
+  // (a thin wall, a notch) — such a cell is not complete
   const soup = accel.soup, cs = accel.cs;
   const i0 = clampi(Math.floor((cx - accel.oX) / cs), 0, accel.nX - 1);
   const i1 = clampi(Math.floor((cx + s - accel.oX) / cs), 0, accel.nX - 1);
@@ -398,12 +407,12 @@ function cellTouchesSolid(accel, cx, cy, cz, s) {
           if (Math.max(soup[o + 1], soup[o + 4], soup[o + 7]) <= lo.y) continue;
           if (Math.min(soup[o + 2], soup[o + 5], soup[o + 8]) >= hi.z) continue;
           if (Math.max(soup[o + 2], soup[o + 5], soup[o + 8]) <= lo.z) continue;
-          return true;
+          return false;
         }
       }
     }
   }
-  return false;
+  return true;
 }
 
 export async function generateLattice(accel, opts) {
@@ -415,6 +424,7 @@ export async function generateLattice(accel, opts) {
     for (const e of CUBIC_EDGES) edges.push(e);
   }
 
+  const wholeCells = !!opts.wholeCells;
   const b = accel.bbox;
   // One full cell of padding each side, grid centred on the bounding box.
   // The cell count must snap when the span is within a hair of a whole number
@@ -426,14 +436,17 @@ export async function generateLattice(accel, opts) {
     const snapped = Math.round(c);
     return (Math.abs(c - snapped) < 1e-4 ? snapped : Math.ceil(c)) + 2;
   };
-  const nx = cellsAcross(b.maxX - b.minX);
-  const ny = cellsAcross(b.maxY - b.minY);
-  const nz = cellsAcross(b.maxZ - b.minZ);
+  // In whole-cell mode the grid is phased so the block of COMPLETE cells is
+  // centred on the model: a 105mm span keeps 10 whole cells centred (100mm)
+  // instead of straddling the grid and only fitting 9.
+  const wholeCellsAcross = (span) => Math.max(1, Math.floor(span / s + 1e-6)) + 2;
+
+  const nx = wholeCells ? wholeCellsAcross(b.maxX - b.minX) : cellsAcross(b.maxX - b.minX);
+  const ny = wholeCells ? wholeCellsAcross(b.maxY - b.minY) : cellsAcross(b.maxY - b.minY);
+  const nz = wholeCells ? wholeCellsAcross(b.maxZ - b.minZ) : cellsAcross(b.maxZ - b.minZ);
   const x0 = (b.minX + b.maxX) / 2 - (nx * s) / 2;
   const y0 = (b.minY + b.maxY) / 2 - (ny * s) / 2;
   const z0 = (b.minZ + b.maxZ) / 2 - (nz * s) / 2;
-
-  const wholeCells = !!opts.wholeCells;
 
   // unique candidate struts, keyed by quantised endpoints
   const seen = new Set();
@@ -445,7 +458,7 @@ export async function generateLattice(accel, opts) {
         const cx = x0 + i * s, cy = y0 + j * s, cz = z0 + k * s;
         // whole-cell mode builds every cell the model touches, complete, so
         // the lattice ends on flat grid planes instead of the model surface
-        if (wholeCells && !cellTouchesSolid(accel, cx, cy, cz, s)) continue;
+        if (wholeCells && !cellInsideSolid(accel, cx, cy, cz, s)) continue;
         for (const [f1, f2] of edges) {
           const ax = cx + f1[0] * s, ay = cy + f1[1] * s, az = cz + f1[2] * s;
           const bx = cx + f2[0] * s, by = cy + f2[1] * s, bz = cz + f2[2] * s;
