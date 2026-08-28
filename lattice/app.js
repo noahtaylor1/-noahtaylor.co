@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=edcc73aa';
+} from './lattice-core.js?v=f22031d8';
 
 // Cell size is driven by the lever. The spatial index is binned by it too,
 // so changing it invalidates the cached accel.
@@ -645,19 +645,45 @@ ui.export.addEventListener('click', () => downloadSTL());
 // degree-2 ends are corner V-spikes that the smooth blend fuses into a
 // single protruding stub. Repeats until stable so removals cascade.
 // Post-filter only; the generator's output is untouched.
+// A strut end needs real support: three struts meeting, or two that carry
+// straight on through. The second case is what a curved strut is made of —
+// the mid-points of a gothic arch's polyline have degree 2 by construction —
+// while two struts meeting at a sharp angle is the corner spike we do want
+// gone. STRAIGHT_DOT is the cosine between the two directions: about -1 when
+// the path continues, near 0 or positive at a spike.
 const MIN_JOINT = 3;
+const STRAIGHT_DOT = -0.6;
+
 function removeDanglingStruts(segments) {
   const q = (v) => Math.round(v * 1024);
   const keyA = (g) => q(g.ax) + ',' + q(g.ay) + ',' + q(g.az);
   const keyB = (g) => q(g.bx) + ',' + q(g.by) + ',' + q(g.bz);
   let segs = segments;
+
   for (;;) {
-    const deg = new Map();
+    const nodes = new Map();
+    const tally = (k, ox, oy, oz, x, y, z) => {
+      let n = nodes.get(k);
+      if (!n) { n = { deg: 0, dirs: [] }; nodes.set(k, n); }
+      n.deg++;
+      const dx = ox - x, dy = oy - y, dz = oz - z;
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      if (n.dirs.length < 2) n.dirs.push([dx / len, dy / len, dz / len]);
+    };
     for (const g of segs) {
-      deg.set(keyA(g), (deg.get(keyA(g)) || 0) + 1);
-      deg.set(keyB(g), (deg.get(keyB(g)) || 0) + 1);
+      tally(keyA(g), g.bx, g.by, g.bz, g.ax, g.ay, g.az);
+      tally(keyB(g), g.ax, g.ay, g.az, g.bx, g.by, g.bz);
     }
-    const keep = segs.filter((g) => deg.get(keyA(g)) >= MIN_JOINT && deg.get(keyB(g)) >= MIN_JOINT);
+
+    const ok = new Set();
+    for (const [k, n] of nodes) {
+      if (n.deg >= MIN_JOINT) { ok.add(k); continue; }
+      if (n.deg === 2) {
+        const [u, v] = n.dirs;
+        if (u[0] * v[0] + u[1] * v[1] + u[2] * v[2] <= STRAIGHT_DOT) ok.add(k);
+      }
+    }
+    const keep = segs.filter((g) => ok.has(keyA(g)) && ok.has(keyB(g)));
     if (keep.length === segs.length) return segs;
     segs = keep;
   }

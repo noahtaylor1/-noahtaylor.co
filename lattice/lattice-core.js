@@ -51,6 +51,65 @@ function fccEdges() {
   return edges;
 }
 
+
+// A pointed (gothic) arch on each of the cell's four vertical faces, springing
+// from corner piers and meeting the top ring at the face's mid-point. The
+// profile is the classic two-arc construction: each arc is centred on the
+// springing line, so the two meet at a point rather than a smooth crown.
+// Arcs are polylines, so this is the one lattice whose struts bend.
+function gothicEdges(segs = 5, pier = 0.25) {
+  const rise = 1 - pier;
+  // centres sit at u = c and u = 1-c with radius 1-c; solving for the apex
+  // landing at (0.5, 1) gives c directly
+  const c = 0.75 - rise * rise;
+  const R = 1 - c;
+
+  // one arc as a list of [u, z] points, from a springing corner to the apex
+  const arc = (fromLeft) => {
+    const cu = fromLeft ? 1 - c : c;
+    const a0 = Math.atan2(0, (fromLeft ? 0 : 1) - cu);
+    const a1 = Math.atan2(rise, 0.5 - cu);
+    const pts = [];
+    for (let i = 0; i <= segs; i++) {
+      const ang = a0 + (a1 - a0) * (i / segs);
+      pts.push([cu + R * Math.cos(ang), pier + R * Math.sin(ang)]);
+    }
+    return pts;
+  };
+
+  // place a face-local [u, z] onto one of the four vertical faces
+  const place = (face, u, z) => (
+    face === 0 ? [u, 0, z] :
+    face === 1 ? [u, 1, z] :
+    face === 2 ? [0, u, z] :
+                 [1, u, z]);
+
+  const edges = [];
+  // corner piers, full height, shared with the neighbouring cells
+  for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+    edges.push([[x, y, 0], [x, y, 1]]);
+  }
+  // top and bottom rings, split at the mid-points so an apex has a node to
+  // meet and stacked cells share it
+  for (const z of [0, 1]) {
+    for (let face = 0; face < 4; face++) {
+      edges.push([place(face, 0, z), place(face, 0.5, z)]);
+      edges.push([place(face, 0.5, z), place(face, 1, z)]);
+    }
+  }
+  // the arches themselves
+  for (let face = 0; face < 4; face++) {
+    for (const side of [true, false]) {
+      const pts = arc(side);
+      for (let i = 0; i + 1 < pts.length; i++) {
+        edges.push([place(face, pts[i][0], pts[i][1]),
+                    place(face, pts[i + 1][0], pts[i + 1][1])]);
+      }
+    }
+  }
+  return edges;
+}
+
 export const LATTICES = {
   bcc: {
     label: 'BCC (body-centred cubic)',
@@ -63,6 +122,10 @@ export const LATTICES = {
   fcc: {
     label: 'FCC / octet truss',
     edges: fccEdges(),
+  },
+  gothic: {
+    label: 'Gothic arches',
+    edges: gothicEdges(),
   },
   cubic: {
     label: 'Simple cubic (edges only)',
