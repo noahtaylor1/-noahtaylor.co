@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=d43d391f';
+} from './lattice-core.js?v=502348f1';
 
 const SPACING = 10; // mm — fixed cubic cell size
 
@@ -697,12 +697,12 @@ async function buildSolid() {
       radius: parseFloat(ui.radius.value) || 0.8,
       blend: parseFloat(ui.blend.value) || 2,
       voxel: parseFloat(ui.detail.value) || 0.1,
-      // No surface trim: generation already keeps every strut inside the
-      // volume, so the only thing trimming would cut is the pipe bulge on the
-      // outermost struts — slicing them into flat half-rounds. Leave the last
-      // struts whole and round, even though that puts the strut radius
-      // slightly proud of the model surface.
-      accel: null,
+      // The model is passed for proximity only, not to cut: it lets the
+      // mesher fade the joint fillet out at the surface so exterior nodes sit
+      // flush with their struts. trimToSurface stays off so the outermost
+      // pipes keep their full round profile.
+      accel: state.accel,
+      trimToSurface: false,
       maxSamples: sampleBudget(),
       onProgress: async (n, total, phase) => {
         status((phase === 'stamping' ? 'Evaluating strut field … '

@@ -656,17 +656,81 @@ export async function buildSmoothMesh(result, opts) {
     if (opts.onProgress && n % 256 === 0) await opts.onProgress(n, segs.length, 'stamping');
   }
 
-  // blend the two nearest struts per voxel
-  for (let i = 0; i < field.length; i++) {
-    const h = k - (second[i] - field[i]);
-    if (h > 0) field[i] -= (h * h * 0.25) / k;
+  // How close each voxel is to the model surface, used to taper the blend.
+  // Only needed within a shallow band — anything deeper is fully interior.
+  let depth = null;
+  if (opts.accel) {
+    const accel = opts.accel;
+    const soup = accel.soup;
+    const band = r + k + 2 * voxel;
+    const band2 = band * band;
+    depth = new Float32Array(field.length).fill(BIG);
+    for (let t = 0; t < accel.triCount; t++) {
+      const o = t * 9;
+      const i0 = Math.max(0, Math.floor((Math.min(soup[o], soup[o + 3], soup[o + 6]) - band - mnx) / voxel));
+      const i1 = Math.min(nx - 1, Math.ceil((Math.max(soup[o], soup[o + 3], soup[o + 6]) + band - mnx) / voxel));
+      const j0 = Math.max(0, Math.floor((Math.min(soup[o + 1], soup[o + 4], soup[o + 7]) - band - mny) / voxel));
+      const j1 = Math.min(ny - 1, Math.ceil((Math.max(soup[o + 1], soup[o + 4], soup[o + 7]) + band - mny) / voxel));
+      const k0 = Math.max(0, Math.floor((Math.min(soup[o + 2], soup[o + 5], soup[o + 8]) - band - mnz) / voxel));
+      const k1 = Math.min(nz - 1, Math.ceil((Math.max(soup[o + 2], soup[o + 5], soup[o + 8]) + band - mnz) / voxel));
+      for (let i = i0; i <= i1; i++) {
+        const x = mnx + i * voxel;
+        for (let j = j0; j <= j1; j++) {
+          const y = mny + j * voxel;
+          for (let kk = k0; kk <= k1; kk++) {
+            const d2 = pointTriDist2(soup, t, x, y, mnz + kk * voxel);
+            if (d2 < band2) {
+              const id = idx(i, j, kk);
+              const d = Math.sqrt(d2);
+              if (d < depth[id]) depth[id] = d;
+            }
+          }
+        }
+      }
+      if (opts.onProgress && t % 2048 === 0) await opts.onProgress(t, accel.triCount, 'trimming');
+    }
+    // Sign it: a voxel outside the model gets negative depth, so the taper
+    // below switches the fillet off there too. Without this the pipe surface
+    // itself (a radius proud of the model) still picked up part of the blend
+    // and the node kept a visible lump.
+    for (let j = 0; j < ny; j++) {
+      const y = mny + j * voxel;
+      for (let kk = 0; kk < nz; kk++) {
+        const xs = rayCrossings(accel, y, mnz + kk * voxel);
+        let ptr = 0;
+        for (let i = 0; i < nx; i++) {
+          const x = mnx + i * voxel;
+          while (ptr < xs.length && xs[ptr] <= x + EPS_PARITY) ptr++;
+          if (((xs.length - ptr) & 1) === 0) {
+            const id = idx(i, j, kk);
+            if (depth[id] < BIG) depth[id] = -depth[id];
+          }
+        }
+      }
+    }
   }
 
-  // Trim the pipes flush with the input solid: struts on or near the boundary
-  // otherwise bulge half a pipe outside it. Intersect the strut field with the
-  // solid's signed distance — magnitude from the triangles (within a narrow
-  // band), sign from the ray-parity test.
-  if (opts.accel) {
+  // Blend the two nearest struts per voxel. The fillet is what makes joints
+  // organic, but at the model surface it swells into a lump standing proud of
+  // the struts. Taper it to nothing over the last `fade` of depth so exterior
+  // joints are a plain strut union — strut and node colinear — while interior
+  // joints keep the full fillet.
+  const fade = Math.max(k, 1e-6);
+  for (let i = 0; i < field.length; i++) {
+    let kk2 = k;
+    if (depth) {
+      const w = Math.max(0, Math.min(depth[i] / fade, 1));
+      kk2 = k * w;
+      if (kk2 < 1e-4) continue;   // at or outside the surface: no blend at all
+    }
+    const h = kk2 - (second[i] - field[i]);
+    if (h > 0) field[i] -= (h * h * 0.25) / kk2;
+  }
+
+  // Optionally cut the pipes flush with the input solid. Off by default: the
+  // generator already keeps struts inside, so this would only slice the
+  // outermost pipes into flat half-rounds.
+  if (opts.accel && opts.trimToSurface) {
     const accel = opts.accel;
     const soup = accel.soup;
     const band = r + k + 2 * voxel;
