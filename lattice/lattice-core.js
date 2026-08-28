@@ -57,7 +57,17 @@ function fccEdges() {
 // profile is the classic two-arc construction: each arc is centred on the
 // springing line, so the two meet at a point rather than a smooth crown.
 // Arcs are polylines, so this is the one lattice whose struts bend.
-function gothicEdges(segs = 5, pier = 0.25) {
+function gothicEdges(opts = {}) {
+  // Chord error falls with the square of the segment count: at 14 segments a
+  // 67 degree sweep deviates under 0.04mm even on a 40mm cell, which is far
+  // below any voxel size the mesher runs at — the arc is a true curve as far
+  // as the exported surface is concerned. Cells are scaled per axis, so an
+  // analytic circle would become an ellipse whenever the cell is not cubic;
+  // a fine polyline stays correct for any cell shape.
+  const segs = opts.segs || 14;
+  const pier = opts.pier == null ? 0.25 : opts.pier;
+  const diagonal = !!opts.diagonal;
+
   const rise = 1 - pier;
   // centres sit at u = c and u = 1-c with radius 1-c; solving for the apex
   // landing at (0.5, 1) gives c directly
@@ -77,33 +87,44 @@ function gothicEdges(segs = 5, pier = 0.25) {
     return pts;
   };
 
-  // place a face-local [u, z] onto one of the four vertical faces
-  const place = (face, u, z) => (
-    face === 0 ? [u, 0, z] :
-    face === 1 ? [u, 1, z] :
-    face === 2 ? [0, u, z] :
-                 [1, u, z]);
+  // Where an arch's [u, z] lands. The face planes give an arcade on the cell
+  // sides; the diagonal planes run corner to corner, so in plan the two
+  // arches cross like a BCC cell and meet at one apex over the centre.
+  const planes = diagonal ? 2 : 4;
+  const place = (plane, u, z) => (
+    diagonal
+      ? (plane === 0 ? [u, u, z] : [1 - u, u, z])
+      : (plane === 0 ? [u, 0, z] :
+         plane === 1 ? [u, 1, z] :
+         plane === 2 ? [0, u, z] :
+                       [1, u, z]));
 
   const edges = [];
-  // corner piers, full height, shared with the neighbouring cells
+  // Corner piers, split at the springing height. The arches start there, and
+  // a strut has to end at a node for the junction to exist at all — with an
+  // unbroken pier the arc ends were left dangling and the joint filter
+  // unravelled every arch from its feet up.
   for (const [x, y] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    edges.push([[x, y, 0], [x, y, 1]]);
+    edges.push([[x, y, 0], [x, y, pier]]);
+    edges.push([[x, y, pier], [x, y, 1]]);
   }
-  // top and bottom rings, split at the mid-points so an apex has a node to
-  // meet and stacked cells share it
+  // top and bottom rings, split at the mid-points so a face arch has a node
+  // to meet and stacked cells share it
   for (const z of [0, 1]) {
     for (let face = 0; face < 4; face++) {
-      edges.push([place(face, 0, z), place(face, 0.5, z)]);
-      edges.push([place(face, 0.5, z), place(face, 1, z)]);
+      const at = (u) => (face === 0 ? [u, 0, z] : face === 1 ? [u, 1, z]
+                       : face === 2 ? [0, u, z] : [1, u, z]);
+      edges.push([at(0), at(0.5)]);
+      edges.push([at(0.5), at(1)]);
     }
   }
   // the arches themselves
-  for (let face = 0; face < 4; face++) {
+  for (let plane = 0; plane < planes; plane++) {
     for (const side of [true, false]) {
       const pts = arc(side);
       for (let i = 0; i + 1 < pts.length; i++) {
-        edges.push([place(face, pts[i][0], pts[i][1]),
-                    place(face, pts[i + 1][0], pts[i + 1][1])]);
+        edges.push([place(plane, pts[i][0], pts[i][1]),
+                    place(plane, pts[i + 1][0], pts[i + 1][1])]);
       }
     }
   }
@@ -126,6 +147,14 @@ export const LATTICES = {
   gothic: {
     label: 'Gothic arches',
     edges: gothicEdges(),
+    // curved struts are polylines, and the joint blend bulges at every vertex
+    // along one — heavy smoothing turns a clean arc into a corrugated tube
+    curved: true,
+  },
+  gothicBcc: {
+    label: 'Gothic arches (BCC diagonal)',
+    edges: gothicEdges({ diagonal: true }),
+    curved: true,
   },
   cubic: {
     label: 'Simple cubic (edges only)',

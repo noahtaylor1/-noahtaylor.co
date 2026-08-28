@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=f22031d8';
+} from './lattice-core.js?v=d387fbc8';
 
 // Cell size is driven by the lever. The spatial index is binned by it too,
 // so changing it invalidates the cached accel.
@@ -192,6 +192,17 @@ for (const key of Object.keys(LATTICES)) {
   opt.textContent = LATTICES[key].label;
   ui.lattice.appendChild(opt);
 }
+
+// A curved lattice is drawn as polylines, so a wide joint blend bulges at
+// every vertex and ribs the arc. Drop the smoothing to a token amount when
+// one is picked, and restore the default on the way back to straight struts.
+const STRAIGHT_BLEND = '2', CURVED_BLEND = '0.15';
+ui.lattice.addEventListener('change', () => {
+  const curved = !!(LATTICES[ui.lattice.value] || {}).curved;
+  const v = parseFloat(ui.blend.value);
+  if (curved && v > 0.5) ui.blend.value = CURVED_BLEND;
+  else if (!curved && v < 0.5) ui.blend.value = STRAIGHT_BLEND;
+});
 
 function status(msg) { ui.status.textContent = msg; }
 function progress(f) { ui.barFill.style.width = (f * 100).toFixed(1) + '%'; }
