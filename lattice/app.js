@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=f2d4c18c';
+} from './lattice-core.js?v=edcc73aa';
 
 // Cell size is driven by the lever. The spatial index is binned by it too,
 // so changing it invalidates the cached accel.
@@ -72,6 +72,8 @@ const ui = {
   dimA: $('dimA'), dimB: $('dimB'), dimC: $('dimC'),
   loadPrim: $('loadPrim'), cell: $('cell'), cellOut: $('cellOut'),
   cellLabel: $('cellLabel'), wholeCells: $('wholeCells'),
+  taper: $('taper'), taperRow: $('taperRow'),
+  taperBig: $('taperBig'), taperSmall: $('taperSmall'),
 };
 
 // ---------------------------------------------------------------------------
@@ -337,14 +339,16 @@ ui.loadPrim.addEventListener('click', () => {
   setModel(name, soup);
 });
 
-function syncCellLabel() {
-  ui.cellOut.value = ui.cell.value;
-  ui.cellLabel.textContent = ui.cell.value;
+// taper range is only meaningful while tapering is on
+function syncTaperRow() { ui.taperRow.hidden = !ui.taper.checked; }
+ui.taper.addEventListener('change', () => { syncTaperRow(); invalidateLattice(); });
+for (const el of [$('taperBig'), $('taperSmall')]) {
+  el.addEventListener('change', invalidateLattice);
 }
-ui.cell.addEventListener('input', syncCellLabel);
-ui.cell.addEventListener('change', () => {
-  syncCellLabel();
-  // the index is binned by cell size, and any existing lattice is now stale
+syncTaperRow();
+
+// cell geometry changed — the index is binned by it and any lattice is stale
+function invalidateLattice() {
   state.accel = null;
   state.lattice = null;
   state.solid = null;
@@ -353,8 +357,30 @@ ui.cell.addEventListener('change', () => {
   if (state.inputMesh) state.inputMesh.material.opacity = 0.28;
   ui.solid.disabled = true;
   ui.export.disabled = true;
-  if (state.soup) status(`Cell size ${ui.cell.value} mm — generate to apply.`);
-});
+  if (state.soup) status('Cell settings changed — generate to apply.');
+}
+
+// bin the spatial index by the smallest cell in use, so its neighbourhood
+// queries still cover a cell either way
+function accelBin() {
+  const t = taperOpts();
+  return t ? Math.max(1, Math.min(cellSize(), t.small, t.big)) : cellSize();
+}
+
+function taperOpts() {
+  if (!ui.taper.checked) return null;
+  return {
+    big: parseFloat(ui.taperBig.value) || 20,
+    small: parseFloat(ui.taperSmall.value) || 6,
+  };
+}
+
+function syncCellLabel() {
+  ui.cellOut.value = ui.cell.value;
+  ui.cellLabel.textContent = ui.cell.value;
+}
+ui.cell.addEventListener('input', syncCellLabel);
+ui.cell.addEventListener('change', () => { syncCellLabel(); invalidateLattice(); });
 syncCellLabel();
 
 function soupFromGeometry(geometry, scale = 1) {
@@ -644,13 +670,14 @@ async function generate() {
     if (!state.accel) {
       status('Building spatial index …');
       await frame();
-      state.accel = buildAccel(state.soup, cellSize());
+      state.accel = buildAccel(state.soup, accelBin());
     }
     status('Generating ' + ui.lattice.value + ' lattice …');
     await frame();
     const t0 = performance.now();
     state.lattice = await generateLattice(state.accel, {
       spacing: cellSize(),
+      taper: taperOpts(),
       lattice: ui.lattice.value,
       cellEdges: ui.edges.checked,
       wholeCells: ui.wholeCells.checked,
@@ -770,9 +797,10 @@ window.latticeApp = {
   state, loadFromArrayBuffer, generate, buildSolid, fitView,
   // test hook: generation output before the joint filter runs
   generateRaw: async () => {
-    if (!state.accel) state.accel = buildAccel(state.soup, cellSize());
+    if (!state.accel) state.accel = buildAccel(state.soup, accelBin());
     return generateLattice(state.accel, {
-      spacing: cellSize(), lattice: ui.lattice.value, cellEdges: ui.edges.checked,
+      spacing: cellSize(),
+      taper: taperOpts(), lattice: ui.lattice.value, cellEdges: ui.edges.checked,
       wholeCells: ui.wholeCells.checked,
     });
   },

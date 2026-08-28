@@ -137,6 +137,11 @@
     <input type="range" id="cell" min="4" max="40" step="1" value="10">
     <output id="cellOut">10</output>
   </span></div>
+  <div class="row"><label>Taper cells (X/Y)</label><input type="checkbox" id="taper"></div>
+  <div class="row" id="taperRow" hidden><label>Centre → edge (mm)</label><span class="dims">
+    <input type="number" id="taperBig" value="20" min="3" max="60" step="1" title="cell size at the centre">
+    <input type="number" id="taperSmall" value="6" min="2" max="60" step="1" title="cell size at the outer face">
+  </span></div>
   <div class="row"><label>Lattice</label><select id="lattice"></select></div>
   <div class="row"><label>Cell edges</label><input type="checkbox" id="edges" checked></div>
   <div class="row"><label>Whole cells (flat sides)</label><input type="checkbox" id="wholeCells" checked></div>
@@ -174,6 +179,6 @@
   }
 }
 </script>
-<script type="module" src="app.js?v=f2d4c18c"></script>
+<script type="module" src="app.js?v=edcc73aa"></script>
 </body>
 </html>

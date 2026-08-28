@@ -366,17 +366,17 @@ export function clipSegment(accel, ax, ay, az, bx, by, bz) {
 // True if a cell-sized box lies entirely within the solid: all eight corners
 // inside, and no surface passing through it. Whole-cell mode keeps only these,
 // so every cell built is complete and none of it sticks out of the model.
-function cellInsideSolid(accel, cx, cy, cz, s) {
+function cellInsideSolid(accel, cx, cy, cz, sx, sy, sz) {
   // Test a slightly shrunken cell, so a cell that merely abuts the surface
   // doesn't count. Without this a 100mm cube (faces exactly on grid planes)
   // would pull in the ring of cells beyond each face and come out 120mm.
-  const eps = Math.min(0.02 * s, 0.2);
+  const eps = Math.min(0.02 * Math.min(sx, sy, sz), 0.2);
   const lo = { x: cx + eps, y: cy + eps, z: cz + eps };
-  const hi = { x: cx + s - eps, y: cy + s - eps, z: cz + s - eps };
+  const hi = { x: cx + sx - eps, y: cy + sy - eps, z: cz + sz - eps };
 
   // every corner (and the centre) must be in the solid
   for (const [px, py, pz] of [
-    [cx + s / 2, cy + s / 2, cz + s / 2],
+    [cx + sx / 2, cy + sy / 2, cz + sz / 2],
     [lo.x, lo.y, lo.z], [hi.x, lo.y, lo.z], [lo.x, hi.y, lo.z], [hi.x, hi.y, lo.z],
     [lo.x, lo.y, hi.z], [hi.x, lo.y, hi.z], [lo.x, hi.y, hi.z], [hi.x, hi.y, hi.z],
   ]) {
@@ -386,11 +386,11 @@ function cellInsideSolid(accel, cx, cy, cz, s) {
   // (a thin wall, a notch) — such a cell is not complete
   const soup = accel.soup, cs = accel.cs;
   const i0 = clampi(Math.floor((cx - accel.oX) / cs), 0, accel.nX - 1);
-  const i1 = clampi(Math.floor((cx + s - accel.oX) / cs), 0, accel.nX - 1);
+  const i1 = clampi(Math.floor((cx + sx - accel.oX) / cs), 0, accel.nX - 1);
   const j0 = clampi(Math.floor((cy - accel.oY) / cs), 0, accel.nY - 1);
-  const j1 = clampi(Math.floor((cy + s - accel.oY) / cs), 0, accel.nY - 1);
+  const j1 = clampi(Math.floor((cy + sy - accel.oY) / cs), 0, accel.nY - 1);
   const k0 = clampi(Math.floor((cz - accel.oZ) / cs), 0, accel.nZ - 1);
-  const k1 = clampi(Math.floor((cz + s - accel.oZ) / cs), 0, accel.nZ - 1);
+  const k1 = clampi(Math.floor((cz + sz - accel.oZ) / cs), 0, accel.nZ - 1);
   const seen = new Set();
   for (let i = i0; i <= i1; i++) {
     for (let j = j0; j <= j1; j++) {
@@ -426,42 +426,91 @@ export async function generateLattice(accel, opts) {
 
   const wholeCells = !!opts.wholeCells;
   const b = accel.bbox;
-  // One full cell of padding each side, grid centred on the bounding box.
-  // The cell count must snap when the span is within a hair of a whole number
-  // of cells: float noise (e.g. 100.0000001mm) would otherwise bump ceil() up
-  // one, making the count's parity flip so centred nodes miss the faces by
-  // half a cell on that axis only.
-  const cellsAcross = (span) => {
-    const c = span / s;
-    const snapped = Math.round(c);
-    return (Math.abs(c - snapped) < 1e-4 ? snapped : Math.ceil(c)) + 2;
-  };
-  // In whole-cell mode the grid is phased so the block of COMPLETE cells is
-  // centred on the model: a 105mm span keeps 10 whole cells centred (100mm)
-  // instead of straddling the grid and only fitting 9.
-  const wholeCellsAcross = (span) => Math.max(1, Math.floor(span / s + 1e-6)) + 2;
 
-  const nx = wholeCells ? wholeCellsAcross(b.maxX - b.minX) : cellsAcross(b.maxX - b.minX);
-  const ny = wholeCells ? wholeCellsAcross(b.maxY - b.minY) : cellsAcross(b.maxY - b.minY);
-  const nz = wholeCells ? wholeCellsAcross(b.maxZ - b.minZ) : cellsAcross(b.maxZ - b.minZ);
-  const x0 = (b.minX + b.maxX) / 2 - (nx * s) / 2;
-  const y0 = (b.minY + b.maxY) / 2 - (ny * s) / 2;
-  const z0 = (b.minZ + b.maxZ) / 2 - (nz * s) / 2;
+  // ---- grid planes per axis ---------------------------------------------
+  // Uniform axes keep the old phasing. The count must snap when the span is
+  // within a hair of a whole number of cells: float noise (e.g. 100.0000001mm)
+  // would otherwise bump ceil() up one, flipping the count's parity so centred
+  // nodes miss the faces by half a cell on that axis only. In whole-cell mode
+  // the phase instead centres the block of COMPLETE cells, so a 105mm span
+  // keeps 10 whole cells centred (100mm) rather than fitting only 9.
+  const uniformCoords = (lo, hi) => {
+    const span = hi - lo;
+    let n;
+    if (wholeCells) {
+      n = Math.max(1, Math.floor(span / s + 1e-6)) + 2;
+    } else {
+      const c = span / s;
+      const snapped = Math.round(c);
+      n = (Math.abs(c - snapped) < 1e-4 ? snapped : Math.ceil(c)) + 2;
+    }
+    const start = (lo + hi) / 2 - (n * s) / 2;
+    const out = [];
+    for (let i = 0; i <= n; i++) out.push(start + i * s);
+    return out;
+  };
+
+  // Tapered axes step outward from the centre, the step shrinking from
+  // `big` at the middle to `small` at the face, so cells are coarse in the
+  // core and fine at the skin. Both directions are walked from the centre
+  // with the same rule, which keeps the result symmetric.
+  // Tapered axes: cells grade from `big` at the centre to `small` at the face.
+  // The sizes are solved for the half-span rather than stepped outward until
+  // they overshoot — stepping leaves the last cell short of `small`, so the
+  // range the user asked for was never actually reached at the skin.
+  const taperedCoords = (lo, hi, big, small) => {
+    const centre = (lo + hi) / 2;
+    const half = Math.max((hi - lo) / 2, 1e-6);
+    // n cells of average (big+small)/2 span the half-width
+    const n = Math.max(1, Math.round((2 * half) / (big + small)));
+    const sizes = [];
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+      const t = n === 1 ? 1 : i / (n - 1);        // 0 at centre, 1 at the face
+      const v = Math.max(0.5, big + (small - big) * t);
+      sizes.push(v);
+      sum += v;
+    }
+    // normalise so the graded cells cover the half-span exactly
+    const scale = half / sum;
+    for (let i = 0; i < n; i++) sizes[i] *= scale;
+    sizes.push(sizes[n - 1]);                      // one padding cell past the face
+
+    const pos = [centre], neg = [centre];
+    let p = centre, m = centre;
+    for (const size of sizes) {
+      p += size; pos.push(p);
+      m -= size; neg.push(m);
+    }
+    neg.shift();                                   // centre is already in pos
+    return neg.reverse().concat(pos);
+  };
+
+  const taper = opts.taper && opts.taper.big > 0 && opts.taper.small > 0
+    ? opts.taper : null;
+  const xs = taper ? taperedCoords(b.minX, b.maxX, taper.big, taper.small)
+                   : uniformCoords(b.minX, b.maxX);
+  const ys = taper ? taperedCoords(b.minY, b.maxY, taper.big, taper.small)
+                   : uniformCoords(b.minY, b.maxY);
+  const zs = uniformCoords(b.minZ, b.maxZ);   // taper is X/Y only
+  const nx = xs.length - 1, ny = ys.length - 1, nz = zs.length - 1;
 
   // unique candidate struts, keyed by quantised endpoints
   const seen = new Set();
   const struts = [];
   const q = (v) => Math.round(v * 1024);
   for (let i = 0; i < nx; i++) {
+    const cx = xs[i], sx = xs[i + 1] - cx;
     for (let j = 0; j < ny; j++) {
+      const cy = ys[j], sy = ys[j + 1] - cy;
       for (let k = 0; k < nz; k++) {
-        const cx = x0 + i * s, cy = y0 + j * s, cz = z0 + k * s;
-        // whole-cell mode builds every cell the model touches, complete, so
-        // the lattice ends on flat grid planes instead of the model surface
-        if (wholeCells && !cellInsideSolid(accel, cx, cy, cz, s)) continue;
+        const cz = zs[k], sz = zs[k + 1] - cz;
+        // whole-cell mode builds only cells that fit entirely inside, so the
+        // lattice ends on flat grid planes instead of a stepped boundary
+        if (wholeCells && !cellInsideSolid(accel, cx, cy, cz, sx, sy, sz)) continue;
         for (const [f1, f2] of edges) {
-          const ax = cx + f1[0] * s, ay = cy + f1[1] * s, az = cz + f1[2] * s;
-          const bx = cx + f2[0] * s, by = cy + f2[1] * s, bz = cz + f2[2] * s;
+          const ax = cx + f1[0] * sx, ay = cy + f1[1] * sy, az = cz + f1[2] * sz;
+          const bx = cx + f2[0] * sx, by = cy + f2[1] * sy, bz = cz + f2[2] * sz;
           const k1 = q(ax) + ',' + q(ay) + ',' + q(az);
           const k2 = q(bx) + ',' + q(by) + ',' + q(bz);
           const key = k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;
