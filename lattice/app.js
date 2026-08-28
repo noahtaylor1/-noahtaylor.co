@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js';
+} from './lattice-core.js?v=b4ea3adb';
 
 const SPACING = 10; // mm — fixed cubic cell size
 
