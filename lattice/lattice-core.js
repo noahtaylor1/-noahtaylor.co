@@ -517,6 +517,7 @@ export async function generateLattice(accel, opts) {
   }
 
   const wholeCells = !!opts.wholeCells;
+  const mirrorZ = !!opts.mirrorZ;
   const b = accel.bbox;
 
   // ---- grid planes per axis ---------------------------------------------
@@ -600,9 +601,17 @@ export async function generateLattice(accel, opts) {
         // whole-cell mode builds only cells that fit entirely inside, so the
         // lattice ends on flat grid planes instead of a stepped boundary
         if (wholeCells && !cellInsideSolid(accel, cx, cy, cz, sx, sy, sz)) continue;
+        // Mirror every other layer in Z. For an asymmetric cell like a gothic
+        // arch this stands the arches of one course on their heads, so an apex
+        // meets the apex below it at a single touch point instead of running
+        // into a flat ring. Symmetric cells (BCC, FCC, cubic) are unchanged
+        // by the flip.
+        const flip = mirrorZ && (k & 1) === 1;
         for (const [f1, f2] of edges) {
-          const ax = cx + f1[0] * sx, ay = cy + f1[1] * sy, az = cz + f1[2] * sz;
-          const bx = cx + f2[0] * sx, by = cy + f2[1] * sy, bz = cz + f2[2] * sz;
+          const f1z = flip ? 1 - f1[2] : f1[2];
+          const f2z = flip ? 1 - f2[2] : f2[2];
+          const ax = cx + f1[0] * sx, ay = cy + f1[1] * sy, az = cz + f1z * sz;
+          const bx = cx + f2[0] * sx, by = cy + f2[1] * sy, bz = cz + f2z * sz;
           const k1 = q(ax) + ',' + q(ay) + ',' + q(az);
           const k2 = q(bx) + ',' + q(by) + ',' + q(bz);
           const key = k1 < k2 ? k1 + '|' + k2 : k2 + '|' + k1;

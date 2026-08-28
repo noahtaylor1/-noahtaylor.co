@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=d387fbc8';
+} from './lattice-core.js?v=df797aff';
 
 // Cell size is driven by the lever. The spatial index is binned by it too,
 // so changing it invalidates the cached accel.
@@ -72,6 +72,7 @@ const ui = {
   dimA: $('dimA'), dimB: $('dimB'), dimC: $('dimC'),
   loadPrim: $('loadPrim'), cell: $('cell'), cellOut: $('cellOut'),
   cellLabel: $('cellLabel'), wholeCells: $('wholeCells'),
+  mirrorZ: $('mirrorZ'),
   taper: $('taper'), taperRow: $('taperRow'),
   taperBig: $('taperBig'), taperSmall: $('taperSmall'),
 };
@@ -353,6 +354,7 @@ ui.loadPrim.addEventListener('click', () => {
 // taper range is only meaningful while tapering is on
 function syncTaperRow() { ui.taperRow.hidden = !ui.taper.checked; }
 ui.taper.addEventListener('change', () => { syncTaperRow(); invalidateLattice(); });
+ui.mirrorZ.addEventListener('change', invalidateLattice);
 for (const el of [$('taperBig'), $('taperSmall')]) {
   el.addEventListener('change', invalidateLattice);
 }
@@ -718,6 +720,7 @@ async function generate() {
       lattice: ui.lattice.value,
       cellEdges: ui.edges.checked,
       wholeCells: ui.wholeCells.checked,
+      mirrorZ: ui.mirrorZ.checked,
       onProgress: async (n, total) => { progress(n / total); await frame(); },
     });
     progress(0);
@@ -839,6 +842,7 @@ window.latticeApp = {
       spacing: cellSize(),
       taper: taperOpts(), lattice: ui.lattice.value, cellEdges: ui.edges.checked,
       wholeCells: ui.wholeCells.checked,
+      mirrorZ: ui.mirrorZ.checked,
     });
   },
   exportSTLBytes: () => exportBinarySTL(state.solid, 'x'),
