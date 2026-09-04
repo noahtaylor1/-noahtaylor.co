@@ -30,6 +30,12 @@
     // spiral slicer keys off. Whatever survives between the planes is what
     // prints, dropped back onto the plate at "Height off build plate".
     { group: "Position / clipping" },
+    // Shrinkwrap runs BEFORE the clip planes, and has to: the wrap is
+    // watertight, so it has no rims for the slicer's distance field to key off.
+    // The planes then cut it open and give it a clean top and bottom edge.
+    { key: "shrinkwrapOn", label: "Shrinkwrap outer surface", type: "check", value: false },
+    { key: "shrinkwrapOffset", label: "Wrap offset (mm) -- bridges gaps under 2x this", type: "num", value: 2, step: 0.5, min: 0.1 },
+    { key: "shrinkwrapRes", label: "Wrap resolution (voxels)", type: "num", value: 128, step: 16, min: 32 },
     { key: "clipBotOn", label: "Bottom clipping plane (flatten the bottom)", type: "check", value: true },
     { key: "clipBotZ", label: "Bottom plane height (mm above base)", type: "num", value: 0, step: 1 },
     { key: "clipTopOn", label: "Top clipping plane (flatten the top)", type: "check", value: false },
@@ -108,12 +114,14 @@
   var RESLICE_KEYS = ["units", "upAxis", "scalePct", "spacing", "baseOn", "baseSpacing",
                       "ptsPerRev", "seamDeg", "seamAtLowest", "traceTopRim",
                       "removeTopRevs", "smoothingOn", "smoothing",
-                      "clipBotOn", "clipBotZ", "clipTopOn", "clipTopZ"];
+                      "clipBotOn", "clipBotZ", "clipTopOn", "clipTopZ",
+                      "shrinkwrapOn", "shrinkwrapOffset", "shrinkwrapRes"];
 
   // Settings that change the MESH itself, so the ghost has to be rebuilt (not
   // just re-placed) before the re-slice runs.
   var GHOST_KEYS = ["units", "upAxis", "scalePct",
-                    "clipBotOn", "clipBotZ", "clipTopOn", "clipTopZ"];
+                    "clipBotOn", "clipBotZ", "clipTopOn", "clipTopZ",
+                    "shrinkwrapOn", "shrinkwrapOffset", "shrinkwrapRes"];
 
   var S = {};                 // live settings values
   var inputs = {};
@@ -293,6 +301,31 @@
         S.spacing = maxLH;
       }
     }
+    // Turning shrinkwrap on makes the mesh WATERTIGHT, and a watertight mesh has
+    // no rim for the distance field to start from -- the slice just fails with
+    // "no open boundary". The clip planes are what re-open it, so arm them here
+    // rather than letting the user discover the dependency through an error.
+    if (item.key === "shrinkwrapOn" && S.shrinkwrapOn && rawSoup) {
+      var bb = scaledBBox(), h = bb.max[2] - bb.min[2];
+      var botCuts = S.clipBotOn && S.clipBotZ > 1e-6;
+      var topCuts = S.clipTopOn && S.clipTopZ < h - 1e-6;
+      if (!botCuts || !topCuts) {
+        if (!botCuts) {
+          S.clipBotOn = true;  inputs.clipBotOn.checked = true;
+          S.clipBotZ = Math.round(h * 0.02 * 10) / 10;
+          inputs.clipBotZ.value = S.clipBotZ;
+        }
+        if (!topCuts) {
+          S.clipTopOn = true;  inputs.clipTopOn.checked = true;
+          S.clipTopZ = Math.round(h * 0.98 * 10) / 10;
+          inputs.clipTopZ.value = S.clipTopZ;
+        }
+        clampMsg = "Clip planes armed at " + S.clipBotZ.toFixed(1) + " / " +
+                   S.clipTopZ.toFixed(1) + "mm -- a shrinkwrap is watertight, so " +
+                   "the planes are what give it an open top and bottom to spiral between.";
+      }
+    }
+
     updateModelInfo();
     if (!rawSoup) return;
 
@@ -668,6 +701,7 @@
     botClipMode = topClipMode = false;
     applyBedModes();
     _scaledBBKey = "";                    // new model -> drop the cached bbox
+    _wrapCache = null; _wrapKey = ""; _wrapNote = "";   // ... and the cached wrap
     // round UP, so the parked plane starts a hair CLEAR of the model and the
     // first drag downward is what begins the cut
     var _bb = scaledBBox();
@@ -961,8 +995,54 @@
 
   var clipNote = "";   // shown in the model-info line
 
+  // scaled -> WRAPPED -> clipped. Order matters: see the schema comment.
   function transformedSoup() {
-    return clipSoup(scaledSoup());
+    return clipSoup(wrapSoup(scaledSoup()));
+  }
+
+  // Shrinkwrap is expensive (seconds), and transformedSoup() is called on every
+  // ghost rebuild -- including every frame of a clip-plane drag. So the result
+  // is cached, and the cache key deliberately EXCLUDES the clip settings: moving
+  // a plane must re-cut the cached wrap, never recompute it.
+  // _wrapNote is cached alongside the mesh. transformedSoup() runs several
+  // times per update (ghost, model-info, placement), so without this the second
+  // call would replace a real warning with a bland "(cached)" and the user would
+  // never see it -- the note has to survive a cache hit intact.
+  var _wrapCache = null, _wrapKey = "", _wrapNote = "";
+  var wrapNote = "";
+
+  function wrapSoup(soup) {
+    wrapNote = "";
+    if (!S.shrinkwrapOn) { _wrapCache = null; _wrapKey = ""; return soup; }
+    var key = [S.units, S.upAxis, S.scalePct, S.shrinkwrapOffset, S.shrinkwrapRes,
+               rawName, rawSoup && rawSoup.length].join("|");
+    if (_wrapKey === key && _wrapCache) {
+      wrapNote = _wrapNote;
+      return _wrapCache;
+    }
+    try {
+      var t0 = (window.performance || Date).now();
+      var res = GingerSlicer.shrinkwrap(soup, {
+        offset: S.shrinkwrapOffset,
+        resolution: S.shrinkwrapRes,
+        outerOnly: true
+      });
+      var ms = ((window.performance || Date).now() - t0) / 1000;
+      _wrapCache = res.soup; _wrapKey = key;
+      wrapNote = " -- shrinkwrapped (" + res.triCount.toLocaleString() + " tris, " +
+                 res.dims.join("x") + " grid, " + ms.toFixed(1) + "s" +
+                 (res.shells > 1 ? ", " + (res.shells - 1) + " inner shell" +
+                  (res.shells > 2 ? "s" : "") + " discarded" : "") + ")";
+      if (res.warning) wrapNote += " -- WRAP TOO COARSE: " + res.warning;
+      _wrapNote = wrapNote;
+      return _wrapCache;
+    } catch (err) {
+      // Never let a wrap failure block the model: fall back to the raw soup and
+      // say why, rather than leaving an empty viewport with no explanation.
+      _wrapCache = null; _wrapKey = ""; _wrapNote = "";
+      wrapNote = " -- SHRINKWRAP FAILED (" + err.message + "), using unwrapped model";
+      return soup;
+    }
   }
 
   function clipSoup(soup) {
@@ -1010,8 +1090,10 @@
       (bb.max[0] - bb.min[0]).toFixed(1) + " x " +
       (bb.max[1] - bb.min[1]).toFixed(1) + " x " +
       (bb.max[2] - bb.min[2]).toFixed(1) + " mm (X Y Z, after units/axis/scale)" +
-      clipNote;
-    el.style.color = clipNote.indexOf("ignored") >= 0 ? "#ff7b72" : "";
+      wrapNote + clipNote;
+    el.style.color = (clipNote.indexOf("ignored") >= 0 ||
+                      wrapNote.indexOf("FAILED") >= 0 ||
+                      wrapNote.indexOf("TOO COARSE") >= 0) ? "#ff7b72" : "";
   }
 
   // ------------------------------------------------------------ ghost mesh

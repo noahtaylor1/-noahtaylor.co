@@ -875,6 +875,336 @@
     return width * height - (height * height) * (1 - Math.PI / 4);
   }
 
+  // ----------------------------------------------------------- shrinkwrap
+  // Rhino 8's ShrinkWrap, in the browser: wrap a skin around the OUTSIDE of the
+  // geometry and throw away everything it can't see. Same method Rhino uses --
+  // a voxel distance field, an iso-surface at the offset distance, and an
+  // outside-only flood fill so internal walls, cavities and stray shells never
+  // reach the result.
+  //
+  //   1. voxelize the triangle soup                    (occupancy grid)
+  //   2. exact Euclidean distance transform            (distance to surface)
+  //   3. flood fill from the grid boundary through      (what "outside" means --
+  //      voxels further than `offset` from the mesh      this is the step that
+  //                                                      makes it a WRAP and not
+  //                                                      just a dilation)
+  //   4. extract the iso-surface at `offset` with       (back to a triangle soup)
+  //      naive surface nets
+  //
+  // Because it returns an ordinary soup, the rest of the pipeline (analyze ->
+  // buildField -> extractRing) runs on it completely unchanged.
+  //
+  // Gaps narrower than about 2 x offset get bridged, which is the whole point:
+  // it is what turns a lobed / multi-shell / self-intersecting model into one
+  // closed outer surface the spiral can actually follow.
+  //
+  // NOTE the result is watertight -- it has no boundary rims. The slicer needs
+  // an open top and bottom, so shrinkwrapping must happen BEFORE the clip
+  // planes cut it open, never after.
+
+  function edt1d(f, n, d, v, z) {
+    // Felzenszwalb & Huttenlocher exact squared distance transform, 1-D.
+    var k = 0;
+    v[0] = 0; z[0] = -Infinity; z[1] = Infinity;
+    for (var q = 1; q < n; q++) {
+      var s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      while (s <= z[k]) {
+        k--;
+        s = ((f[q] + q * q) - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k]);
+      }
+      k++; v[k] = q; z[k] = s; z[k + 1] = Infinity;
+    }
+    k = 0;
+    for (var q = 0; q < n; q++) {
+      while (z[k + 1] < q) k++;
+      var dq = q - v[k];
+      d[q] = dq * dq + f[v[k]];
+    }
+  }
+
+  function edt3d(grid, nx, ny, nz) {
+    // grid: Float64Array of 0 (on surface) / EDT_FAR (elsewhere). The "empty"
+    // marker must be a large FINITE number, not Infinity: the parabola
+    // intersection below evaluates (f[q]+q*q) - (f[v]+v*v), and with two
+    // infinite entries that is Inf-Inf = NaN, which silently poisons the whole
+    // transform and yields no surface at all.
+    // Returns squared distance, in voxel units, by transforming along each axis.
+    var maxn = Math.max(nx, ny, nz);
+    var f = new Float64Array(maxn), d = new Float64Array(maxn);
+    var v = new Int32Array(maxn), z = new Float64Array(maxn + 1);
+    var i, j, k, idx;
+
+    for (k = 0; k < nz; k++) for (j = 0; j < ny; j++) {          // along X
+      var base = (k * ny + j) * nx;
+      for (i = 0; i < nx; i++) f[i] = grid[base + i];
+      edt1d(f, nx, d, v, z);
+      for (i = 0; i < nx; i++) grid[base + i] = d[i];
+    }
+    for (k = 0; k < nz; k++) for (i = 0; i < nx; i++) {          // along Y
+      for (j = 0; j < ny; j++) f[j] = grid[(k * ny + j) * nx + i];
+      edt1d(f, ny, d, v, z);
+      for (j = 0; j < ny; j++) grid[(k * ny + j) * nx + i] = d[j];
+    }
+    for (j = 0; j < ny; j++) for (i = 0; i < nx; i++) {          // along Z
+      for (k = 0; k < nz; k++) f[k] = grid[(k * ny + j) * nx + i];
+      edt1d(f, nz, d, v, z);
+      for (k = 0; k < nz; k++) grid[(k * ny + j) * nx + i] = d[k];
+    }
+    return grid;
+  }
+
+  function largestShell(soup) {
+    // Union-find over welded vertex ids, keeping the component with the most
+    // triangles. Same approach analyze() uses, run here so the ghost preview
+    // shows what will actually be sliced rather than every stray shell.
+    var m = weld(soup);
+    var tris = m.tris, nt = tris.length / 3;
+    var parent = new Uint32Array(m.verts.length / 3);
+    for (var i = 0; i < parent.length; i++) parent[i] = i;
+    function find(a) { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
+    function uni(a, b) { var ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; }
+    for (var t = 0; t < nt; t++) { uni(tris[t*3], tris[t*3+1]); uni(tris[t*3+1], tris[t*3+2]); }
+    var count = {}, shells = 0, best = -1, bestN = -1;
+    for (var t = 0; t < nt; t++) {
+      var r = find(tris[t*3]);
+      count[r] = (count[r] || 0) + 1;
+    }
+    for (var k in count) { shells++; if (count[k] > bestN) { bestN = count[k]; best = +k; } }
+    if (shells <= 1) return { soup: soup, shells: shells };
+    var out = new Float64Array(bestN * 9), o = 0;
+    for (var t = 0; t < nt; t++) {
+      if (find(tris[t*3]) !== best) continue;
+      for (var c = 0; c < 3; c++) {
+        var v = tris[t*3+c];
+        out[o++] = m.verts[v*3]; out[o++] = m.verts[v*3+1]; out[o++] = m.verts[v*3+2];
+      }
+    }
+    return { soup: out, shells: shells };
+  }
+
+  function shrinkwrap(positions, opts) {
+    opts = opts || {};
+    var offsetMM = opts.offset > 0 ? opts.offset : 1.0;
+    var res = Math.max(24, Math.min(320, opts.resolution | 0 || 128));
+    var prog = opts.onProgress || function () {};
+
+    // ---- bbox, padded so the wrap has room and the flood fill has a rim of
+    // free voxels to start from on every side
+    var mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (var p = 0; p < positions.length; p += 3) {
+      for (var a = 0; a < 3; a++) {
+        if (positions[p + a] < mn[a]) mn[a] = positions[p + a];
+        if (positions[p + a] > mx[a]) mx[a] = positions[p + a];
+      }
+    }
+    var span = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]);
+    if (!(span > 0)) throw new Error("Shrinkwrap: model has no size.");
+    var vox = span / res;                       // mm per voxel
+
+    // The iso-surface is extracted at `offset` from the mesh, so the offset has
+    // to be worth at least a voxel or two or the surface lands inside the very
+    // first voxel and comes out ragged -- which downstream shows up as stray
+    // boundary loops and a spiral that gives up part way. Raise the resolution
+    // rather than silently producing a bad wrap.
+    var wrapWarn = "";
+    var minOffset = vox * 1.5;
+    if (offsetMM < minOffset) {
+      var needRes = Math.ceil(res * minOffset / offsetMM / 16) * 16;
+      wrapWarn = "offset " + offsetMM.toFixed(1) + "mm is under 1.5 voxels (" +
+                 vox.toFixed(1) + "mm each) -- the wrap will be ragged. Raise " +
+                 "resolution to about " + needRes + ", or the offset to " +
+                 minOffset.toFixed(1) + "mm.";
+    }
+    var pad = offsetMM + 3 * vox;               // wrap thickness + a safety rim
+    for (var a = 0; a < 3; a++) { mn[a] -= pad; mx[a] += pad; }
+
+    var nx = Math.max(3, Math.ceil((mx[0] - mn[0]) / vox) + 1);
+    var ny = Math.max(3, Math.ceil((mx[1] - mn[1]) / vox) + 1);
+    var nz = Math.max(3, Math.ceil((mx[2] - mn[2]) / vox) + 1);
+    var total = nx * ny * nz;
+    if (total > 40e6) throw new Error("Shrinkwrap: grid too large (" +
+      nx + "x" + ny + "x" + nz + "). Lower the resolution.");
+
+    // ---- 1. voxelize: point-sample every triangle at ~half-voxel spacing.
+    // Exact triangle/box overlap would be tidier, but the EDT + an offset of at
+    // least a voxel closes any pinhole this leaves, and this is far faster.
+    prog(5, "Shrinkwrap: voxelizing");
+    var grid = new Float64Array(total);
+    var EDT_FAR = (nx + ny + nz) * (nx + ny + nz);   // finite, > any real d^2
+    for (var i = 0; i < total; i++) grid[i] = EDT_FAR;
+
+    function mark(x, y, z) {
+      var i = Math.round((x - mn[0]) / vox);
+      var j = Math.round((y - mn[1]) / vox);
+      var k = Math.round((z - mn[2]) / vox);
+      if (i < 0 || j < 0 || k < 0 || i >= nx || j >= ny || k >= nz) return;
+      grid[(k * ny + j) * nx + i] = 0;
+    }
+
+    var ntri = positions.length / 9;
+    for (var t = 0; t < ntri; t++) {
+      var o = t * 9;
+      var ax = positions[o],     ay = positions[o + 1], az = positions[o + 2];
+      var bx = positions[o + 3], by = positions[o + 4], bz = positions[o + 5];
+      var cx = positions[o + 6], cy = positions[o + 7], cz = positions[o + 8];
+      var eAB = Math.sqrt((bx-ax)*(bx-ax) + (by-ay)*(by-ay) + (bz-az)*(bz-az));
+      var eAC = Math.sqrt((cx-ax)*(cx-ax) + (cy-ay)*(cy-ay) + (cz-az)*(cz-az));
+      var steps = Math.ceil(Math.max(eAB, eAC) / (vox * 0.5));
+      if (steps < 1) steps = 1;
+      if (steps > 4096) steps = 4096;
+      for (var u = 0; u <= steps; u++) {
+        var fu = u / steps;
+        for (var w = 0; w <= steps - u; w++) {
+          var fv = w / steps;
+          mark(ax + (bx-ax)*fu + (cx-ax)*fv,
+               ay + (by-ay)*fu + (cy-ay)*fv,
+               az + (bz-az)*fu + (cz-az)*fv);
+        }
+      }
+      if ((t & 1023) === 0) prog(5 + 25 * t / ntri, "Shrinkwrap: voxelizing");
+    }
+
+    // ---- 2. distance to the surface, in mm
+    prog(32, "Shrinkwrap: distance field");
+    edt3d(grid, nx, ny, nz);
+    var dist = grid;                     // still squared, in voxel units
+    for (var i = 0; i < total; i++) dist[i] = Math.sqrt(dist[i]) * vox;
+
+    // ---- 3. flood fill "outside": voxels reachable from the grid rim without
+    // ever coming within `offset` of the mesh. Anything the fill cannot reach
+    // -- interior cavities, the space between close-together shells, hollow
+    // cores -- is treated as solid, which is exactly what makes this a wrap.
+    prog(48, "Shrinkwrap: flood fill from outside");
+    var outer = new Uint8Array(total);
+    var stack = new Int32Array(total);
+    var sp = 0;
+    function push(i) { if (!outer[i] && dist[i] > offsetMM) { outer[i] = 1; stack[sp++] = i; } }
+    for (var k = 0; k < nz; k++) for (var j = 0; j < ny; j++) for (var i = 0; i < nx; i++) {
+      if (i === 0 || j === 0 || k === 0 || i === nx-1 || j === ny-1 || k === nz-1) {
+        push((k * ny + j) * nx + i);
+      }
+    }
+    while (sp > 0) {
+      var idx = stack[--sp];
+      var i = idx % nx, j = ((idx - i) / nx) % ny, k = (idx - i - j * nx) / (nx * ny);
+      if (i > 0)      push(idx - 1);
+      if (i < nx - 1) push(idx + 1);
+      if (j > 0)      push(idx - nx);
+      if (j < ny - 1) push(idx + nx);
+      if (k > 0)      push(idx - nx * ny);
+      if (k < nz - 1) push(idx + nx * ny);
+    }
+
+    // ---- signed field: > 0 outside the wrap, < 0 within it.
+    // Voxels the fill never reached are forced negative even when they sit far
+    // from any triangle, so enclosed voids read as solid instead of sprouting
+    // an inner surface of their own.
+    prog(62, "Shrinkwrap: building iso-surface");
+    var phi = new Float64Array(total);
+    for (var i = 0; i < total; i++) {
+      phi[i] = outer[i] ? (dist[i] - offsetMM)
+                        : (dist[i] < offsetMM ? dist[i] - offsetMM : -offsetMM);
+    }
+
+    // ---- 4. naive surface nets. One vertex per cell that straddles the
+    // iso-value, positioned by averaging the zero-crossings on that cell's 12
+    // edges; quads then join the vertices around every sign-changing edge.
+    // Chosen over marching cubes for the smoother surface and no 256-case table.
+    var cnx = nx - 1, cny = ny - 1, cnz = nz - 1;
+    var cellVert = new Int32Array(cnx * cny * cnz);
+    for (var i = 0; i < cellVert.length; i++) cellVert[i] = -1;
+    var vpos = [];
+    var CORNER = [[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];
+    var EDGE = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+
+    function at(i, j, k) { return phi[(k * ny + j) * nx + i]; }
+
+    for (var k = 0; k < cnz; k++) {
+      for (var j = 0; j < cny; j++) {
+        for (var i = 0; i < cnx; i++) {
+          var s = [], neg = 0;
+          for (var c = 0; c < 8; c++) {
+            var val = at(i + CORNER[c][0], j + CORNER[c][1], k + CORNER[c][2]);
+            s.push(val);
+            if (val < 0) neg++;
+          }
+          if (neg === 0 || neg === 8) continue;
+          var sx = 0, sy = 0, sz = 0, cnt = 0;
+          for (var e = 0; e < 12; e++) {
+            var a = EDGE[e][0], b = EDGE[e][1];
+            if ((s[a] < 0) === (s[b] < 0)) continue;
+            var tt = s[a] / (s[a] - s[b]);
+            sx += CORNER[a][0] + (CORNER[b][0] - CORNER[a][0]) * tt;
+            sy += CORNER[a][1] + (CORNER[b][1] - CORNER[a][1]) * tt;
+            sz += CORNER[a][2] + (CORNER[b][2] - CORNER[a][2]) * tt;
+            cnt++;
+          }
+          if (!cnt) continue;
+          cellVert[(k * cny + j) * cnx + i] = vpos.length / 3;
+          vpos.push(mn[0] + (i + sx / cnt) * vox,
+                    mn[1] + (j + sy / cnt) * vox,
+                    mn[2] + (k + sz / cnt) * vox);
+        }
+      }
+      if ((k & 15) === 0) prog(62 + 25 * k / cnz, "Shrinkwrap: building iso-surface");
+    }
+
+    // quads around every sign-changing edge of the primal grid
+    var out = [];
+    function cv(i, j, k) {
+      if (i < 0 || j < 0 || k < 0 || i >= cnx || j >= cny || k >= cnz) return -1;
+      return cellVert[(k * cny + j) * cnx + i];
+    }
+    function quad(a, b, c, d, flip) {
+      if (a < 0 || b < 0 || c < 0 || d < 0) return;
+      var q = flip ? [a, d, c, b] : [a, b, c, d];
+      for (var n = 0; n < 2; n++) {
+        var tri = n === 0 ? [q[0], q[1], q[2]] : [q[0], q[2], q[3]];
+        for (var m = 0; m < 3; m++) {
+          out.push(vpos[tri[m] * 3], vpos[tri[m] * 3 + 1], vpos[tri[m] * 3 + 2]);
+        }
+      }
+    }
+    for (var k = 0; k < nz - 1; k++) {
+      for (var j = 0; j < ny - 1; j++) {
+        for (var i = 0; i < nx - 1; i++) {
+          var p0 = at(i, j, k) < 0;
+          if ((at(i + 1, j, k) < 0) !== p0)
+            quad(cv(i, j - 1, k - 1), cv(i, j, k - 1), cv(i, j, k), cv(i, j - 1, k), p0);
+          if ((at(i, j + 1, k) < 0) !== p0)
+            quad(cv(i - 1, j, k - 1), cv(i, j, k - 1), cv(i, j, k), cv(i - 1, j, k), !p0);
+          if ((at(i, j, k + 1) < 0) !== p0)
+            quad(cv(i - 1, j - 1, k), cv(i, j - 1, k), cv(i, j, k), cv(i - 1, j, k), p0);
+        }
+      }
+    }
+
+    if (out.length < 9) throw new Error(
+      "Shrinkwrap produced no surface -- try a larger offset or higher resolution.");
+
+    var soup = new Float64Array(out);
+    var shells = 1;
+    if (opts.outerOnly !== false) {
+      // An OPEN input (a Gravity Sketch surface, or anything with a free edge)
+      // lets the flood fill reach round the back of it, so the wrap comes back
+      // as a thin film over both faces -- and a hollow model wraps its bore as
+      // a second shell. Keeping only the biggest connected piece leaves the
+      // outermost skin, which is the "all outside sides" surface wanted here.
+      var r = largestShell(soup);
+      soup = r.soup; shells = r.shells;
+    }
+
+    prog(92, "Shrinkwrap: done");
+    return {
+      soup: soup,
+      voxelMM: vox,
+      dims: [nx, ny, nz],
+      shells: shells,
+      warning: wrapWarn,
+      triCount: soup.length / 9
+    };
+  }
+
   // ---------------------------------------------------------------- clipZ
   // Cut a raw triangle soup (9 numbers per tri) with one or two horizontal
   // planes, keeping the slab zMin <= z <= zMax. Pass null for either bound to
@@ -935,7 +1265,9 @@
     return out;
   }
 
-  var api = { weld: weld, analyze: analyze, clipZ: clipZ, buildField: buildField, extractRing: extractRing, slicePath: slicePath, makeGcode: makeGcode, beadArea: beadArea };
+  var api = { weld: weld, analyze: analyze, clipZ: clipZ, shrinkwrap: shrinkwrap,
+              buildField: buildField, extractRing: extractRing, slicePath: slicePath,
+              makeGcode: makeGcode, beadArea: beadArea };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.GingerSlicer = api;
 })(typeof self !== "undefined" ? self : this);
