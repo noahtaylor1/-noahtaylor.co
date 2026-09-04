@@ -19,6 +19,23 @@
     { key: "upAxis", label: "Up axis", type: "select", options: ["auto", "Y up", "Z up"], value: "auto" },
     { key: "scalePct", label: "Scale (%)", type: "num", value: 100, step: 5, min: 1 },
 
+    // Position / clipping. Z reference: the model's own base normalizes to
+    // Z=0, so every number below reads as a height above that base. Two
+    // independent horizontal planes cut the part, and either can be dragged
+    // in the viewport: the BOTTOM plane throws away everything under it (the
+    // classic way to give a rounded or ragged bottom a real flat footprint)
+    // and the TOP plane throws away everything over it (for a rim that came
+    // out of Gravity Sketch a few mm off level). Both cuts are left OPEN
+    // (uncapped) because an open planar rim is exactly the boundary the
+    // spiral slicer keys off. Whatever survives between the planes is what
+    // prints, dropped back onto the plate at "Height off build plate".
+    { group: "Position / clipping" },
+    { key: "clipBotOn", label: "Bottom clipping plane (flatten the bottom)", type: "check", value: true },
+    { key: "clipBotZ", label: "Bottom plane height (mm above base)", type: "num", value: 0, step: 1 },
+    { key: "clipTopOn", label: "Top clipping plane (flatten the top)", type: "check", value: false },
+    { key: "clipTopZ", label: "Top plane height (mm above base)", type: "num", value: 100, step: 1 },
+    { key: "showClipPlanes", label: "Show clip planes in preview", type: "check", value: true },
+
     { group: "Toolpath" },
     { key: "spacing", label: "Distance between revolutions (mm)", type: "num", value: 2, step: 0.5, min: 0.2 },
     { key: "baseOn", label: "Close the bottom (flat base spiral)", type: "check", value: true },
@@ -90,7 +107,13 @@
   // model automatically -- no need to hit Slice again by hand.
   var RESLICE_KEYS = ["units", "upAxis", "scalePct", "spacing", "baseOn", "baseSpacing",
                       "ptsPerRev", "seamDeg", "seamAtLowest", "traceTopRim",
-                      "removeTopRevs", "smoothingOn", "smoothing"];
+                      "removeTopRevs", "smoothingOn", "smoothing",
+                      "clipBotOn", "clipBotZ", "clipTopOn", "clipTopZ"];
+
+  // Settings that change the MESH itself, so the ghost has to be rebuilt (not
+  // just re-placed) before the re-slice runs.
+  var GHOST_KEYS = ["units", "upAxis", "scalePct",
+                    "clipBotOn", "clipBotZ", "clipTopOn", "clipTopZ"];
 
   var S = {};                 // live settings values
   var inputs = {};
@@ -178,7 +201,8 @@
   SCHEMA.forEach(function (item) {
     if (item.group) {
       var det = document.createElement("details");
-      det.open = ["Model", "Toolpath", "Preview bead", "Nozzle / Extrusion"].indexOf(item.group) >= 0;
+      det.open = ["Model", "Position / clipping", "Toolpath", "Preview bead",
+                  "Nozzle / Extrusion"].indexOf(item.group) >= 0;
       var sum = document.createElement("summary");
       sum.textContent = item.group;
       det.appendChild(sum);
@@ -279,7 +303,7 @@
       status("Settings changed -- updating slice ..." + (clampMsg ? " " + clampMsg : ""));
       resliceTimer = setTimeout(function () {
         resliceTimer = null;
-        if (item.key === "units" || item.key === "upAxis" || item.key === "scalePct") buildGhost();
+        if (GHOST_KEYS.indexOf(item.key) >= 0) buildGhost();
         runSlice();
       }, 350);
     } else {
@@ -301,7 +325,7 @@
     Array.prototype.forEach.call(toggleEl.querySelectorAll("button"), function (b) {
       b.className = b.getAttribute("data-mode") === mode ? "active" : "";
     });
-    if (ghostMesh) ghostMesh.visible = (mode === "model");
+    if (ghostMesh) ghostMesh.visible = (mode === "model") || zEditing;
     if (mode !== "model" && lastSliced) buildPathPreview();
     else if (pathObj) pathObj.visible = false;
     document.getElementById("legend").style.display = (mode === "heat" && lastSliced) ? "block" : "none";
@@ -314,25 +338,62 @@
   // so the preview, gcode, and settings panel all stay in sync.
   var moveMode = false;
   var rotateMode = false;
+  var botClipMode = false;    // drag up/down -> S.clipBotZ
+  var topClipMode = false;    // drag up/down -> S.clipTopZ
+  var zEditing = false;       // either Z mode on -> force the ghost visible
   var moveBtn = document.getElementById("movebtn");
   var rotateBtn = document.getElementById("rotatebtn");
+  var botClipBtn = document.getElementById("botclipbtn");
+  var topClipBtn = document.getElementById("topclipbtn");
   var _ray = new THREE.Raycaster();
   var _ndc = new THREE.Vector2();
   var _bedPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   var _hit = new THREE.Vector3();
   var _dragLast = null;
   var _rotDragX = null;
+  var _zDragLast = null;
+  var _zPlane = new THREE.Plane();
+  var _zHit = new THREE.Vector3();
+  var _zNormal = new THREE.Vector3();
 
   function applyBedModes() {
     moveBtn.className = moveMode ? "active" : "";
     rotateBtn.className = rotateMode ? "active" : "";
-    controls.enabled = !(moveMode || rotateMode);
-    renderer.domElement.style.cursor = moveMode ? "move" : (rotateMode ? "ew-resize" : "");
+    botClipBtn.className = botClipMode ? "active" : "";
+    topClipBtn.className = topClipMode ? "active" : "";
+    controls.enabled = !(moveMode || rotateMode || botClipMode || topClipMode);
+    renderer.domElement.style.cursor =
+      moveMode ? "move" : (rotateMode ? "ew-resize" :
+      ((botClipMode || topClipMode) ? "ns-resize" : ""));
+    // while dragging in Z you need to SEE the solid being cut, whatever view
+    // mode is selected -- the toolpath is stale until the drag ends anyway
+    var wantGhost = botClipMode || topClipMode;
+    if (wantGhost !== zEditing) {
+      zEditing = wantGhost;
+      if (ghostMesh) ghostMesh.visible = (viewMode === "model") || zEditing;
+    }
+  }
+
+  // Screen drag -> world Z, 1:1. Ray-hit a VERTICAL plane through the part
+  // that faces the camera, and read the hit's Z: dragging the mouse a given
+  // distance up the screen moves the part that same distance up in the world,
+  // at any zoom or orbit angle.
+  function zFromEvent(ev) {
+    _zNormal.copy(camera.position).sub(controls.target);
+    _zNormal.z = 0;
+    if (_zNormal.lengthSq() < 1e-9) _zNormal.set(1, 0, 0);
+    _zNormal.normalize();
+    _zPlane.setFromNormalAndCoplanarPoint(_zNormal, bedGroup.position);
+    var rect = renderer.domElement.getBoundingClientRect();
+    _ndc.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    _ndc.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    _ray.setFromCamera(_ndc, camera);
+    return _ray.ray.intersectPlane(_zPlane, _zHit) ? _zHit.z : null;
   }
 
   moveBtn.addEventListener("click", function () {
     moveMode = !moveMode;
-    if (moveMode) rotateMode = false;
+    if (moveMode) { rotateMode = false; botClipMode = false; topClipMode = false; }
     applyBedModes();
     if (moveMode && !S.autoCenter) {
       // bed-center placement is what dragging edits -- switch it on
@@ -343,9 +404,67 @@
 
   rotateBtn.addEventListener("click", function () {
     rotateMode = !rotateMode;
-    if (rotateMode) moveMode = false;
+    if (rotateMode) { moveMode = false; botClipMode = false; topClipMode = false; }
     applyBedModes();
   });
+
+  botClipBtn.addEventListener("click", function () {
+    botClipMode = !botClipMode;
+    if (botClipMode) {
+      moveMode = false; rotateMode = false; topClipMode = false;
+      var wasOff = !S.clipBotOn;
+      if (wasOff) { inputs.clipBotOn.checked = true; S.clipBotOn = true; }
+      status("Bottom plane " + (wasOff ? "on " : "") + "at " +
+             (S.clipBotZ || 0).toFixed(1) + "mm above the base -- drag up or down to " +
+             "move it. Everything below it is cut off.");
+      applyBedModes();
+      buildGhost();     // the cut is live as soon as the plane switches on
+      if (lastSliced) scheduleZReslice();
+      return;
+    }
+    applyBedModes();
+    buildGhost();
+  });
+
+  topClipBtn.addEventListener("click", function () {
+    topClipMode = !topClipMode;
+    if (topClipMode) {
+      moveMode = false; rotateMode = false; botClipMode = false;
+      var wasOff = !S.clipTopOn;
+      if (wasOff) { inputs.clipTopOn.checked = true; S.clipTopOn = true; }
+      status("Top plane " + (wasOff ? "on " : "") + "at " +
+             (S.clipTopZ || 0).toFixed(1) + "mm above the base -- drag up or down to " +
+             "move it. Everything above it is cut off.");
+      applyBedModes();
+      buildGhost();     // the cut is live as soon as the plane switches on
+      if (lastSliced) scheduleZReslice();
+      return;
+    }
+    applyBedModes();
+    buildGhost();
+  });
+
+  // The planes must never cross: a drag stops 0.1mm short of the other one,
+  // so you can push them together into a thin slab but never inside out.
+  function clampBotZ(z) {
+    if (S.clipTopOn) z = Math.min(z, (S.clipTopZ || 0) - 0.1);
+    return z;
+  }
+  function clampTopZ(z) {
+    if (S.clipBotOn) z = Math.max(z, (S.clipBotZ || 0) + 0.1);
+    return z;
+  }
+
+  // Re-slicing is far too slow to run per drag frame, so a Z drag rebuilds
+  // only the ghost mesh and the real slice follows once the drag settles.
+  var zResliceTimer = null;
+  function scheduleZReslice() {
+    if (zResliceTimer) clearTimeout(zResliceTimer);
+    zResliceTimer = setTimeout(function () {
+      zResliceTimer = null;
+      if (rawSoup) runSlice();
+    }, 250);
+  }
 
   function bedPointFromEvent(ev) {
     var rect = renderer.domElement.getBoundingClientRect();
@@ -363,6 +482,9 @@
     } else if (rotateMode) {
       _rotDragX = ev.clientX;
       try { renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) {}
+    } else if (botClipMode || topClipMode) {
+      var z = zFromEvent(ev);
+      if (z !== null) { _zDragLast = z; try { renderer.domElement.setPointerCapture(ev.pointerId); } catch (e) {} }
     }
   });
   renderer.domElement.addEventListener("pointermove", function (ev) {
@@ -381,13 +503,36 @@
       _rotDragX = ev.clientX;
       inputs.bedRotationDeg.value = S.bedRotationDeg.toFixed(1);
       updatePlacement();
+    } else if (_zDragLast !== null) {
+      var z = zFromEvent(ev);
+      if (z === null) return;
+      var dz = z - _zDragLast;
+      _zDragLast = z;
+      var bb = scaledBBox(), h = bb.max[2] - bb.min[2];
+      if (botClipMode) {
+        S.clipBotZ = clampBotZ((S.clipBotZ || 0) + dz);
+        inputs.clipBotZ.value = S.clipBotZ.toFixed(2);
+        status("Bottom plane at " + S.clipBotZ.toFixed(1) + "mm above the base" +
+               (S.clipBotZ > 0 ? " (bottom " + Math.min(S.clipBotZ, h).toFixed(1) + "mm cut off)" : ""));
+      } else {
+        S.clipTopZ = clampTopZ((S.clipTopZ || 0) + dz);
+        inputs.clipTopZ.value = S.clipTopZ.toFixed(2);
+        status("Top plane at " + S.clipTopZ.toFixed(1) + "mm above the base" +
+               (S.clipTopZ < h ? " (top " + (h - S.clipTopZ).toFixed(1) + "mm cut off)" : ""));
+      }
+      buildGhost();   // live cut preview; the re-slice waits for pointerup
     }
   });
   renderer.domElement.addEventListener("pointerup", function () {
-    if (_dragLast === null && _rotDragX === null) return;
+    if (_dragLast === null && _rotDragX === null && _zDragLast === null) return;
+    var wasZ = (_zDragLast !== null);
     _dragLast = null;
     _rotDragX = null;
-    if (lastSliced) buildGcode();   // refresh stats/gcode with the new placement
+    _zDragLast = null;
+    // a Z drag changed the MESH, so the toolpath itself has to be recomputed;
+    // move/rotate only relocate an unchanged path, which gcode alone absorbs
+    if (wasZ) scheduleZReslice();
+    else if (lastSliced) buildGcode();
   });
 
   // ------------------------------------------------------ print animation
@@ -511,8 +656,24 @@
     firstSliceAfterLoad = true;
     clearPath();
     document.getElementById("viewtoggle").style.display = "block";
-    document.getElementById("movetoggle").style.display = "block";
+    document.getElementById("movetoggle").style.display = "flex";
     setViewMode("model");
+
+    // a new part starts uncut, with each plane parked level with the end of
+    // the model it cuts, so the first drag inward starts cutting immediately
+    // instead of travelling through empty air
+    S.clipBotOn = true; inputs.clipBotOn.checked = true;
+    S.clipBotZ = 0; inputs.clipBotZ.value = 0;
+    S.clipTopOn = false; inputs.clipTopOn.checked = false;
+    botClipMode = topClipMode = false;
+    applyBedModes();
+    _scaledBBKey = "";                    // new model -> drop the cached bbox
+    // round UP, so the parked plane starts a hair CLEAR of the model and the
+    // first drag downward is what begins the cut
+    var _bb = scaledBBox();
+    S.clipTopZ = Math.ceil((_bb.max[2] - _bb.min[2]) * 10) / 10;
+    inputs.clipTopZ.value = S.clipTopZ;
+
     buildGhost(true);
     updateModelInfo();
     document.getElementById("slicebtn").disabled = false;
@@ -758,7 +919,14 @@
     // auto: FBX/OBJ default Y-up, STL default Z-up
     return (fileKind === "stl") ? "z" : "y";
   }
-  function transformedSoup() {
+  // Units/axis/scale only -- the mesh STAYS in its own coordinates. Nothing
+  // here translates the geometry, because weld() hashes vertices into a grid
+  // and shifting everything by a constant silently reshuffles which
+  // near-coincident vertices merge, which changes the slice. So the clip
+  // planes move through a stationary model rather than the model moving
+  // through stationary planes -- same result on screen, and a part with no
+  // active cut goes through the exact byte-for-byte pipeline it always did.
+  function scaledSoup() {
     var sc = unitScale();
     var up = effectiveUpAxis();
     var n = rawSoup.length / 3;
@@ -769,6 +937,58 @@
       out[i * 3] = x * sc; out[i * 3 + 1] = y * sc; out[i * 3 + 2] = z * sc;
     }
     return out;
+  }
+
+  // bbox of the uncut, unmoved mesh. Cached: a drag re-reads it every frame
+  // and it only depends on units/axis/scale.
+  var _scaledBBCache = null, _scaledBBKey = "";
+  function scaledBBox() {
+    var key = [S.units, S.upAxis, S.scalePct, rawName, rawSoup && rawSoup.length].join("|");
+    if (_scaledBBKey !== key || !_scaledBBCache) {
+      _scaledBBCache = soupBBox(scaledSoup());
+      _scaledBBKey = key;
+    }
+    return _scaledBBCache;
+  }
+
+  // Where the two planes sit IN MODEL COORDINATES. Both heights are measured
+  // up from the model's own base (its lowest point), which is the Z=0 the
+  // whole panel reads against.
+  function clipLevels() {
+    var base = scaledBBox().min[2];
+    return { bot: base + (S.clipBotZ || 0), top: base + (S.clipTopZ || 0) };
+  }
+
+  var clipNote = "";   // shown in the model-info line
+
+  function transformedSoup() {
+    return clipSoup(scaledSoup());
+  }
+
+  function clipSoup(soup) {
+    clipNote = "";
+    if (!S.clipBotOn && !S.clipTopOn) return soup;
+    var bb = scaledBBox(), lv = clipLevels();
+    if (S.clipBotOn && S.clipTopOn && lv.top <= lv.bot) {
+      clipNote = " -- TOP PLANE IS AT OR BELOW THE BOTTOM PLANE, cut ignored";
+      return soup;
+    }
+    // A plane clear of the model is armed, not cutting -- pass null so clipZ
+    // leaves the soup strictly alone rather than re-fanning every triangle.
+    var zMin = (S.clipBotOn && bb.min[2] < lv.bot - 1e-9) ? lv.bot : null;
+    var zMax = (S.clipTopOn && bb.max[2] > lv.top + 1e-9) ? lv.top : null;
+    if (zMin === null && zMax === null) return soup;
+
+    var cut = GingerSlicer.clipZ(soup, zMin, zMax);
+    if (cut.length < 9) {
+      clipNote = " -- clip planes removed the whole model, cut ignored";
+      return soup;
+    }
+    var parts = [];
+    if (zMin !== null) parts.push("bottom @ " + (S.clipBotZ || 0).toFixed(1) + "mm");
+    if (zMax !== null) parts.push("top @ " + (S.clipTopZ || 0).toFixed(1) + "mm");
+    clipNote = " -- clipped (" + parts.join(" + ") + ")";
+    return cut;
   }
 
   function soupBBox(soup) {
@@ -782,14 +1002,16 @@
     return { min: mn, max: mx };
   }
 
-  function updateModelInfo() {
+  function updateModelInfo(soup) {
     var el = document.getElementById("modelinfo");
     if (!rawSoup) { el.textContent = "No model loaded."; return; }
-    var bb = soupBBox(transformedSoup());
+    var bb = soupBBox(soup || transformedSoup());
     el.textContent = "Size: " +
       (bb.max[0] - bb.min[0]).toFixed(1) + " x " +
       (bb.max[1] - bb.min[1]).toFixed(1) + " x " +
-      (bb.max[2] - bb.min[2]).toFixed(1) + " mm (X Y Z, after units/axis/scale)";
+      (bb.max[2] - bb.min[2]).toFixed(1) + " mm (X Y Z, after units/axis/scale)" +
+      clipNote;
+    el.style.color = clipNote.indexOf("ignored") >= 0 ? "#ff7b72" : "";
   }
 
   // ------------------------------------------------------------ ghost mesh
@@ -804,10 +1026,64 @@
       color: 0x8a94a6, transparent: true, opacity: 0.28, side: THREE.DoubleSide,
       depthWrite: false, roughness: 0.9
     }));
-    ghostMesh.visible = (viewMode === "model");
+    ghostMesh.visible = (viewMode === "model") || zEditing;
     previewGroup.add(ghostMesh);
+    updateModelInfo(soup);
     if (fit) fitView(soup);   // only the initial import moves the camera
     updatePlacement();
+  }
+
+  // ------------------------------------------------------- clip plane gizmos
+  // Two translucent quads drawn in MODEL space (inside previewGroup) so they
+  // stay glued to the part as it moves/rotates on the bed. Sized off the
+  // UNCLIPPED footprint so the plane never shrinks to nothing as it eats into
+  // the model -- you always see how much is being cut.
+  var clipPlanes = { bottom: null, top: null };
+
+  function makeClipPlane(color) {
+    var g = new THREE.Group();
+    var mat = new THREE.MeshBasicMaterial({
+      color: color, transparent: true, opacity: 0.07, side: THREE.DoubleSide,
+      depthWrite: false
+    });
+    var quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+    g.add(quad);
+    var edge = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)),
+      new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: 0.85 }));
+    g.add(edge);
+    g.userData.quad = quad;
+    g.userData.edge = edge;
+    previewGroup.add(g);
+    return g;
+  }
+
+  function updateClipPlanes() {
+    var show = S.showClipPlanes && !!rawSoup;
+    if (!show) {
+      if (clipPlanes.bottom) clipPlanes.bottom.visible = false;
+      if (clipPlanes.top) clipPlanes.top.visible = false;
+      return;
+    }
+    var bb = scaledBBox(), lv = clipLevels();
+    var cx = (bb.min[0] + bb.max[0]) / 2, cy = (bb.min[1] + bb.max[1]) / 2;
+    var sx = Math.max((bb.max[0] - bb.min[0]) * 1.12, 30);
+    var sy = Math.max((bb.max[1] - bb.min[1]) * 1.12, 30);
+
+    // the plane you are actively dragging lights up, so there is never any
+    // doubt which of the two a drag is about to move
+    function place(g, z, on, active) {
+      g.visible = on;
+      if (!on) return;
+      g.position.set(cx, cy, z);
+      g.scale.set(sx, sy, 1);
+      g.userData.quad.material.opacity = active ? 0.16 : 0.07;
+      g.userData.edge.material.opacity = active ? 1.0 : 0.85;
+    }
+    if (!clipPlanes.bottom) clipPlanes.bottom = makeClipPlane(0x2f81f7);
+    if (!clipPlanes.top) clipPlanes.top = makeClipPlane(0xd29922);
+    place(clipPlanes.bottom, lv.bot, !!S.clipBotOn || botClipMode, botClipMode);
+    place(clipPlanes.top, lv.top, !!S.clipTopOn || topClipMode, topClipMode);
   }
 
   function fitView(soup) {
@@ -864,6 +1140,7 @@
       px = cx; py = cy;   // rotate in place, no re-centering
     }
     bedGroup.position.set(px, py, S.heightOffPlate - mnz);
+    updateClipPlanes();
   }
 
   function pathBBox(path) {
@@ -911,6 +1188,21 @@
       });
       var dt = ((performance.now() - t0) / 1000).toFixed(1);
       var w = lastSliced.warnings.length ? (" | " + lastSliced.warnings.join(" ")) : "";
+
+      // Coverage check. Ring extraction can quietly give up partway up a mesh
+      // (pinched rims, stray hole loops), and the result is a spiral that
+      // stops short while everything still LOOKS fine -- you would only find
+      // out on the printer. Moving the clip planes changes where that happens,
+      // so say it out loud whenever the toolpath misses a real slice of the
+      // part it was given.
+      var mbb = soupBBox(soup), pbb = pathBBox(lastSliced.path);
+      var meshH = mbb.max[2] - mbb.min[2], pathH = pbb.max[2] - pbb.min[2];
+      if (meshH > 1e-6 && pathH < meshH * 0.9) {
+        w = " | WARNING: toolpath covers only " + pathH.toFixed(0) + "mm of the " +
+            meshH.toFixed(0) + "mm part (" + Math.round(pathH / meshH * 100) +
+            "%) -- the spiral stopped early. Try a top clipping plane just below" +
+            " where it stops, or a coarser 'points per revolution'." + w;
+      }
       buildGcode();
       if (firstSliceAfterLoad) {
         // initial import: jump to the 3D layer view (matte-white Slice pipes),

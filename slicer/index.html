@@ -60,11 +60,14 @@
     padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
   #viewtoggle button.active { background: #2f81f7; color: #fff; }
   #movetoggle { position: absolute; top: 56px; left: 12px; z-index: 4; display: none;
+    max-width: calc(100% - 24px); flex-wrap: wrap;
     background: rgba(27,31,38,0.9); border: 1px solid #2a3038; border-radius: 8px;
     overflow: hidden; }
   #movetoggle button { background: transparent; color: #9aa5b5; border: 0;
     padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
   #movetoggle button.active { background: #d29922; color: #14171c; }
+  #movetoggle button#botclipbtn.active { background: #2f81f7; color: #fff; }
+  #movetoggle button#topclipbtn.active { background: #d29922; color: #14171c; }
   #animbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: 40px;
     width: min(520px, 60%); display: none; align-items: center; gap: 10px; z-index: 4;
     background: rgba(27,31,38,0.9); border: 1px solid #2a3038; border-radius: 8px;
@@ -109,6 +112,8 @@
     <div id="movetoggle">
       <button id="movebtn" title="Drag the part around the bed (orbit is paused while on)">Move on bed</button>
       <button id="rotatebtn" title="Drag left/right to spin the part about its center (orbit is paused while on)">Rotate</button>
+      <button id="botclipbtn" title="Drag up/down to move the bottom clipping plane. Everything below it is cut off -- how you give a rounded bottom a flat footprint.">Bottom plane</button>
+      <button id="topclipbtn" title="Drag up/down to move the top clipping plane. Everything above it is cut off -- for a rim that came out a few mm off level.">Top plane</button>
     </div>
     <div id="animbar">
       <button id="animplay" title="Play / pause print animation">&#9654;</button>
@@ -139,7 +144,7 @@
 <script src="vendor/rhino3dm_wasm_b64.js"></script>
 <!-- bump ?v= whenever slicer.js/app.js change, so browsers can't serve a
      stale cached copy (symptom: new buttons visible but doing nothing) -->
-<script src="slicer.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="slicer.js?v=7ebfcd72"></script>
+<script src="app.js?v=7ebfcd72"></script>
 </body>
 </html>

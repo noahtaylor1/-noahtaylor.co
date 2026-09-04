@@ -41,17 +41,67 @@
     var tol = diag * 1e-5 * (tolScale || 1);
     var inv = 1.0 / tol;
 
-    var map = {};              // hash cell -> vertex index
+    // Cell -> LIST of vertex ids, cell size = tol, and a merge candidate is
+    // searched across the cell and its 26 neighbours with a real distance test.
+    //
+    // Snapping each vertex to a single hash cell (what this used to do) makes
+    // welding depend on WHERE the mesh sits in space: two vertices closer than
+    // tol still land in different cells whenever they straddle a cell edge, so
+    // the same shape translated by a few mm welds differently, opens or closes
+    // hairline seams, and changes the boundary loops the slicer keys off. That
+    // turned "move the part up 10mm" into a different toolpath. Searching the
+    // neighbourhood makes the result depend only on the shape.
+    //
+    // Buckets are keyed by an integer spatial hash in a Map (string keys cost
+    // ~5x here). Two cells can collide onto one bucket; that only lends the
+    // search a few extra candidates, because every candidate is distance
+    // tested anyway -- it can never merge points that are too far apart.
+    var map = new Map();       // hashed cell -> [vertex index, ...]
     var verts = [];            // flat xyz
     var index = new Uint32Array(n);
+    var tol2 = tol * tol;
+    function cellHash(a, b, c) {
+      return (Math.imul(a, 73856093) ^ Math.imul(b, 19349663) ^ Math.imul(c, 83492791)) | 0;
+    }
     for (var i = 0; i < n; i++) {
       var x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
-      var key = Math.round(x * inv) + "_" + Math.round(y * inv) + "_" + Math.round(z * inv);
-      var vi = map[key];
-      if (vi === undefined) {
+      var cx = Math.floor(x * inv), cy = Math.floor(y * inv), cz = Math.floor(z * inv);
+      var vi = -1, best2 = tol2;
+
+      // fast path -- a triangle soup repeats every shared corner bit for bit,
+      // so most vertices find an exact match in their own cell and stop here
+      var homeKey = cellHash(cx, cy, cz);
+      var home = map.get(homeKey);
+      if (home !== undefined) {
+        for (var b = 0; b < home.length; b++) {
+          var c0 = home[b];
+          var ex = verts[c0 * 3] - x, ey = verts[c0 * 3 + 1] - y, ez = verts[c0 * 3 + 2] - z;
+          var d2 = ex * ex + ey * ey + ez * ez;
+          if (d2 < best2) { best2 = d2; vi = c0; if (d2 === 0) break; }
+        }
+      }
+      if (best2 !== 0) {
+        for (var dx = -1; dx <= 1; dx++) {
+          for (var dy = -1; dy <= 1; dy++) {
+            for (var dz = -1; dz <= 1; dz++) {
+              if (dx === 0 && dy === 0 && dz === 0) continue;   // done above
+              var bucket = map.get(cellHash(cx + dx, cy + dy, cz + dz));
+              if (bucket === undefined) continue;
+              for (var b2 = 0; b2 < bucket.length; b2++) {
+                var c1 = bucket[b2];
+                var fx = verts[c1 * 3] - x, fy = verts[c1 * 3 + 1] - y, fz = verts[c1 * 3 + 2] - z;
+                var e2 = fx * fx + fy * fy + fz * fz;
+                if (e2 < best2) { best2 = e2; vi = c1; }
+              }
+            }
+          }
+        }
+      }
+      if (vi < 0) {
         vi = verts.length / 3;
-        map[key] = vi;
         verts.push(x, y, z);
+        if (home === undefined) map.set(homeKey, [vi]);
+        else home.push(vi);
       }
       index[i] = vi;
     }
@@ -825,7 +875,67 @@
     return width * height - (height * height) * (1 - Math.PI / 4);
   }
 
-  var api = { weld: weld, analyze: analyze, buildField: buildField, extractRing: extractRing, slicePath: slicePath, makeGcode: makeGcode, beadArea: beadArea };
+  // ---------------------------------------------------------------- clipZ
+  // Cut a raw triangle soup (9 numbers per tri) with one or two horizontal
+  // planes, keeping the slab zMin <= z <= zMax. Pass null for either bound to
+  // leave that side uncut.
+  //
+  // Sutherland-Hodgman per triangle, re-fanned into triangles. The cut is left
+  // OPEN (no cap) on purpose -- an open planar rim is exactly the shell
+  // boundary analyze()/slicePath() want, so a bottom cut becomes the base rim
+  // and a top cut becomes a dead-flat top rim.
+  //
+  // Split points are computed from a CANONICALLY ordered edge (endpoints
+  // sorted lexicographically) so the two triangles sharing an edge emit
+  // bit-identical vertices -- otherwise the a->b and b->a interpolations
+  // differ in the last ulp and weld() can tear the new rim into an open chain,
+  // which analyze() discards.
+  function clipZ(positions, zMin, zMax) {
+    var hasMin = (zMin !== null && zMin !== undefined);
+    var hasMax = (zMax !== null && zMax !== undefined);
+    if (!hasMin && !hasMax) return positions;
+    var out = [];
+    var nt = (positions.length / 9) | 0;
+    for (var t = 0; t < nt; t++) {
+      var o = t * 9;
+      var poly = [positions[o], positions[o + 1], positions[o + 2],
+                  positions[o + 3], positions[o + 4], positions[o + 5],
+                  positions[o + 6], positions[o + 7], positions[o + 8]];
+      if (hasMin) poly = clipHalfZ(poly, zMin, 1);
+      if (poly.length && hasMax) poly = clipHalfZ(poly, zMax, -1);
+      var m = poly.length / 3;
+      for (var i = 1; i + 1 < m; i++) {
+        out.push(poly[0], poly[1], poly[2],
+                 poly[i * 3], poly[i * 3 + 1], poly[i * 3 + 2],
+                 poly[(i + 1) * 3], poly[(i + 1) * 3 + 1], poly[(i + 1) * 3 + 2]);
+      }
+    }
+    return new Float64Array(out);
+  }
+
+  // Keep the half-space where sign * (z - z0) >= 0. poly is a flat xyz list.
+  function clipHalfZ(poly, z0, sign) {
+    var m = poly.length / 3;
+    var out = [];
+    for (var i = 0; i < m; i++) {
+      var j = (i + 1) % m;
+      var ax = poly[i * 3], ay = poly[i * 3 + 1], az = poly[i * 3 + 2];
+      var bx = poly[j * 3], by = poly[j * 3 + 1], bz = poly[j * 3 + 2];
+      var da = sign * (az - z0), db = sign * (bz - z0);
+      if (da >= 0) out.push(ax, ay, az);
+      if ((da > 0 && db < 0) || (da < 0 && db > 0)) {
+        // canonical endpoint order -> same split point from either triangle
+        var swap = (ax > bx) || (ax === bx && (ay > by || (ay === by && az > bz)));
+        var p0x = swap ? bx : ax, p0y = swap ? by : ay, p0z = swap ? bz : az;
+        var p1x = swap ? ax : bx, p1y = swap ? ay : by, p1z = swap ? az : bz;
+        var f = (z0 - p0z) / (p1z - p0z);
+        out.push(p0x + (p1x - p0x) * f, p0y + (p1y - p0y) * f, z0);
+      }
+    }
+    return out;
+  }
+
+  var api = { weld: weld, analyze: analyze, clipZ: clipZ, buildField: buildField, extractRing: extractRing, slicePath: slicePath, makeGcode: makeGcode, beadArea: beadArea };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.GingerSlicer = api;
 })(typeof self !== "undefined" ? self : this);
