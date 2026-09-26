@@ -15,6 +15,25 @@
       margin-bottom: 0;
     }
 
+    /* Year chip on card — same corner treatment as the award badge, but
+       quieter, so the two showrooms read apart at a glance instead of only
+       on hover (the card label is opacity:0 until hover on desktop). */
+    .card-year {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      color: #f5f5f7;
+      white-space: nowrap;
+    }
+
     /* Award badge on card */
     .card-award {
       position: absolute;
@@ -54,13 +73,13 @@
   <!-- Portfolio grid — full width -->
   <div class="project-grid" style="margin-bottom: 0;">
 
-    <a class="project-card" href="https://interiordesign.net/awards/hip/2026/#products-workplace-partitions-wall-systems" target="_blank" rel="noopener">
+    <a class="project-card" href="https://turf.design/products/cushion" target="_blank" rel="noopener">
       <img src="thumb-cushion.jpg" alt="Cushion" loading="lazy" />
       <div class="project-card-label">Cushion</div>
       <div class="card-award">HiP Winner '26</div>
     </a>
 
-    <a class="project-card" href="#">
+    <a class="project-card" href="https://turf.design/products/point" target="_blank" rel="noopener">
       <img src="thumb-point.jpg" alt="Point" loading="lazy" />
       <div class="project-card-label">Point</div>
     </a>
@@ -76,8 +95,15 @@
     </a>
 
     <a class="project-card" href="https://turf.design/portfolio/turf-design-experience-center" target="_blank" rel="noopener">
-      <img src="thumb-turf.avif" alt="TURF Showroom" loading="lazy" />
-      <div class="project-card-label">TURF Showroom</div>
+      <img src="thumb-turf.avif" alt="TURF Showroom 2025" loading="lazy" />
+      <div class="project-card-label">TURF Showroom 2025</div>
+      <div class="card-year">2025</div>
+    </a>
+
+    <a class="project-card" href="https://turf.design/portfolio/2026-turf-design-experience-center-showroom" target="_blank" rel="noopener">
+      <img src="thumb-turf-2026.jpg" alt="TURF Showroom 2026" loading="lazy" />
+      <div class="project-card-label">TURF Showroom 2026</div>
+      <div class="card-year">2026</div>
     </a>
 
   </div>
