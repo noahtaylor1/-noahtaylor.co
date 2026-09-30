@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flower Grid — Noah Taylor</title>
+  <meta name="description" content="Flower Grid is a 3D-printed lattice vase that holds each stem where you put it: upright, upside down or on the wall. 3D printed to order." />
+  <meta property="og:title" content="Flower Grid — Noah Taylor" />
+  <meta property="og:description" content="A lattice vase that holds each stem where you put it: upright, upside down or on the wall." />
+  <meta property="og:image" content="https://noahtaylor.co/thumb-flower-grid.jpg" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .fg-hero {
+      position: relative;
+      width: 100%;
+      height: calc(100vh - 56px);
+      min-height: 520px;
+      overflow: hidden;
+    }
+    .fg-hero picture { display: contents; }
+    .fg-hero img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center 78%;
+      display: block;
+    }
+    @media (min-width: 769px) {
+      .fg-hero img { object-position: center 45%; }
+    }
+    .fg-hero-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, rgba(0,0,0,0) 45%, rgba(0,0,0,0.78) 100%);
+    }
+    .fg-hero-text {
+      position: absolute;
+      bottom: 56px;
+      left: 60px;
+      right: 60px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 32px;
+    }
+    .fg-hero-text h1 {
+      font-size: clamp(54px, 9vw, 112px);
+      font-weight: 300;
+      letter-spacing: -0.03em;
+      line-height: 1;
+      color: #f5f5f7;
+      margin-bottom: 14px;
+    }
+    .fg-hero-text p {
+      font-size: 12px;
+      color: rgba(245,245,247,0.7);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    /* Order button */
+    .order-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: #f5f5f7;
+      color: #000;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      padding: 15px 26px;
+      border-radius: 999px;
+      white-space: nowrap;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .order-btn:hover { background: #fff; transform: translateY(-1px); }
+    .order-btn:focus-visible { outline: 2px solid #f5f5f7; outline-offset: 3px; }
+
+    /* Intro */
+    .fg-intro {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 120px 48px 100px;
+    }
+    .fg-intro p {
+      font-size: clamp(22px, 2.6vw, 32px);
+      font-weight: 300;
+      line-height: 1.35;
+      letter-spacing: -0.015em;
+      color: #f5f5f7;
+    }
+    .fg-intro p span { color: var(--muted); }
+
+    /* Feature rows: photo + text */
+    .fg-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 0 4px 4px;
+      align-items: stretch;
+    }
+    .fg-row img {
+      width: 100%;
+      height: 100%;
+      aspect-ratio: 4/5;
+      object-fit: cover;
+      display: block;
+    }
+    .fg-row .fg-copy {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 48px clamp(28px, 7vw, 110px);
+      background: #0a0a0a;
+    }
+    .fg-row.flip .fg-copy { order: -1; }
+    .fg-order-copy h2 { font-size: clamp(26px, 3vw, 40px); }
+    .fg-order-copy > p { margin-bottom: 28px; }
+    .fg-order-copy .buy { max-width: 400px; }
+    .fg-order-copy .fg-specs { margin-top: 36px; max-width: 400px; }
+    .fg-order-copy .buy-note { font-size: 12px; max-width: none; color: var(--muted); }
+    .buy-note a { color: var(--muted); }
+    .fg-num {
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .fg-copy h2 {
+      font-size: clamp(22px, 2.6vw, 34px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin-bottom: 14px;
+    }
+    .fg-copy p {
+      font-size: 15px;
+      line-height: 1.7;
+      color: #a1a1a6;
+      max-width: 400px;
+    }
+
+    /* Pair of photos */
+    .fg-pair {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 0 4px 4px;
+    }
+    .fg-pair figure { margin: 0; position: relative; }
+    .fg-pair img {
+      width: 100%;
+      aspect-ratio: 4/5;
+      object-fit: cover;
+      display: block;
+    }
+    .fg-pair figcaption {
+      position: absolute;
+      left: 20px;
+      bottom: 18px;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: rgba(255,255,255,0.85);
+      text-shadow: 0 1px 8px rgba(0,0,0,0.5);
+    }
+
+    /* Order section */
+    .fg-order {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 110px 48px 120px;
+    }
+    .fg-order h2 {
+      font-size: clamp(30px, 4vw, 48px);
+      font-weight: 300;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      margin-bottom: 18px;
+    }
+    .fg-order > p {
+      font-size: 15px;
+      line-height: 1.7;
+      color: #a1a1a6;
+      max-width: 520px;
+      margin-bottom: 36px;
+    }
+    .fg-specs {
+      margin-top: 72px;
+      border-top: 1px solid var(--border);
+    }
+    .fg-specs div {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+    }
+    .fg-specs dt { color: var(--muted); }
+    .fg-specs dd { text-align: right; }
+
+    /* Buy panel */
+    .buy {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 28px;
+      max-width: 460px;
+      background: #0a0a0a;
+    }
+    .buy-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+    .buy-price { font-size: 28px; font-weight: 300; letter-spacing: -0.02em; }
+    .buy-price span { display: block; font-size: 13px; color: var(--muted); letter-spacing: 0; margin-top: 2px; }
+    .qty {
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+    }
+    .qty button {
+      width: 40px; height: 40px;
+      background: none; border: none; color: var(--text);
+      font-size: 18px; cursor: pointer; border-radius: 999px;
+    }
+    .qty button:disabled { color: #3a3a3c; cursor: default; }
+    .qty button:not(:disabled):hover { background: #1c1c1e; }
+    .qty output { min-width: 24px; text-align: center; font-size: 15px; }
+    .buy-btn {
+      width: 100%;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .buy-btn:disabled { background: #2c2c2e; color: #8e8e93; cursor: default; transform: none; }
+    .buy-note { font-size: 12px; color: var(--muted); margin-top: 14px; text-align: center; }
+    .buy[data-state="closed"] .buy-row { display: none; }
+    .buy-banner {
+      font-size: 14px;
+      line-height: 1.55;
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin-bottom: 22px;
+      background: #1c1c1e;
+      color: var(--text);
+    }
+    .buy-banner.ok { background: #0f2a18; color: #b8f0c8; }
+    .buy-banner.error { background: #2e1414; color: #ffc4c4; }
+
+    @media (max-width: 768px) {
+      .fg-hero-text {
+        left: 24px; right: 24px; bottom: 36px;
+        flex-direction: column; align-items: flex-start; gap: 22px;
+      }
+      .fg-intro { padding: 72px 24px 64px; }
+      .fg-row, .fg-pair { grid-template-columns: 1fr; padding: 0 2px 2px; gap: 2px; }
+      .fg-row.flip .fg-copy { order: 0; }
+      .fg-row .fg-copy { padding: 44px 24px 52px; }
+      .fg-order { padding: 72px 24px 88px; }
+      .fg-specs { margin-top: 56px; }
+      .buy { padding: 22px 18px; }
+    }
+    @media (max-width: 390px) {
+      .fg-hero-text { left: 16px; right: 16px; }
+      .fg-intro, .fg-order { padding-left: 16px; padding-right: 16px; }
+      .fg-row .fg-copy { padding-left: 16px; padding-right: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html" class="nav-logo">Noah Taylor</a>
+    <ul class="nav-links">
+      <li><a href="work.html">Work</a></li>
+      <li><a href="shop.html" class="active">Shop</a></li>
+      <li><a href="index.html">Concepts</a></li>
+      <li><a href="resume.html">Resume</a></li>
+      <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+    </ul>
+  </nav>
+
+  <section class="fg-hero">
+    <picture>
+      <source media="(min-width: 769px)" srcset="flower-grid/sky-wide.jpg" />
+      <img src="flower-grid/sky.jpg" alt="Hand holding the white lattice Flower Grid vase full of wildflowers against a blue sky" />
+    </picture>
+    <div class="fg-hero-overlay"></div>
+    <div class="fg-hero-text">
+      <div>
+        <h1>Flower Grid</h1>
+        <p>Lattice Vase &mdash; Noah Taylor</p>
+      </div>
+      <a class="order-btn" href="#order">Order Flower Grid</a>
+    </div>
+  </section>
+
+  <section class="fg-intro">
+    <p>A cube of open cells that holds every stem where you set it. <span>No foam, no pins, no flower frog. Arrange it upright, turn it upside down, or hang it on the wall.</span></p>
+  </section>
+
+  <section class="fg-row">
+    <img src="flower-grid/arrange.jpg" alt="Hand placing a single aster into the lattice vase" loading="lazy" />
+    <div class="fg-copy">
+      <div class="fg-num">01</div>
+      <h2>Stems stay<br>where you put them</h2>
+      <p>Slide stems into the grid wherever you like, one to an opening or a few gathered together. The lattice holds them upright, so the arrangement keeps its shape as you build it.</p>
+    </div>
+  </section>
+
+  <section class="fg-row flip">
+    <img src="flower-grid/hanging.jpg" alt="The vase held upside down with the bouquet hanging below it" loading="lazy" />
+    <div class="fg-copy">
+      <div class="fg-num">02</div>
+      <h2>Holds in<br>any direction</h2>
+      <p>The lattice holds the stems firmly enough to work upside down, so the flowers can fall downward like a hanging garden.</p>
+    </div>
+  </section>
+
+  <section class="fg-pair">
+    <figure>
+      <img src="flower-grid/wall.jpg" alt="Flower Grid on a wall with its lattice shadow cast below" loading="lazy" />
+      <figcaption>On the wall</figcaption>
+    </figure>
+    <figure>
+      <img src="flower-grid/shelf.jpg" alt="Flower Grid on a wall, flowers falling below and a teacup resting on top" loading="lazy" />
+      <figcaption>Upside down, with a teacup on top</figcaption>
+    </figure>
+  </section>
+
+  <section class="fg-row fg-buy-row" id="order">
+    <img src="flower-grid/upright.jpg" alt="Flower Grid sitting upright on stone with a full wildflower bouquet" loading="lazy" />
+    <div class="fg-copy fg-order-copy">
+      <div class="fg-num">Order</div>
+      <h2>Printed<br>to order</h2>
+      <p>Each Flower Grid is 3D printed when you order it and shipped to you within the US.</p>
+
+      <div class="buy" id="buy" data-state="loading">
+        <div class="buy-banner" id="buy-banner" role="status" hidden></div>
+        <div class="buy-row">
+          <div class="buy-price" id="buy-price">&nbsp;</div>
+          <div class="qty" aria-label="Quantity">
+            <button type="button" id="qty-minus" aria-label="Fewer">&minus;</button>
+            <output id="qty" aria-live="polite">1</output>
+            <button type="button" id="qty-plus" aria-label="More">+</button>
+          </div>
+        </div>
+        <button type="button" class="order-btn buy-btn" id="buy-btn" disabled>Loading&hellip;</button>
+        <p class="buy-note" id="buy-note">Secure checkout by Stripe. Ships to US addresses. <a href="shop-policies.html">Shipping &amp; returns</a></p>
+      </div>
+
+      <dl class="fg-specs">
+        <div><dt>Design</dt><dd>Noah Taylor</dd></div>
+        <div><dt>Form</dt><dd>Lattice cube vase</dd></div>
+        <div><dt>Size</dt><dd>72 mm cube (2.8&Prime;)</dd></div>
+        <div><dt>Made by</dt><dd>3D printed to order</dd></div>
+        <div><dt>Material</dt><dd>White PLA</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <footer>© 2026 Noah Taylor</footer>
+  <script src="nav.js"></script>
+  <script>
+  (() => {
+    // URL of the deployed shop worker (shop-worker/worker.js). Blank = orders show as coming soon.
+    const SHOP_API = 'https://flower-grid-shop.noahjtaylor42.workers.dev';
+
+    const $ = id => document.getElementById(id);
+    const buy = $('buy'), btn = $('buy-btn'), banner = $('buy-banner');
+    const money = c => '$' + (c / 100).toFixed(c % 100 ? 2 : 0);
+    let cfg = null, qty = 1;
+
+    function showBanner(text, kind) {
+      banner.textContent = text;
+      banner.className = 'buy-banner ' + (kind || '');
+      banner.hidden = false;
+    }
+
+    function render() {
+      $('qty').textContent = qty;
+      $('qty-minus').disabled = !cfg || qty <= 1;
+      $('qty-plus').disabled = !cfg || qty >= cfg.maxQuantity;
+      if (!cfg) return;
+      $('buy-price').innerHTML = money(cfg.priceCents * qty) +
+        '<span>' + (cfg.shippingCents ? '+ ' + money(cfg.shippingCents) + ' shipping' : 'Free US shipping') + '</span>';
+      btn.textContent = 'Buy now \u2014 ' + money(cfg.priceCents * qty + cfg.shippingCents);
+    }
+
+    function closed(msg) {
+      buy.dataset.state = 'closed';
+      btn.disabled = true;
+      btn.textContent = msg;
+      $('buy-price').textContent = '';
+    }
+
+    $('qty-minus').onclick = () => { qty = Math.max(1, qty - 1); render(); };
+    $('qty-plus').onclick = () => { qty = Math.min(cfg.maxQuantity, qty + 1); render(); };
+
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Opening checkout\u2026';
+      try {
+        const res = await fetch(SHOP_API + '/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity: qty }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.url) return void (location.href = data.url);
+        showBanner(data.error || 'Checkout couldn’t start. Please try again.', 'error');
+      } catch (err) {
+        showBanner('Couldn’t reach checkout. Check your connection and try again.', 'error');
+      }
+      btn.disabled = false;
+      render();
+    };
+
+    const status = new URLSearchParams(location.search).get('order');
+    if (status === 'success') {
+      showBanner('Thank you! Your order is confirmed. A receipt is on its way to your email, and your Flower Grid goes to print shortly.', 'ok');
+      document.getElementById('order').scrollIntoView();
+    } else if (status === 'cancelled') {
+      showBanner('Checkout cancelled. You haven\u2019t been charged.', '');
+    }
+
+    if (!SHOP_API) { closed('Orders open soon'); return; }
+    fetch(SHOP_API + '/config')
+      .then(r => r.json())
+      .then(c => {
+        if (!c.open) return closed('Orders open soon');
+        cfg = c;
+        buy.dataset.state = 'open';
+        btn.disabled = false;
+        render();
+      })
+      .catch(() => closed('Ordering is unavailable right now'));
+  })();
+  </script>
+</body>
+</html>

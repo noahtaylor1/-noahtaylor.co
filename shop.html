@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shop — Noah Taylor</title>
+  <meta name="description" content="Objects designed by Noah Taylor, printed to order." />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .shop-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4px;
+      padding: 4px;
+    }
+    .shop-item {
+      display: block;
+      text-decoration: none;
+      color: inherit;
+    }
+    .shop-item-img {
+      overflow: hidden;
+      background: #111;
+      aspect-ratio: 4/5;
+    }
+    .shop-item-img img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.4s ease;
+    }
+    .shop-item:hover .shop-item-img img { transform: scale(1.03); }
+    .shop-item-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      padding: 16px 16px 28px;
+    }
+    .shop-item-name { font-size: 15px; font-weight: 500; }
+    .shop-item-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .shop-item-cta { font-size: 13px; color: var(--muted); white-space: nowrap; transition: color 0.15s; }
+    .shop-item:hover .shop-item-cta { color: var(--text); }
+    @media (max-width: 900px) { .shop-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 560px) { .shop-grid { grid-template-columns: 1fr; padding: 2px; gap: 2px; } }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html" class="nav-logo">Noah Taylor</a>
+    <ul class="nav-links">
+      <li><a href="work.html">Work</a></li>
+      <li><a href="shop.html" class="active">Shop</a></li>
+      <li><a href="index.html">Concepts</a></li>
+      <li><a href="resume.html">Resume</a></li>
+      <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+    </ul>
+  </nav>
+
+  <main class="work-page" style="padding-bottom: 48px;">
+    <h1>Shop</h1>
+    <p class="subtitle" style="margin-bottom: 0;">Objects I design, 3D printed to order</p>
+  </main>
+
+  <div class="shop-grid">
+    <a class="shop-item" href="flower-grid.html">
+      <div class="shop-item-img">
+        <img src="flower-grid/upright.jpg" alt="Flower Grid lattice vase with wildflowers" loading="lazy" />
+      </div>
+      <div class="shop-item-info">
+        <div>
+          <div class="shop-item-name">Flower Grid</div>
+          <div class="shop-item-sub">Lattice vase</div>
+        </div>
+        <span class="shop-item-cta">View →</span>
+      </div>
+    </a>
+  </div>
+
+  <footer>© 2026 Noah Taylor</footer>
+  <script src="nav.js"></script>
+</body>
+</html>
