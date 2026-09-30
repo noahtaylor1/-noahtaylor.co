@@ -430,11 +430,11 @@
       showBanner('Checkout cancelled. You haven\u2019t been charged.', '');
     }
 
-    if (!SHOP_API) { closed('Orders open soon'); return; }
+    if (!SHOP_API) { closed('Coming soon'); return; }
     fetch(SHOP_API + '/config')
       .then(r => r.json())
       .then(c => {
-        if (!c.open) return closed('Orders open soon');
+        if (!c.open) return closed('Coming soon');
         cfg = c;
         buy.dataset.state = 'open';
         btn.disabled = false;
