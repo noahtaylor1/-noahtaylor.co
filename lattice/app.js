@@ -5,7 +5,7 @@ import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   LATTICES, buildAccel, generateLattice, buildSmoothMesh, exportBinarySTL,
-} from './lattice-core.js?v=df797aff';
+} from './lattice-core.js?v=93f6ad9f';
 
 // Cell size is driven by the lever. The spatial index is binned by it too,
 // so changing it invalidates the cached accel.
@@ -16,18 +16,18 @@ const cellSize = () => parseFloat(document.getElementById('cell').value) || 10;
 // ---------------------------------------------------------------------------
 const viewport = document.getElementById('viewport');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1c1e22);
+scene.background = new THREE.Color(0x000000);
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 10000);
 camera.position.set(120, -160, 100);
 camera.up.set(0, 0, 1);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 viewport.appendChild(renderer.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xdfe6f0, 0x33383f, 1.0));
+scene.add(new THREE.HemisphereLight(0xf5f5f7, 0x1c1c1e, 1.0));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
 dirLight.position.set(1, -1.5, 2);
 scene.add(dirLight);
-const grid = new THREE.GridHelper(300, 30, 0x3a3f48, 0x2a2e35);
+const grid = new THREE.GridHelper(300, 30, 0x2a2a2a, 0x151515);
 grid.rotation.x = Math.PI / 2;
 scene.add(grid);
 
@@ -521,7 +521,7 @@ function geometryFromSoup(soup) {
 function showInputMesh() {
   clearObject('inputMesh');
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x8891a0, transparent: true, opacity: 0.28,
+    color: 0x6e6e73, transparent: true, opacity: 0.28,
     side: THREE.DoubleSide, depthWrite: false,
   });
   state.inputMesh = new THREE.Mesh(geometryFromSoup(state.soup), mat);
@@ -743,7 +743,7 @@ async function generate() {
     const lg = new THREE.BufferGeometry();
     lg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     state.latticeLines = new THREE.LineSegments(
-      lg, new THREE.LineBasicMaterial({ color: 0x4fc37f }));
+      lg, new THREE.LineBasicMaterial({ color: 0xd1d1d6 }));
     scene.add(state.latticeLines);
     if (state.inputMesh) state.inputMesh.material.opacity = 0.12;
     fitView(false);

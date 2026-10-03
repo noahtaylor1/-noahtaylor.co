@@ -3,124 +3,179 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Lattice Filler</title>
+<title>Lattice Filler — Noah Taylor</title>
 <style>
   :root {
-    --bg: #1c1e22; --panel: #26292f; --panel2: #2e323a;
-    --text: #d7dae0; --dim: #8a9099; --accent: #4fc37f; --accent2: #5aa7e8;
+    --bg: #000; --panel: rgba(10,10,10,0.86); --field: #111;
+    --text: #f5f5f7; --dim: #6e6e73; --soft: #a1a1a6; --line: #2a2a2a;
+    --font: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    --nav-h: 56px;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 13px/1.5 -apple-system, "Helvetica Neue", sans-serif;
-         background: var(--bg); color: var(--text); overflow: hidden; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 13px/1.5 var(--font); background: var(--bg); color: var(--text);
+         overflow: hidden; -webkit-font-smoothing: antialiased; }
   #viewport { position: fixed; inset: 0; }
-  #panel { position: fixed; top: 12px; left: 12px; width: 280px;
-           background: var(--panel); border: 1px solid #3a3f48; border-radius: 10px;
-           padding: 14px 16px; z-index: 10; box-shadow: 0 6px 24px rgba(0,0,0,.4); }
-  h1 { font-size: 15px; margin: 0 0 10px; }
-  h1 small { color: var(--dim); font-weight: 400; font-size: 11px; }
-  .row { margin: 9px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .row label { color: var(--dim); }
+
+  /* site nav, same as noahtaylor.co */
+  .site-nav {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--nav-h); z-index: 20;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 48px;
+    background: rgba(0,0,0,0.82); border-bottom: 1px solid var(--line);
+    backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  }
+  .site-nav a { color: var(--text); text-decoration: none; transition: color .15s; }
+  .site-nav a:hover { color: var(--dim); }
+  .nav-logo { font-size: 14px; font-weight: 500; letter-spacing: 0.03em; }
+  .nav-links { display: flex; gap: 32px; list-style: none; margin: 0; padding: 0; font-size: 13px; letter-spacing: 0.02em; }
+
+  /* control panel */
+  #panel {
+    position: fixed; top: calc(var(--nav-h) + 20px); left: 20px; width: 300px;
+    max-height: calc(100vh - var(--nav-h) - 40px); overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px 22px 20px; z-index: 10;
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    scrollbar-width: thin; scrollbar-color: #2a2a2a transparent;
+  }
+  h1 { font-size: 26px; font-weight: 300; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 18px; }
+  h1 small { display: block; margin-top: 8px; font-size: 10px; font-weight: 400;
+             letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim); }
+  .group { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--dim);
+           margin: 22px 0 6px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .group.first { border-top: 0; padding-top: 0; margin-top: 16px; }
+  .row { margin: 8px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; }
+  .row label { color: var(--soft); }
   select, input[type=number] {
-    background: var(--panel2); color: var(--text); border: 1px solid #444a55;
-    border-radius: 6px; padding: 4px 6px; width: 130px; font: inherit; }
+    background: var(--field); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 5px 8px; width: 132px; font: inherit; outline: none;
+    transition: border-color .15s; }
+  select:focus, input[type=number]:focus { border-color: var(--dim); }
+  select { width: 168px; text-overflow: ellipsis; appearance: none; -webkit-appearance: none; padding-right: 24px;
+           background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%), linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+           background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
   .dims { display: flex; gap: 4px; }
-  .lever { display: flex; align-items: center; gap: 8px; width: 130px; }
-  .lever input[type=range] { flex: 1; min-width: 0; accent-color: var(--accent); }
-  .lever output { width: 26px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
-  .dims input[type=number] { width: 46px; padding: 4px 4px; }
-  input[type=checkbox] { accent-color: var(--accent); }
-  button { width: 100%; margin-top: 8px; padding: 8px; border: 0; border-radius: 7px;
-           font: inherit; font-weight: 600; cursor: pointer;
-           background: var(--panel2); color: var(--text); }
-  button.primary { background: var(--accent); color: #10241a; }
-  button.blue { background: var(--accent2); color: #0d2337; }
-  button:disabled { opacity: .35; cursor: default; }
-  #drop { border: 1.5px dashed #4a505c; border-radius: 8px; padding: 14px;
-          text-align: center; color: var(--dim); cursor: pointer; }
-  #drop.hover { border-color: var(--accent); color: var(--accent); }
-  #status { margin-top: 10px; padding: 8px 10px; background: var(--panel2);
-            border-radius: 7px; min-height: 34px; color: var(--dim);
-            white-space: pre-line; font-size: 12px; }
-  #bar { height: 4px; background: #3a3f48; border-radius: 2px; margin-top: 6px; overflow: hidden; }
-  #barFill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .dims input[type=number] { width: 48px; padding: 5px 4px; text-align: center; -moz-appearance: textfield; }
+  .dims input::-webkit-inner-spin-button, .dims input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .lever { display: flex; align-items: center; gap: 10px; width: 132px; }
+  .lever input[type=range] { flex: 1; min-width: 0; accent-color: var(--text); }
+  .lever output { width: 24px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* checkboxes drawn as small switches */
+  input[type=checkbox] { appearance: none; -webkit-appearance: none; margin: 0; flex: 0 0 auto;
+    width: 34px; height: 20px; border-radius: 999px; background: #1c1c1e; border: 1px solid var(--line);
+    position: relative; cursor: pointer; transition: background .15s, border-color .15s; }
+  input[type=checkbox]::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: var(--dim); transition: transform .15s, background .15s; }
+  input[type=checkbox]:checked { background: var(--text); border-color: var(--text); }
+  input[type=checkbox]:checked::after { transform: translateX(14px); background: #000; }
+
+  button { width: 100%; margin-top: 8px; padding: 10px 14px; border-radius: 999px;
+           font: inherit; font-size: 13px; font-weight: 500; letter-spacing: 0.02em; cursor: pointer;
+           background: transparent; color: var(--text); border: 1px solid var(--line);
+           transition: background .15s, border-color .15s, color .15s; }
+  button:hover:not(:disabled) { border-color: var(--dim); }
+  button.primary { background: var(--text); color: #000; border-color: var(--text); }
+  button.primary:hover:not(:disabled) { background: #fff; }
+  button:disabled { opacity: .3; cursor: default; }
+
+  #drop { border: 1px dashed #3a3a3c; border-radius: 12px; padding: 18px 14px; margin-top: 4px;
+          text-align: center; color: var(--soft); cursor: pointer; line-height: 1.6;
+          transition: border-color .15s, color .15s; }
+  #drop:hover, #drop.hover { border-color: var(--text); color: var(--text); }
+  #status { margin-top: 14px; min-height: 20px; color: var(--soft); white-space: pre-line; font-size: 12px; line-height: 1.6; }
+  #bar { height: 2px; background: #1c1c1e; border-radius: 1px; margin-top: 8px; overflow: hidden; }
+  #barFill { height: 100%; width: 0; background: var(--text); transition: width .15s; }
   .only-touch { display: none; }
   #sheetGrip { display: none; }
   #sheetPull { display: none; }
 
+  @media (max-width: 900px) and (min-width: 701px) { .site-nav { padding: 0 24px; } .nav-links { gap: 22px; } }
+
   /* ---- phones / small touch screens: controls become a bottom sheet ---- */
   @media (max-width: 700px), (pointer: coarse) and (max-width: 1024px) {
+    .site-nav { padding: 0 20px; }
+    .nav-links li:not(.keep) { display: none; }
     .only-touch { display: inline; }
     .only-mouse { display: none; }
     #panel {
-      top: auto; bottom: 0; left: 0; right: 0; width: auto;
+      top: auto; bottom: 0; left: 0; right: 0; width: auto; overflow: visible;
       height: var(--sheet-h, 46vh); max-height: 92vh; padding: 0;
-      border-width: 1px 0 0 0; border-radius: 14px 14px 0 0;
+      border-width: 1px 0 0 0; border-radius: 16px 16px 0 0; background: rgba(10,10,10,0.94);
       display: flex; flex-direction: column;
       transition: height .22s cubic-bezier(.32,.72,0,1);
       touch-action: none;   /* the sheet handles its own drag gestures */
     }
     body.sheet-dragging #panel { transition: none; }
     /* grab area: the pill and the title bar both drag the sheet */
-    #sheetPull { display: block; padding: 9px 0 3px; text-align: center;
-                 cursor: grab; flex: 0 0 auto; }
-    #sheetPull::before {
-      content: ''; display: inline-block; width: 40px; height: 5px;
-      border-radius: 3px; background: #545b68;
-    }
+    #sheetPull { display: block; padding: 9px 0 3px; text-align: center; cursor: grab; flex: 0 0 auto; }
+    #sheetPull::before { content: ''; display: inline-block; width: 36px; height: 4px; border-radius: 2px; background: #3a3a3c; }
     h1 {
-      margin: 0; padding: 4px 16px 12px; border-bottom: 1px solid #3a3f48;
-      display: flex; align-items: center; gap: 8px; cursor: grab;
-      user-select: none; -webkit-user-select: none; font-size: 16px;
-      flex: 0 0 auto;
+      margin: 0; padding: 6px 20px 14px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: baseline; gap: 10px; cursor: grab;
+      user-select: none; -webkit-user-select: none; font-size: 22px; flex: 0 0 auto;
     }
-    h1 small { display: block; }
-    #sheetGrip { display: block; margin-left: auto; color: var(--dim);
-                 font-size: 18px; line-height: 1; transition: transform .2s; }
+    h1 small { display: inline; margin: 0; }
+    #sheetGrip { display: block; margin-left: auto; color: var(--dim); font-size: 18px; line-height: 1; transition: transform .2s; }
     body.sheet-closed #sheetGrip { transform: rotate(180deg); }
     #panelBody {
       flex: 1 1 auto; min-height: 0;
       overflow-y: auto; -webkit-overflow-scrolling: touch;
       overscroll-behavior: contain; touch-action: pan-y;
-      padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+      padding: 6px 20px calc(18px + env(safe-area-inset-bottom, 0px));
     }
     /* 16px keeps iOS from zooming the page when a field is focused */
-    select, input[type=number] { font-size: 16px; padding: 8px 8px; width: 45%; min-height: 42px; }
+    select, input[type=number] { font-size: 16px; padding: 8px 10px; width: 45%; min-height: 42px; }
+    select { padding-right: 26px; }
     .dims { flex: 1; }
-    .dims input[type=number] { width: 100%; min-width: 0; padding: 8px 4px; text-align: center; }
+    .dims input[type=number] { width: 100%; min-width: 0; padding: 8px 4px; }
     .row { margin: 12px 0; }
-    .row label { flex: 1; }
-    input[type=checkbox] { width: 24px; height: 24px; }
+    .row label { flex: 1; font-size: 15px; }
+    input[type=checkbox] { width: 46px; height: 28px; }
+    input[type=checkbox]::after { width: 22px; height: 22px; }
+    input[type=checkbox]:checked::after { transform: translateX(18px); }
     .lever { width: 45%; }
     .lever input[type=range] { height: 30px; }
     .lever output { width: 30px; font-size: 16px; }
-    button { min-height: 46px; margin-top: 10px; font-size: 15px; }
-    #drop { padding: 18px 12px; }
+    button { min-height: 48px; margin-top: 10px; font-size: 15px; }
+    #drop { padding: 20px 12px; font-size: 15px; }
     #status { font-size: 13px; }
   }
 
   /* landscape phones are wide and short — a side panel beats a bottom sheet */
   @media (pointer: coarse) and (max-height: 500px) and (orientation: landscape) {
     #panel {
-      top: 0; bottom: 0; left: 0; right: auto;
+      top: var(--nav-h); bottom: 0; left: 0; right: auto;
       width: min(320px, 46vw); height: auto; max-height: none;
-      border-radius: 0 14px 14px 0; border-width: 0 1px 0 0;
+      border-radius: 0 16px 16px 0; border-width: 0 1px 0 0;
       padding-left: env(safe-area-inset-left, 0px);
     }
     #panelBody { padding-bottom: 16px; }
     #sheetPull { display: none; }
     body.sheet-closed #panelBody { display: none; }
     /* collapsed, the panel should shrink to its header, not stay full height */
-    body.sheet-closed #panel { bottom: auto; width: auto; border-radius: 0 0 14px 0; }
+    body.sheet-closed #panel { bottom: auto; width: auto; border-radius: 0 0 16px 0; }
   }
 </style>
 </head>
 <body>
+<nav class="site-nav">
+  <a href="/index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li class="keep"><a href="/work.html">Work</a></li>
+    <li><a href="/shop.html">Shop</a></li>
+    <li><a href="/index.html">Concepts</a></li>
+    <li><a href="/resume.html">Resume</a></li>
+    <li><a href="https://www.linkedin.com/in/noah-taylor-364723183/" target="_blank" rel="noopener">LinkedIn ↗</a></li>
+  </ul>
+</nav>
 <div id="viewport"></div>
 <div id="panel">
   <div id="sheetPull"></div>
   <h1 id="panelHead">Lattice Filler <small><span id="cellLabel">10</span> mm cells</small><span id="sheetGrip">⌄</span></h1>
   <div id="panelBody">
-  <div id="drop"><span class="only-mouse">Drop a .3dm / .stl / .obj here<br>or click to browse</span><span class="only-touch">Tap to choose a<br>.3dm / .stl / .obj file</span></div>
+  <div class="group first">Model</div>
+  <div id="drop"><span class="only-mouse">Drop a .3dm, .stl or .obj<br>or click to browse</span><span class="only-touch">Tap to choose a<br>.3dm, .stl or .obj file</span></div>
   <input type="file" id="file" accept=".3dm,.stl,.obj" style="display:none">
   <div class="row"><label>Primitive</label><select id="prim">
     <option value="cube">Cube</option>
@@ -133,6 +188,9 @@
     <input type="number" id="dimC" value="100" min="10" step="10">
   </span></div>
   <button id="loadPrim">Load primitive</button>
+
+  <div class="group">Lattice</div>
+  <div class="row"><label>Type</label><select id="lattice"></select></div>
   <div class="row"><label>Cell size (mm)</label><span class="lever">
     <input type="range" id="cell" min="4" max="40" step="1" value="10">
     <output id="cellOut">10</output>
@@ -142,17 +200,19 @@
     <input type="number" id="taperBig" value="20" min="3" max="60" step="1" title="cell size at the centre">
     <input type="number" id="taperSmall" value="6" min="2" max="60" step="1" title="cell size at the outer face">
   </span></div>
-  <div class="row"><label>Lattice</label><select id="lattice"></select></div>
   <div class="row"><label>Cell edges</label><input type="checkbox" id="edges" checked></div>
   <div class="row"><label>Whole cells (flat sides)</label><input type="checkbox" id="wholeCells" checked></div>
   <div class="row"><label>Mirror alternate Z layers</label><input type="checkbox" id="mirrorZ" checked></div>
+  <div class="row"><label>Show input</label><input type="checkbox" id="showInput" checked></div>
+  <button id="generate" class="primary" disabled>Generate lattice</button>
+
+  <div class="group">Mesh</div>
   <div class="row"><label>Strut radius (mm)</label><input type="number" id="radius" value="0.8" min="0.2" max="4" step="0.1"></div>
   <div class="row"><label>Joint smoothing (mm)</label><input type="number" id="blend" value="2" min="0.1" max="4" step="0.1"></div>
   <div class="row"><label>Detail (voxel mm)</label><input type="number" id="detail" value="0.1" min="0.1" max="1.5" step="0.05"></div>
-  <div class="row"><label>Show input</label><input type="checkbox" id="showInput" checked></div>
-  <button id="generate" class="primary" disabled>Generate lattice</button>
-  <button id="solid" class="blue" disabled>Build smooth mesh</button>
+  <button id="solid" disabled>Build smooth mesh</button>
   <button id="export" disabled>Export STL</button>
+
   <div id="status">Load a model to begin.</div>
   <div id="bar"><div id="barFill"></div></div>
   </div>
@@ -180,6 +240,6 @@
   }
 }
 </script>
-<script type="module" src="app.js?v=df797aff"></script>
+<script type="module" src="app.js?v=93f6ad9f"></script>
 </body>
 </html>
