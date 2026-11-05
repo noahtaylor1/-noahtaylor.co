@@ -237,15 +237,14 @@ const PLATE = { w:1200, h:750 };
 let uid = 1;
 
 const S = {
-  objs:[], attr:[], sel:new Set(), tool:'select',
+  objs:[], sel:new Set(), tool:'select',
   cam:{x:0,y:0}, zoom:0.62,
   k:48, kernel:2,              // 0 polynomial G1 · 1 cubic G2 · 2 circular arc
   mode:1, line:1.4, ghost:false, iso:0,
   grain:0.28, bite:0,
   grid:true, gridStep:50, snap:false, invert:false,
-  sim:false, gx:0, gy:460, damp:0.985, contain:true,
-  brush:90, force:1,
-  defR:46, profile:'uniform', dyn:0, smooth:0.5, nib:-0.6,
+  brush:90,
+  defR:46, profile:'uniform', dyn:0, smooth:0.5, nib:-0.6, fillet:0, taper:0.5,
   exportRes:620, exportGrid:false,
   cap1:'MALLEABLE', cap2:'series.006', cap3:'nr.013'
 };
@@ -262,22 +261,16 @@ function say(t){
 /* ══════════════════════════════════════════════════════════════════
    2 · OBJECT MODEL
    ══════════════════════════════════════════════════════════════════ */
-const P = (x,y,r) => ({ x, y, px:x, py:y, r:r||S.defR, dyn:1, ang:0 });
+const P = (x,y,r) => ({ x, y, r:r||S.defR, dyn:1, ang:0 });
 
-function mkCircle(x,y,r){ return { id:uid++, kind:'circle', op:0, k:-1, pin:false, pts:[P(x,y,r)] }; }
+function mkCircle(x,y,r){ return { id:uid++, kind:'circle', op:0, k:-1, pts:[P(x,y,r)] }; }
 function mkCapsule(x,y,x2,y2,r,r2){
-  const o = { id:uid++, kind:'capsule', op:0, k:-1, pin:false, pts:[P(x,y,r),P(x2,y2,r2)] };
-  o.rest = [Math.hypot(x2-x,y2-y)]; return o;
+  return { id:uid++, kind:'capsule', op:0, k:-1, pts:[P(x,y,r),P(x2,y2,r2)] };
 }
-function mkBox(x,y,w,h){ return { id:uid++, kind:'box', op:0, k:-1, pin:false, w, h, rot:0, cr:6, pts:[P(x,y,0)] }; }
+function mkBox(x,y,w,h){ return { id:uid++, kind:'box', op:0, k:-1, w, h, rot:0, cr:6, pts:[P(x,y,0)] }; }
 function mkRing(x,y,r,t){ const o = mkCircle(x,y,r); o.kind='ring'; o.t=t; return o; }
-function mkStrand(x,y,r){ return { id:uid++, kind:'strand', op:0, k:-1, pin:false, base:r, pts:[P(x,y,r)], rest:[] }; }
+function mkStrand(x,y,r){ return { id:uid++, kind:'strand', op:0, k:-1, base:r, pts:[P(x,y,r)] }; }
 
-function recomputeRest(o){
-  if(!o.rest) return;
-  o.rest.length = 0;
-  for(let i=0;i<o.pts.length-1;i++) o.rest.push(Math.hypot(o.pts[i+1].x-o.pts[i].x, o.pts[i+1].y-o.pts[i].y));
-}
 const blendOf = o => (o.k < 0 ? A.k : o.k);
 
 /* ── stroke character ──────────────────────────────────────────────
@@ -338,7 +331,6 @@ function simplifyStrand(o){
     if(best > 0){ keep[best] = 1; stack.push([a,best],[best,b]); }
   }
   o.pts = o.pts.filter((_,i) => keep[i]);
-  recomputeRest(o);
 }
 
 /* Run a Catmull-Rom spline through the simplified samples and walk it at
@@ -367,7 +359,75 @@ function resampleStrand(o){
   const e = P(last.x, last.y, last.r); e.dyn = last.dyn; e.ang = last.ang;
   out.push(e);
   o.pts = out;
-  recomputeRest(o);
+}
+
+/* Round each interior corner of a polyline with a tangent arc, as Rhino's
+   FilletCorners does. The radius is clamped so neighbouring fillets on a
+   short segment cannot overrun one another. */
+function filletPoly(v, r){
+  const n = v.length;
+  if(n < 3 || r <= 0.01) return v.map(q => ({ x:q.x, y:q.y }));
+  const out = [{ x:v[0].x, y:v[0].y }];
+  for(let i=1;i<n-1;i++){
+    const a = v[i-1], b = v[i], c = v[i+1];
+    let v1x = a.x-b.x, v1y = a.y-b.y, v2x = c.x-b.x, v2y = c.y-b.y;
+    const l1 = Math.hypot(v1x,v1y) || 1e-6, l2 = Math.hypot(v2x,v2y) || 1e-6;
+    v1x /= l1; v1y /= l1; v2x /= l2; v2y /= l2;
+    const ang = Math.acos(Math.max(-1, Math.min(1, v1x*v2x + v1y*v2y)));
+    if(ang < 0.03 || ang > Math.PI-0.03){ out.push({ x:b.x, y:b.y }); continue; }
+    const half = Math.tan(ang/2);
+    const t = Math.min(r/half, l1*0.5, l2*0.5);
+    const rr = t*half;
+    let bx = v1x+v2x, by = v1y+v2y;
+    const bl = Math.hypot(bx,by) || 1e-6; bx /= bl; by /= bl;
+    const dc = rr/Math.sin(ang/2);
+    const cx = b.x + bx*dc, cy = b.y + by*dc;
+    const p1x = b.x+v1x*t, p1y = b.y+v1y*t, p2x = b.x+v2x*t, p2y = b.y+v2y*t;
+    let a1 = Math.atan2(p1y-cy, p1x-cx), a2 = Math.atan2(p2y-cy, p2x-cx);
+    let d = a2-a1;
+    while(d >  Math.PI) d -= 2*Math.PI;
+    while(d < -Math.PI) d += 2*Math.PI;
+    const steps = Math.max(2, Math.ceil(Math.abs(d)/0.22));
+    for(let j=0;j<=steps;j++){
+      const th = a1 + d*j/steps;
+      out.push({ x:cx+Math.cos(th)*rr, y:cy+Math.sin(th)*rr });
+    }
+  }
+  out.push({ x:v[n-1].x, y:v[n-1].y });
+  return out;
+}
+
+/* Clamped uniform cubic B-spline through the control polygon — the curve
+   passes through its first and last control point and is pulled by the
+   rest, exactly like Rhino's control-point Curve. */
+function bspline(ctrl, step){
+  const n = ctrl.length;
+  if(n < 3) return ctrl.map(q => ({ x:q.x, y:q.y }));
+  const c = [ctrl[0], ctrl[0], ...ctrl, ctrl[n-1], ctrl[n-1]];
+  const out = [];
+  for(let i=0;i+3<c.length;i++){
+    const p0 = c[i], p1 = c[i+1], p2 = c[i+2], p3 = c[i+3];
+    const steps = Math.max(3, Math.min(40, Math.round(Math.hypot(p2.x-p1.x, p2.y-p1.y)/step)+3));
+    for(let j=0;j<steps;j++){
+      const t = j/steps, t2 = t*t, t3 = t2*t;
+      const b0 = (-t3+3*t2-3*t+1)/6, b1 = (3*t3-6*t2+4)/6,
+            b2 = (-3*t3+3*t2+3*t+1)/6, b3 = t3/6;
+      out.push({ x:p0.x*b0+p1.x*b1+p2.x*b2+p3.x*b3,
+                 y:p0.y*b0+p1.y*b1+p2.y*b2+p3.y*b3 });
+    }
+  }
+  out.push({ x:ctrl[n-1].x, y:ctrl[n-1].y });
+  return out;
+}
+function ptsFromCtrl(ctrl, mode, fillet, base){
+  const raw = mode === 'curve' ? bspline(ctrl, Math.max(6, base*0.35))
+                               : filletPoly(ctrl, fillet);
+  return raw.map(q => P(q.x, q.y, base));
+}
+function rebuild(o){
+  if(!o.ctrl) return;
+  o.pts = ptsFromCtrl(o.ctrl, o.mode, o.fillet || 0, o.base || S.defR);
+  applyProfile(o);
 }
 
 let prims = [];
@@ -765,61 +825,13 @@ function snapW(w, invert){
   return { x:Math.round(w.x/g)*g, y:Math.round(w.y/g)*g };
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   5 · PHYSICS — fixed timestep, so it feels identical at any refresh rate
-   ══════════════════════════════════════════════════════════════════ */
-function step(h){
-  const h2 = h*h;
-  for(const o of S.objs){
-    if(o.pin) continue;
-    for(const p of o.pts){
-      let ax = S.gx, ay = S.gy;
-      for(const a of S.attr){
-        const dx = a.x-p.x, dy = a.y-p.y;
-        const d2 = Math.max(400, dx*dx+dy*dy), d = Math.sqrt(d2);
-        const f = a.s*90000/d2;
-        ax += f*dx/d; ay += f*dy/d;
-      }
-      const nx = p.x + (p.x-p.px)*S.damp + ax*h2;
-      const ny = p.y + (p.y-p.py)*S.damp + ay*h2;
-      p.px = p.x; p.py = p.y; p.x = nx; p.y = ny;
-    }
-  }
-  for(let it=0;it<3;it++){
-    for(const o of S.objs){
-      if(o.pin || !o.rest || !o.rest.length) continue;
-      for(let i=0;i<o.rest.length;i++){
-        const a = o.pts[i], b = o.pts[i+1], L = o.rest[i];
-        let dx = b.x-a.x, dy = b.y-a.y;
-        const d = Math.hypot(dx,dy) || 1e-6;
-        const f = (d-L)/d*0.5;
-        dx *= f; dy *= f;
-        a.x += dx; a.y += dy; b.x -= dx; b.y -= dy;
-      }
-    }
-  }
-  if(S.contain){
-    const hw = PLATE.w/2, hh = PLATE.h/2;
-    for(const o of S.objs){
-      if(o.pin) continue;
-      for(const p of o.pts){
-        const r = o.kind === 'box' ? Math.max(o.w,o.h)/2 : p.r;
-        if(p.x < -hw+r){ p.x = -hw+r; p.px = p.x + (p.x-p.px)*0.4; }
-        if(p.x >  hw-r){ p.x =  hw-r; p.px = p.x + (p.x-p.px)*0.4; }
-        if(p.y < -hh+r){ p.y = -hh+r; p.py = p.y + (p.y-p.py)*0.4; }
-        if(p.y >  hh-r){ p.y =  hh-r; p.py = p.y + (p.y-p.py)*0.4; }
-      }
-    }
-  }
-}
-function freezeAll(){ for(const o of S.objs) for(const p of o.pts){ p.px = p.x; p.py = p.y; } }
 
 /* ══════════════════════════════════════════════════════════════════
    6 · HISTORY
    ══════════════════════════════════════════════════════════════════ */
 const hist = []; let histAt = -1;
 function snap(){
-  const s = JSON.stringify({ objs:S.objs, attr:S.attr, uid });
+  const s = JSON.stringify({ objs:S.objs, uid });
   if(hist[histAt] === s) return;
   hist.length = histAt+1; hist.push(s); histAt = hist.length-1;
   if(hist.length > 60){ hist.shift(); histAt--; }
@@ -827,7 +839,7 @@ function snap(){
 function restore(i){
   if(i < 0 || i >= hist.length) return;
   const d = JSON.parse(hist[i]);
-  S.objs = d.objs; S.attr = d.attr; uid = d.uid;
+  S.objs = d.objs; uid = d.uid;
   S.sel.clear(); histAt = i; sync();
 }
 const undo = () => { restore(histAt-1); say('Undo'); };
@@ -845,9 +857,10 @@ function pickAnchor(wx,wy){
   const tol = 9/A.zoom;
   for(let i=S.objs.length-1;i>=0;i--){
     const o = S.objs[i];
-    for(let j=0;j<o.pts.length;j++){
-      const p = o.pts[j];
-      if(Math.hypot(wx-p.x, wy-p.y) < tol) return { o, idx:j };
+    const list = o.ctrl || o.pts;
+    for(let j=0;j<list.length;j++){
+      if(Math.hypot(wx-list[j].x, wy-list[j].y) < tol)
+        return { o, idx:j, type:o.ctrl ? 'ctrl' : 'point' };
     }
   }
   return null;
@@ -868,15 +881,12 @@ function pickHandle(wx,wy){
       const rx = p.x + (o.w/2+26)*c, ry = p.y + (o.w/2+26)*s;
       if(Math.hypot(wx-rx, wy-ry) < tol) return { o, type:'rotate' };
     } else {
-      for(let j=0;j<o.pts.length;j++){
-        const p = o.pts[j];
-        if(Math.hypot(wx-p.x, wy-p.y) < tol) return { o, type:'point', idx:j };
+      const list = o.ctrl || o.pts;
+      for(let j=0;j<list.length;j++){
+        if(Math.hypot(wx-list[j].x, wy-list[j].y) < tol)
+          return { o, type:o.ctrl ? 'ctrl' : 'point', idx:j };
       }
     }
-  }
-  for(let i=0;i<S.attr.length;i++){
-    const a = S.attr[i];
-    if(Math.hypot(wx-a.x, wy-a.y) < tol) return { type:'attr', attr:i };
   }
   return null;
 }
@@ -886,57 +896,61 @@ function pickHandle(wx,wy){
    ══════════════════════════════════════════════════════════════════ */
 let drag = null, spaceDown = false, lastW = {x:0,y:0}, hoverW = {x:0,y:0}, hoverIn = false;
 
-/* Polyline — click to place each vertex, as in Rhino. The strand carries one
-   extra trailing vertex that rides the cursor; that is the rubber band, and
-   it is dropped when the run ends. Corners stay hard: no spline, no simplify. */
+/* Polyline and control-point Curve share one click-to-place run, as in
+   Rhino. ctrl holds the placed points; one extra point rides the cursor
+   as the rubber band. The drawn geometry is rebuilt from ctrl each time,
+   so the fillet and the spline preview live. */
 let poly = null;
-function polyStart(w){
+function polyStart(w, mode){
   const o = mkStrand(w.x, w.y, S.defR);
-  o.pts.push(P(w.x, w.y, S.defR));
+  o.mode = mode;
+  o.fillet = mode === 'poly' ? S.fillet : 0;
+  o.ctrl = [{ x:w.x, y:w.y }];
   S.objs.push(o); S.sel.clear(); S.sel.add(o.id);
-  poly = { o, n:1 };
+  poly = { o, cur:{ x:w.x, y:w.y } };
+  polyRebuild();
   snap(); sync();
+}
+function polyRebuild(){
+  const o = poly.o;
+  o.pts = ptsFromCtrl([...o.ctrl, poly.cur], o.mode, o.fillet, o.base || S.defR);
+  applyProfile(o);
 }
 function polyMove(w, shift){
   if(!poly) return;
-  const o = poly.o, n = o.pts.length;
+  const o = poly.o, m = o.ctrl.length;
   let tx = w.x, ty = w.y;
-  if(shift && n >= 2){
-    const a0 = o.pts[n-2];
+  if(shift && m >= 1){
+    const a0 = o.ctrl[m-1];
     const q = Math.round(Math.atan2(ty-a0.y, tx-a0.x)/(Math.PI/12))*(Math.PI/12);
     const L = Math.hypot(tx-a0.x, ty-a0.y);
     tx = a0.x + Math.cos(q)*L; ty = a0.y + Math.sin(q)*L;
   }
-  const p = o.pts[n-1];
-  p.x = tx; p.y = ty; p.px = tx; p.py = ty;
-  recomputeRest(o);
+  poly.cur = { x:tx, y:ty };
+  polyRebuild();
 }
 function polyAdd(){
   if(!poly) return;
-  const o = poly.o, p = o.pts[o.pts.length-1], first = o.pts[0];
-  if(poly.n >= 3 && Math.hypot(p.x-first.x, p.y-first.y) < 12/A.zoom){
-    p.x = first.x; p.y = first.y; p.px = p.x; p.py = p.y;
+  const o = poly.o, first = o.ctrl[0], c = poly.cur;
+  if(o.ctrl.length >= 3 && Math.hypot(c.x-first.x, c.y-first.y) < 12/A.zoom){
+    o.ctrl.push({ x:first.x, y:first.y });
     polyFinish(true); say('Closed'); return;
   }
-  o.pts.push(P(p.x, p.y, S.defR));
-  poly.n++;
-  recomputeRest(o);
+  o.ctrl.push({ x:c.x, y:c.y });
+  polyRebuild();
 }
 function polyBack(){
-  if(!poly || poly.n < 2) return;
-  const o = poly.o;
-  o.pts.splice(o.pts.length-2, 1);
-  poly.n--;
-  recomputeRest(o);
+  if(!poly || poly.o.ctrl.length < 2) return;
+  poly.o.ctrl.pop();
+  polyRebuild();
 }
-function polyFinish(keepLast){
+function polyFinish(){
   if(!poly) return;
   const o = poly.o;
-  if(!keepLast) o.pts.pop();
-  if(o.pts.length < 2) remove(o.id);
-  else { recomputeRest(o); applyProfile(o); }
+  if(o.ctrl.length < 2) remove(o.id);
+  else rebuild(o);
   poly = null;
-  freezeAll(); snap(); sync();
+  snap(); sync();
 }
 function polyAbort(){
   if(!poly) return;
@@ -975,14 +989,14 @@ viewEl.addEventListener('pointerdown', e => {
     case 'select': {
       const h = pickHandle(raw.x,raw.y);
       if(h && h.o){ drag = { mode:'handle', h, w }; snap(); return; }
-      if(h && h.type === 'attr'){ drag = { mode:'attr', i:h.attr }; snap(); return; }
       const id = pickObject(raw.x,raw.y);
       if(id){
         if(e.shiftKey) S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
         else if(!S.sel.has(id)){ S.sel.clear(); S.sel.add(id); }
         drag = { mode:'move', w:raw, start:[...S.sel].map(i => {
           const o = S.objs.find(x => x.id === i);
-          return { o, pts:o.pts.map(p => ({x:p.x,y:p.y})) };
+          return { o, pts:o.pts.map(p => ({x:p.x,y:p.y})),
+                   ctrl:o.ctrl ? o.ctrl.map(p => ({x:p.x,y:p.y})) : null };
         })};
         snap();
       } else { if(!e.shiftKey) S.sel.clear(); drag = { mode:'marquee', a:raw, b:raw }; }
@@ -992,7 +1006,7 @@ viewEl.addEventListener('pointerdown', e => {
       const h = pickAnchor(raw.x,raw.y);
       if(h){
         S.sel.clear(); S.sel.add(h.o.id);
-        drag = { mode:'handle', h:{ o:h.o, type:'point', idx:h.idx }, w };
+        drag = { mode:'handle', h:{ o:h.o, type:h.type, idx:h.idx }, w };
         snap();
       } else S.sel.clear();
       sync(); return;
@@ -1008,15 +1022,16 @@ viewEl.addEventListener('pointerdown', e => {
       S.objs.push(o); S.sel.clear(); S.sel.add(o.id);
       drag = { mode:'size', o, c:w }; snap(); sync(); return;
     }
-    case 'polyline': {
-      if(!poly){ polyStart(w); return; }
+    case 'polyline': case 'curve': {
+      const mode = S.tool === 'curve' ? 'curve' : 'poly';
+      if(!poly){ polyStart(w, mode); return; }
       polyMove(w, e.shiftKey);
-      if(e.detail >= 2){ polyFinish(false); return; }
+      if(e.detail >= 2){ polyFinish(); return; }
       polyAdd();
       return;
     }
     case 'segment': {
-      const o = mkCapsule(w.x, w.y, w.x+.1, w.y, S.defR, Math.max(2, S.defR*profileAt(1)));
+      const o = mkCapsule(w.x, w.y, w.x+.1, w.y, S.defR, Math.max(1.5, S.defR*(1-S.taper)));
       o.op = sub ? 1 : 0;
       S.objs.push(o); S.sel.clear(); S.sel.add(o.id);
       drag = { mode:'segment', o, a:w }; snap(); sync(); return;
@@ -1033,12 +1048,6 @@ viewEl.addEventListener('pointerdown', e => {
       drag = { mode:'pen', o, t:performance.now(), spd:0 }; snap(); sync(); return;
     }
     case 'width': drag = { mode:'width', dir: sub ? -1 : 1 }; snap(); return;
-    case 'warp': {
-      if(e.shiftKey){ S.attr.push({ x:w.x, y:w.y, s: sub ? -1 : 1 }); snap(); sync(); return; }
-      const h = pickHandle(raw.x,raw.y);
-      if(h && h.type === 'attr'){ drag = { mode:'attr', i:h.attr }; snap(); return; }
-      drag = { mode:'push', dir: sub ? -1 : 1 }; snap(); return;
-    }
   }
 });
 
@@ -1062,9 +1071,10 @@ viewEl.addEventListener('pointermove', e => {
     case 'move': {
       let dx = raw.x-drag.w.x, dy = raw.y-drag.w.y;
       if(e.shiftKey){ if(Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
-      for(const g of drag.start) g.o.pts.forEach((p,i) => {
-        p.x = g.pts[i].x+dx; p.y = g.pts[i].y+dy; p.px = p.x; p.py = p.y;
-      });
+      for(const g of drag.start){
+        g.o.pts.forEach((p,i) => { p.x = g.pts[i].x+dx; p.y = g.pts[i].y+dy; });
+        if(g.ctrl) g.o.ctrl.forEach((p,i) => { p.x = g.ctrl[i].x+dx; p.y = g.ctrl[i].y+dy; });
+      }
       break;
     }
     case 'marquee': drag.b = raw; break;
@@ -1083,10 +1093,9 @@ viewEl.addEventListener('pointermove', e => {
         const L = Math.hypot(tx-drag.a.x, ty-drag.a.y);
         tx = drag.a.x + Math.cos(q)*L; ty = drag.a.y + Math.sin(q)*L;
       }
-      b.x = tx; b.y = ty; b.px = b.x; b.py = b.y;
+      b.x = tx; b.y = ty;
       o.pts[0].r = S.defR;
-      b.r = Math.max(1.5, S.defR*profileAt(1));
-      recomputeRest(o);
+      b.r = Math.max(1.5, S.defR*(1-S.taper));
       break;
     }
     case 'rect': {
@@ -1100,7 +1109,6 @@ viewEl.addEventListener('pointermove', e => {
       o.w = Math.max(3, Math.abs(ex-drag.a.x));
       o.h = Math.max(3, Math.abs(ey-drag.a.y));
       o.pts[0].x = (ex+drag.a.x)/2; o.pts[0].y = (ey+drag.a.y)/2;
-      o.pts[0].px = o.pts[0].x; o.pts[0].py = o.pts[0].y;
       o.cr = Math.min(o.cr, Math.min(o.w,o.h)/2);
       break;
     }
@@ -1117,7 +1125,6 @@ viewEl.addEventListener('pointermove', e => {
         p.ang = Math.atan2(raw.y-last.y, raw.x-last.x);
         if(o.pts.length === 1) o.pts[0].ang = p.ang;
         o.pts.push(p);
-        recomputeRest(o);
         applyProfile(o);
       }
       break;
@@ -1126,7 +1133,8 @@ viewEl.addEventListener('pointermove', e => {
       const { o, type, idx } = drag.h;
       if(type === 'radius') o.pts[0].r = Math.max(2, Math.hypot(w.x-o.pts[0].x, w.y-o.pts[0].y));
       else if(type === 'thick') o.t = Math.max(1, Math.hypot(w.x-o.pts[0].x, w.y-o.pts[0].y) - o.pts[0].r);
-      else if(type === 'point'){ const p = o.pts[idx]; p.x = w.x; p.y = w.y; p.px = p.x; p.py = p.y; recomputeRest(o); }
+      else if(type === 'point'){ const p = o.pts[idx]; p.x = w.x; p.y = w.y; }
+      else if(type === 'ctrl'){ o.ctrl[idx].x = w.x; o.ctrl[idx].y = w.y; rebuild(o); }
       else if(type === 'corner'){
         const p = o.pts[0], c = Math.cos(-o.rot), s = Math.sin(-o.rot);
         const dx = w.x-p.x, dy = w.y-p.y;
@@ -1140,7 +1148,6 @@ viewEl.addEventListener('pointermove', e => {
       }
       break;
     }
-    case 'attr': { const a = S.attr[drag.i]; a.x = w.x; a.y = w.y; break; }
     case 'width': {
       const R = S.brush, R2 = R*R;
       for(const o of S.objs){
@@ -1156,22 +1163,6 @@ viewEl.addEventListener('pointermove', e => {
           if(d2 < R2){
             const f = 1 - Math.sqrt(d2)/R;
             p.r = Math.max(1.5, Math.min(600, p.r*(1 + 0.09*f*drag.dir)));
-          }
-        }
-      }
-      break;
-    }
-    case 'push': {
-      const R = S.brush, R2 = R*R;
-      const vx = raw.x-lastW.x, vy = raw.y-lastW.y;
-      for(const o of S.objs){
-        if(o.pin) continue;
-        for(const p of o.pts){
-          const dx = p.x-raw.x, dy = p.y-raw.y, d2 = dx*dx+dy*dy;
-          if(d2 < R2){
-            const f = (1 - Math.sqrt(d2)/R) * S.force;
-            p.x += vx*f*drag.dir + dx*0.02*f*drag.dir;
-            p.y += vy*f*drag.dir + dy*0.02*f*drag.dir;
           }
         }
       }
@@ -1193,9 +1184,8 @@ function endDrag(){
   }
   if(drag.mode === 'size' && drag.o.pts[0].r < 3) remove(drag.o.id);
   if(drag.mode === 'pen'){ simplifyStrand(drag.o); resampleStrand(drag.o); applyProfile(drag.o); }
-  if(drag.mode === 'segment') recomputeRest(drag.o);
   drag = null;
-  freezeAll(); snap(); sync();
+  snap(); sync();
 }
 viewEl.addEventListener('pointerup', endDrag);
 viewEl.addEventListener('pointercancel', endDrag);
@@ -1223,7 +1213,7 @@ function duplicateSel(){
   for(const id of S.sel){
     const o = S.objs.find(x => x.id === id); if(!o) continue;
     const c = JSON.parse(JSON.stringify(o)); c.id = uid++;
-    c.pts.forEach(p => { p.x += 24; p.y += 24; p.px = p.x; p.py = p.y; });
+    c.pts.forEach(p => { p.x += 24; p.y += 24; });
     add.push(c);
   }
   S.objs.push(...add); S.sel = new Set(add.map(o => o.id)); sync();
@@ -1241,7 +1231,7 @@ function order(dir){
   S.objs = dir > 0 ? [...rest,...picked] : [...picked,...rest];
   sync();
 }
-function clearAll(){ snap(); S.objs = []; S.attr = []; S.sel.clear(); sync(); }
+function clearAll(){ snap(); S.objs = []; S.sel.clear(); sync(); }
 
 /* ══════════════════════════════════════════════════════════════════
    10 · OVERLAY + RULERS
@@ -1308,12 +1298,6 @@ function overlay(){
   }
   s = `<path d="M0 0H${vw}V${vh}H0Z M${a.x} ${a.y}H${b.x}V${b.y}H${a.x}Z" fill="var(--chrome-2)" fill-opacity=".88" fill-rule="evenodd"/>` + s;
 
-  for(const at of S.attr){
-    const p = toScreen(at.x,at.y);
-    s += `<g opacity=".85"><circle cx="${p.x}" cy="${p.y}" r="${Math.abs(at.s)*9+4}" fill="none" stroke="var(--guide)" stroke-width="1" stroke-dasharray="2 3"/>`
-       + `<path d="M${p.x-6} ${p.y}H${p.x+6}${at.s>=0?`M${p.x} ${p.y-6}V${p.y+6}`:''}" stroke="var(--guide)" stroke-width="1.3"/></g>`;
-  }
-
   const H = (x,y,solid) => `<rect x="${x-3}" y="${y-3}" width="6" height="6" fill="${solid?'var(--sel)':'var(--paper)'}" stroke="var(--sel)" stroke-width="1.2"/>`;
   for(const o of S.objs){
     if(!S.sel.has(o.id)) continue;
@@ -1331,12 +1315,13 @@ function overlay(){
          + H(corner.x,corner.y)
          + `<circle cx="${rot.x}" cy="${rot.y}" r="3.6" fill="var(--paper)" stroke="var(--sel)" stroke-width="1.2"/>`;
     } else {
+      const list = o.ctrl || o.pts;
       let d = '';
-      o.pts.forEach((p,i) => { const q = toScreen(p.x,p.y); d += (i?'L':'M')+q.x.toFixed(1)+' '+q.y.toFixed(1); });
-      s += `<path d="${d}" fill="none" stroke="var(--guide)" stroke-width="1" opacity=".75" stroke-dasharray="3 3"/>`;
-      const every = Math.max(1, Math.floor(o.pts.length/44));
-      o.pts.forEach((p,i) => {
-        if(i % every === 0 || i === o.pts.length-1){
+      list.forEach((p,i) => { const q = toScreen(p.x,p.y); d += (i?'L':'M')+q.x.toFixed(1)+' '+q.y.toFixed(1); });
+      s += `<path d="${d}" fill="none" stroke="var(--guide)" stroke-width="1" opacity="${o.ctrl ? .55 : .75}" stroke-dasharray="3 3"/>`;
+      const every = Math.max(1, Math.floor(list.length/44));
+      list.forEach((p,i) => {
+        if(i % every === 0 || i === list.length-1){
           const q = toScreen(p.x,p.y);
           s += H(q.x, q.y, S.tool === 'direct');
         }
@@ -1348,7 +1333,7 @@ function overlay(){
     const p = toScreen(drag.a.x,drag.a.y), q = toScreen(drag.b.x,drag.b.y);
     s += `<rect x="${Math.min(p.x,q.x)}" y="${Math.min(p.y,q.y)}" width="${Math.abs(q.x-p.x)}" height="${Math.abs(q.y-p.y)}" fill="var(--ink)" fill-opacity=".05" stroke="var(--guide)" stroke-width="1" stroke-dasharray="3 2"/>`;
   }
-  if(hoverIn && (S.tool === 'width' || S.tool === 'warp')){
+  if(hoverIn && S.tool === 'width'){
     const p = toScreen(hoverW.x,hoverW.y);
     s += `<circle cx="${p.x}" cy="${p.y}" r="${S.brush*A.zoom}" fill="none" stroke="var(--guide)" stroke-width="1" stroke-dasharray="4 4" opacity=".85"/>`;
   }
@@ -1537,7 +1522,7 @@ function exportPath(){
    12 · PRESETS
    ══════════════════════════════════════════════════════════════════ */
 function preset(name){
-  snap(); S.objs = []; S.attr = []; S.sel.clear();
+  snap(); S.objs = []; S.sel.clear();
   if(name === 'tangent'){
     S.k = 64; S.kernel = 2;
     const c = (x,y,r) => S.objs.push(mkCircle(x,y,r));
@@ -1562,7 +1547,7 @@ function preset(name){
       p.ang = Math.atan2(Math.cos(t*4.2)*0.75, 1);
       st.pts.push(p);
     }
-    recomputeRest(st); applyProfile(st); S.objs.push(st);
+    applyProfile(st); S.objs.push(st);
   } else if(name === 'orbit'){
     S.k = 54; S.kernel = 2;
     for(let i=0;i<7;i++){
@@ -1570,9 +1555,8 @@ function preset(name){
       S.objs.push(mkCircle(Math.cos(a)*230, Math.sin(a)*170, 48+(i%3)*18));
     }
     S.objs.push(mkCircle(0,0,70));
-    S.attr.push({ x:0, y:0, s:1.4 });
   }
-  freezeAll(); snap(); sync(); buildOpts(); say(name);
+  snap(); sync(); buildOpts(); say(name);
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1586,12 +1570,15 @@ const I = {
   polyline:`<path d="M2.8 13.2L6.6 6.4L11.2 10.8L15.2 4.4" ${sw}/>`
     + `<circle cx="2.8" cy="13.2" r="1.5" fill="currentColor"/><circle cx="6.6" cy="6.4" r="1.5" fill="currentColor"/>`
     + `<circle cx="11.2" cy="10.8" r="1.5" fill="currentColor"/><circle cx="15.2" cy="4.4" r="1.5" fill="currentColor"/>`,
-  segment:`<path d="M4.6 12.6a3.1 3.1 0 010-6.2h8.8a3.1 3.1 0 010 6.2z" ${sw}/>`,
+  segment:`<path d="M5.95 5.69L14.51 7.64A1.4 1.4 0 0114.51 10.36L5.95 12.31A3.4 3.4 0 115.95 5.69Z" ${sw}/>`,
+  curve:`<path d="M2.8 14.4C2.8 6.8 7.2 3.2 9.4 7.6C11.6 12 12.8 7.2 15.2 3.6" ${sw}/>`
+    + `<rect x="1.7" y="13.3" width="2.3" height="2.3" fill="currentColor"/>`
+    + `<rect x="8.3" y="2.1" width="2.3" height="2.3" fill="currentColor"/>`
+    + `<rect x="14.1" y="2.5" width="2.3" height="2.3" fill="currentColor"/>`,
   ellipse:`<circle cx="9" cy="9" r="6.4" ${sw}/>`,
   rect:`<rect x="2.8" y="4.6" width="12.4" height="8.8" rx="2.2" ${sw}/>`,
   ring:`<circle cx="9" cy="9" r="6.4" ${sw}/><circle cx="9" cy="9" r="2.9" ${sw}/>`,
   width:`<path d="M9 2.2v13.6" ${sw}/><path d="M5.4 6.2C7 7.4 7 10.6 5.4 11.8M12.6 6.2c-1.6 1.2-1.6 4.4 0 5.6" ${sw}/>`,
-  warp:`<path d="M2.4 11.6c2.6-4.8 5.2-4.8 6.6-2.4s4 2.4 6.6-2.4" ${sw}/><path d="M2.4 15.4c2.6-4.8 5.2-4.8 6.6-2.4" ${sw} opacity=".45"/>`,
   knife:`<path d="M12.4 1.8l3 3-8.6 8.6-3-3z" ${sw}/><path d="M3.8 10.4L1.6 16.4l6-2.2" ${sw}/>`,
   hand:`<path d="M6.2 9.4V3.9a1.2 1.2 0 112.4 0V8m0-.6V3.2a1.2 1.2 0 012.4 0V8m0-.9a1.2 1.2 0 112.4 0v4.3c0 2.5-1.8 4.4-4.4 4.4-2.2 0-3.3-.8-4.4-2.4L3.4 11c-.6-.9.5-2 1.4-1.4z" ${sw}/>`,
   zoom:`<circle cx="7.8" cy="7.8" r="5.2" ${sw}/><path d="M11.6 11.6L16 16" ${sw}/>`
@@ -1599,10 +1586,11 @@ const I = {
 const TOOLS = [
   ['select','Selection','V'], ['direct','Direct Selection','A'],
   null,
-  ['pen','Pen - liquid line','P'], ['polyline','Polyline','N'], ['segment','Segment','\\'],
+  ['pen','Pen - liquid line','P'], ['polyline','Polyline','N'], ['curve','Control point curve','E'],
+  ['segment','Round cone','\\'],
   ['ellipse','Ellipse','L'], ['rect','Rectangle','M'], ['ring','Ring','O'],
   null,
-  ['width','Width','W',true], ['warp','Warp - gravity','G',true], ['knife','Knife - subtract','C'],
+  ['width','Width','W',true], ['knife','Knife - subtract','C'],
   null,
   ['hand','Hand','H'], ['zoom','Zoom','Z']
 ];
@@ -1620,27 +1608,28 @@ TOOLS.forEach(t => {
 });
 
 const CURSOR = {
-  select:'default', direct:'default', pen:'crosshair', polyline:'crosshair', segment:'crosshair',
+  select:'default', direct:'default', pen:'crosshair', polyline:'crosshair',
+  curve:'crosshair', segment:'crosshair',
   ellipse:'crosshair', rect:'crosshair', ring:'crosshair',
-  width:'ns-resize', warp:'move', knife:'crosshair', hand:'grab', zoom:'zoom-in'
+  width:'ns-resize', knife:'crosshair', hand:'grab', zoom:'zoom-in'
 };
 const HINTS = {
   select:'Drag to move - shift constrains to an axis',
   direct:'Drag individual anchor points',
   pen:'Draw - speed and stylus pressure set the width',
   polyline:'Click each vertex - Enter finishes - click the first point to close - Backspace steps back - Esc cancels',
-  segment:'Drag a tapered segment - shift constrains the angle',
+  curve:'Click to place control points - Enter finishes - Backspace steps back - Esc cancels',
+  segment:'Drag a round cone - Taper sets the far end - shift constrains the angle',
   ellipse:'Drag from the centre - alt makes it a cut',
   rect:'Drag corner to corner - shift for a square',
   ring:'Drag from the centre',
   width:'Drag over a path to thicken - alt to thin',
-  warp:'Drag to push - alt to pull - shift-click drops an attractor',
   knife:'Drag a shape to subtract it from the field',
   hand:'Drag to pan',
   zoom:'Click to zoom in - alt-click to zoom out'
 };
 function setTool(id){
-  if(poly && id !== 'polyline') polyFinish(false);
+  if(poly && id !== 'polyline' && id !== 'curve') polyFinish();
   S.tool = id;
   railEl.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
   viewEl.style.cursor = CURSOR[id] || 'crosshair';
@@ -1695,11 +1684,16 @@ function buildOpts(){
     v => { S.kernel = v; say(['Polynomial G1','Cubic G2','Circular arc'][v]); });
   oRange(g1,'Blend',0,160,1, ()=>S.k, v=>{S.k=v;}, v=>Math.round(v));
 
-  if(S.tool === 'pen' || S.tool === 'segment' || S.tool === 'polyline'){
+  if(S.tool === 'pen' || S.tool === 'segment' || S.tool === 'polyline' || S.tool === 'curve'){
     const g = oGroup();
     oSeg(g,'Profile',[['uniform','FLAT'],['both','LEAF'],['out','TAIL'],['bulge','BULB'],['nib','NIB']],
       ()=>S.profile, v=>{ S.profile = v; reprofileSel(); });
     oRange(g,'Width',4,200,1, ()=>S.defR, v=>{S.defR=v;}, v=>Math.round(v));
+    if(S.tool === 'polyline')
+      oRange(g,'Fillet',0,200,1, ()=>S.fillet,
+        v => { S.fillet = v; if(poly){ poly.o.fillet = v; polyRebuild(); } }, v=>Math.round(v));
+    if(S.tool === 'segment')
+      oRange(g,'Taper',0,0.95,.01, ()=>S.taper, v=>{S.taper=v;}, v=>v.toFixed(2));
     if(S.tool === 'pen'){
       oRange(g,'Speed',0,0.95,.01, ()=>S.dyn, v=>{S.dyn=v;}, v=>v.toFixed(2));
       oRange(g,'Smooth',0,1,.02, ()=>S.smooth, v=>{S.smooth=v; reprofileSel();}, v=>v.toFixed(2));
@@ -1711,10 +1705,9 @@ function buildOpts(){
     const g = oGroup();
     oRange(g,'Size',4,300,1, ()=>S.defR, v=>{S.defR=v;}, v=>Math.round(v));
   }
-  if(S.tool === 'width' || S.tool === 'warp'){
+  if(S.tool === 'width'){
     const g = oGroup();
     oRange(g,'Brush',20,320,5, ()=>S.brush, v=>{S.brush=v;}, v=>Math.round(v));
-    if(S.tool === 'warp') oRange(g,'Force',0.1,3,.05, ()=>S.force, v=>{S.force=v;}, v=>v.toFixed(2));
   }
 
   const g3 = oGroup();
@@ -1805,18 +1798,20 @@ function buildPanel(){
     if(o.kind === 'box'){
       slider(s1,'Width',4,900,1, ()=>o.w, v=>{o.w=v;}, v=>Math.round(v));
       slider(s1,'Height',4,900,1, ()=>o.h, v=>{o.h=v;}, v=>Math.round(v));
-      slider(s1,'Corner',0,160,1, ()=>o.cr, v=>{o.cr=Math.min(v,Math.min(o.w,o.h)/2);}, v=>Math.round(v));
+      slider(s1,'Fillet',0,160,1, ()=>o.cr, v=>{o.cr=Math.min(v,Math.min(o.w,o.h)/2);}, v=>Math.round(v));
       slider(s1,'Rotate',-180,180,1, ()=>o.rot*180/Math.PI, v=>{o.rot=v*Math.PI/180;}, v=>Math.round(v)+'°');
     }
     if(o.kind === 'strand'){
-      slider(s1,'Width',4,240,1, ()=>o.base||S.defR, v=>{ o.base = v; applyProfile(o); }, v=>Math.round(v));
+      slider(s1,'Width',4,240,1, ()=>o.base||S.defR,
+        v => { o.base = v; o.ctrl ? rebuild(o) : applyProfile(o); }, v=>Math.round(v));
+      if(o.mode === 'poly')
+        slider(s1,'Fillet',0,200,1, ()=>o.fillet||0, v=>{ o.fillet = v; rebuild(o); }, v=>Math.round(v));
       segment(s1,'Profile',[['uniform','FLAT'],['both','LEAF'],['out','TAIL']],
         ()=>S.profile, v=>{ S.profile = v; applyProfile(o); buildOpts(); });
     }
     if(o.kind === 'capsule')
       slider(s1,'Taper',0,1,.01, ()=>1-(o.pts[1].r/Math.max(1,o.pts[0].r)),
         v=>{ o.pts[1].r = Math.max(1, o.pts[0].r*(1-v)); }, v=>v.toFixed(2));
-    check(s1,'Pin', ()=>o.pin, v=>sel.forEach(x=>x.pin=v));
     const g = el('div','grid2'); g.style.marginTop = '7px';
     button(g,'DUPLICATE', duplicateSel);
     button(g,'DELETE', deleteSel);
@@ -1832,18 +1827,6 @@ function buildPanel(){
   check(s2,'Construction', ()=>S.ghost, v=>{S.ghost=v;});
   check(s2,'Invert', ()=>S.invert, setInvert);
   panel.appendChild(s2);
-
-  const s3 = el('div','sect'); s3.appendChild(el('h2',null,'Physics'));
-  check(s3,'Run', ()=>S.sim, v=>{ S.sim = v; if(!v) freezeAll(); });
-  slider(s3,'Grav X',-1200,1200,10, ()=>S.gx, v=>{S.gx=v;}, v=>Math.round(v));
-  slider(s3,'Grav Y',-1200,1200,10, ()=>S.gy, v=>{S.gy=v;}, v=>Math.round(v));
-  slider(s3,'Damping',0.90,1,.002, ()=>S.damp, v=>{S.damp=v;}, v=>v.toFixed(3));
-  check(s3,'Contain', ()=>S.contain, v=>{S.contain=v;});
-  const gg = el('div','grid2'); gg.style.marginTop = '7px';
-  button(gg,'FREEZE', ()=>{ snap(); freezeAll(); say('Frozen'); });
-  button(gg,'NO FIELD', ()=>{ snap(); S.attr = []; sync(); });
-  s3.appendChild(gg);
-  panel.appendChild(s3);
 
   const s5 = el('div','sect'); s5.appendChild(el('h2',null,'Plate'));
   check(s5,'Grid', ()=>S.grid, v=>{S.grid=v;});
@@ -1872,7 +1855,7 @@ function buildPanel(){
   const eg = el('div','grid2'); eg.style.marginTop = '7px';
   button(eg,'COPY SVG', exportSVG);
   button(eg,'COPY PATH', exportPath);
-  button(eg,'SAVE JSON', ()=>copyText(JSON.stringify({objs:S.objs,attr:S.attr,k:S.k}), 'Scene'));
+  button(eg,'SAVE JSON', ()=>copyText(JSON.stringify({objs:S.objs,k:S.k}), 'Scene'));
   button(eg,'CLEAR', ()=>{ clearAll(); say('Cleared'); });
   s7.appendChild(eg);
   s7.appendChild(el('p','hint','Export traces the live field and fits beziers, so the SVG matches what you see.'));
@@ -1903,8 +1886,7 @@ function fitView(){
   S.zoom = Math.max(0.08, Math.min(4, Math.min(vw/(x1-x0+80), vh/(y1-y0+80))));
 }
 
-let prev = performance.now(), fAcc = 0, fN = 0, acc = 0;
-const FIXED = 1/60;
+let prev = performance.now(), fAcc = 0, fN = 0;
 const ease = (cur, tgt, dt, tau) => cur + (tgt-cur)*(1 - Math.exp(-dt/tau));
 
 function frame(t){
@@ -1927,11 +1909,6 @@ function frame(t){
   A.bite  = ease(A.bite,  S.bite,  dt, 0.09);
   document.getElementById('st-z').textContent = Math.round(A.zoom*100)+'%';
 
-  if(S.sim){
-    acc = Math.min(acc+dt, 0.25);
-    while(acc >= FIXED){ step(FIXED); acc -= FIXED; }
-  } else acc = 0;
-
   buildPrims();
   draw();
   overlay();
@@ -1942,8 +1919,8 @@ function frame(t){
 /* ══════════════════════════════════════════════════════════════════
    16 · KEYBOARD
    ══════════════════════════════════════════════════════════════════ */
-const KEYMAP = { v:'select', a:'direct', p:'pen', n:'polyline', '\\':'segment', l:'ellipse', m:'rect', o:'ring',
-                 w:'width', g:'warp', c:'knife', h:'hand', z:'zoom' };
+const KEYMAP = { v:'select', a:'direct', p:'pen', n:'polyline', e:'curve', '\\':'segment', l:'ellipse', m:'rect', o:'ring',
+                 w:'width', c:'knife', h:'hand', z:'zoom' };
 addEventListener('keydown', e => {
   const tag = (e.target.tagName||'').toLowerCase();
   if(tag === 'input' || tag === 'textarea') return;
@@ -1957,13 +1934,12 @@ addEventListener('keydown', e => {
   }
   const k = e.key.toLowerCase();
   if(KEYMAP[k]){ setTool(KEYMAP[k]); return; }
-  if(e.key === 'Enter'){ e.preventDefault(); polyFinish(false); return; }
+  if(e.key === 'Enter'){ e.preventDefault(); polyFinish(); return; }
   if(e.key === 'Delete' || e.key === 'Backspace'){
     e.preventDefault();
     if(poly) polyBack(); else deleteSel();
     return;
   }
-  if(k === 'r'){ S.sim = !S.sim; if(!S.sim) freezeAll(); sync(); say(S.sim ? 'Physics running' : 'Physics paused'); return; }
   if(k === 'f'){ fitView(); say('Fit'); return; }
   if(e.key === 'Escape'){ if(poly) polyAbort(); else { S.sel.clear(); sync(); } return; }
   if(e.key === '['){ S.k = Math.max(0, S.k-6); buildOpts(); return; }
