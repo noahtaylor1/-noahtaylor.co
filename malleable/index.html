@@ -4,9 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Malleable — Noah Taylor</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
 /* Layout: options bar over [tool rail | ruled canvas | inspector], status strip beneath.
    Palette is strictly achromatic — every tone is black at some opacity over white, or the inverse. */
@@ -23,19 +20,12 @@
   --t3:rgba(0,0,0,.34);
   --guide:rgba(0,0,0,.78);
   --sel:#000000;
-  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --font:'Helvetica Neue',Helvetica,Arial,sans-serif;
   --ease:cubic-bezier(.22,.61,.36,1);
   --nav-h:56px;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]){
-    --paper:#000000;--ink:#ffffff;--chrome:#0b0b0b;--chrome-2:#161616;--chrome-3:#232323;
-    --rule:rgba(255,255,255,.18);--rule-soft:rgba(255,255,255,.09);
-    --t1:rgba(255,255,255,.94);--t2:rgba(255,255,255,.58);--t3:rgba(255,255,255,.34);
-    --guide:rgba(255,255,255,.82);--sel:#ffffff;color-scheme:dark;
-  }
-}
+/* Light is the default on load; the Invert control opts into the dark set. */
 :root[data-theme="dark"]{
   --paper:#000000;--ink:#ffffff;--chrome:#0b0b0b;--chrome-2:#161616;--chrome-3:#232323;
   --rule:rgba(255,255,255,.18);--rule-soft:rgba(255,255,255,.09);
@@ -44,8 +34,8 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%}
-body{margin:0;background:var(--chrome);color:var(--t1);font-family:var(--mono);font-size:11px;
-  -webkit-font-smoothing:antialiased;overflow:hidden;letter-spacing:.01em}
+body{margin:0;background:var(--chrome);color:var(--t1);font:13px/1.5 var(--font);
+  -webkit-font-smoothing:antialiased;overflow:hidden}
 button,input,select{font:inherit;color:inherit}
 
 /* site nav — same geometry and link set as the rest of noahtaylor.co,
@@ -62,22 +52,22 @@ body{padding-top:var(--nav-h)}
 @media (max-width:900px) and (min-width:701px){.site-nav{padding:0 24px}.nav-links{gap:22px}}
 @media (max-width:700px){.site-nav{padding:0 20px}.nav-links li:not(.keep){display:none}}
 
-#app{display:grid;grid-template-columns:40px 1fr 230px;grid-template-rows:34px 1fr 24px;height:100%}
+#app{display:grid;grid-template-columns:40px 1fr 264px;grid-template-rows:34px 1fr 24px;height:100%}
 
 /* ── options bar ─────────────────────────────────────────── */
 #opts{grid-column:1/4;grid-row:1;background:var(--chrome);border-bottom:1px solid var(--rule);
   display:flex;align-items:center;gap:0;padding:0 10px 0 12px;overflow-x:auto;overflow-y:hidden;
   scrollbar-width:none}
 #opts::-webkit-scrollbar{display:none}
-#opts .tname{font-weight:600;letter-spacing:.1em;text-transform:uppercase;font-size:10px;
+#opts .tname{font-weight:500;letter-spacing:.18em;text-transform:uppercase;font-size:10px;
   white-space:nowrap;flex:none;padding-right:12px;margin-right:12px;border-right:1px solid var(--rule);
   min-width:112px}
 #opts .ogrp{display:flex;align-items:center;gap:7px;flex:none;padding-right:12px;margin-right:12px;
   border-right:1px solid var(--rule-soft);animation:fadein .18s var(--ease)}
 #opts .ogrp:last-child{border-right:0}
 @keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
-#opts label{font-size:9.5px;color:var(--t1);opacity:.68;white-space:nowrap;text-transform:uppercase;letter-spacing:.08em}
-#opts output{font-size:10px;font-variant-numeric:tabular-nums;min-width:30px;text-align:right}
+#opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
+#opts output{font-size:12px;font-variant-numeric:tabular-nums;min-width:32px;text-align:right}
 #opts input[type=range]{width:88px}
 
 /* ── tool rail ───────────────────────────────────────────── */
@@ -107,20 +97,20 @@ body{padding-top:var(--nav-h)}
 #view{position:relative;overflow:hidden;touch-action:none;background:var(--paper);min-width:0;min-height:0}
 #gl,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
 #ov{pointer-events:none}
-#hint{position:absolute;left:10px;bottom:8px;font-size:9.5px;color:var(--t3);pointer-events:none;
-  letter-spacing:.06em;user-select:none}
-#perf{position:absolute;right:10px;bottom:8px;font-size:9.5px;color:var(--t3);pointer-events:none;
+#hint{position:absolute;left:12px;bottom:9px;font-size:11.5px;color:var(--t3);pointer-events:none;
+  user-select:none}
+#perf{position:absolute;right:12px;bottom:9px;font-size:11px;color:var(--t3);pointer-events:none;
   font-variant-numeric:tabular-nums}
 
 /* ── inspector ───────────────────────────────────────────── */
 #panel{grid-column:3;grid-row:2/4;background:var(--chrome);border-left:1px solid var(--rule);
   overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
 .sect{border-bottom:1px solid var(--rule);padding:9px 11px}
-.sect h2{margin:0 0 7px;font-size:9px;letter-spacing:.17em;text-transform:uppercase;color:var(--t3);font-weight:600}
+.sect h2{margin:0 0 9px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);font-weight:400}
 .row{display:flex;align-items:center;gap:7px;margin-bottom:5px;min-width:0}
 .row:last-child{margin-bottom:0}
-.row label{flex:0 0 54px;font-size:9.5px;color:var(--t2);min-width:0;text-transform:uppercase;letter-spacing:.05em}
-.row output{flex:0 0 32px;text-align:right;font-size:10px;font-variant-numeric:tabular-nums}
+.row label{flex:0 0 72px;font-size:12px;color:var(--t2);min-width:0}
+.row output{flex:0 0 34px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
 input[type=range]{flex:1;min-width:0;height:14px;-webkit-appearance:none;appearance:none;background:none;margin:0}
 input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--rule)}
 input[type=range]::-moz-range-track{height:1px;background:var(--rule)}
@@ -131,13 +121,13 @@ input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.35)}
 input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 .seg{display:flex;flex:1;border:1px solid var(--rule);border-radius:2px;overflow:hidden;min-width:0}
 .seg button{flex:1;min-width:0;padding:4px 2px;background:none;border:0;border-right:1px solid var(--rule);
-  cursor:pointer;font-size:9px;letter-spacing:.05em;color:var(--t2);white-space:nowrap;
+  cursor:pointer;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--t2);white-space:nowrap;
   transition:background .14s var(--ease),color .14s var(--ease)}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
 .seg button:hover:not([aria-pressed="true"]){background:var(--chrome-3);color:var(--t1)}
 .btn{padding:5px 7px;background:none;border:1px solid var(--rule);border-radius:2px;cursor:pointer;
-  font-size:9.5px;letter-spacing:.05em;flex:1;min-width:0;white-space:nowrap;
+  font-size:12px;font-weight:500;letter-spacing:.02em;flex:1;min-width:0;white-space:nowrap;
   transition:background .14s var(--ease),color .14s var(--ease),border-color .14s var(--ease)}
 .btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .btn:focus-visible,.seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
@@ -147,24 +137,24 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 .pf button svg{width:17px;height:17px}
 .pf button:hover{background:var(--chrome-3)}
 .pf button:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
-.chk{display:flex;align-items:center;gap:6px;font-size:9.5px;color:var(--t2);cursor:pointer;
-  padding:2px 0;user-select:none;text-transform:uppercase;letter-spacing:.05em}
+.chk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);cursor:pointer;
+  padding:3px 0;user-select:none}
 .chk input{appearance:none;-webkit-appearance:none;width:10px;height:10px;border:1px solid var(--rule);
   border-radius:1px;margin:0;flex:none;cursor:pointer;transition:background .14s var(--ease)}
 .chk input:checked{background:var(--ink);border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--chrome)}
 .chk input:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.txt{width:100%;background:none;border:0;border-bottom:1px solid var(--rule-soft);padding:3px 0;
-  font-size:10px;letter-spacing:.07em;min-width:0;transition:border-color .14s var(--ease)}
+.txt{width:100%;background:none;border:0;border-bottom:1px solid var(--rule-soft);padding:4px 0;
+  font-size:12px;letter-spacing:.06em;min-width:0;transition:border-color .14s var(--ease)}
 .txt:focus{outline:none;border-bottom-color:var(--ink)}
-.hint{font-size:9px;line-height:1.55;color:var(--t3);margin:6px 0 0}
-#selnone{font-size:9.5px;color:var(--t3);line-height:1.55}
+.hint{font-size:11.5px;line-height:1.6;color:var(--t3);margin:7px 0 0}
+#selnone{font-size:12px;color:var(--t3);line-height:1.6}
 
 /* ── status ──────────────────────────────────────────────── */
 #status{grid-column:2;grid-row:3;border-top:1px solid var(--rule);background:var(--chrome);
-  display:flex;align-items:center;gap:13px;padding:0 11px;font-size:9.5px;color:var(--t2);
-  letter-spacing:.06em;overflow:hidden;white-space:nowrap}
-#status b{font-weight:600;color:var(--t1)}
+  display:flex;align-items:center;gap:15px;padding:0 12px;font-size:11px;color:var(--t2);
+  letter-spacing:.02em;overflow:hidden;white-space:nowrap}
+#status b{font-weight:500;color:var(--t1)}
 #status span{font-variant-numeric:tabular-nums}
 #st-msg{color:var(--t1);transition:opacity .3s var(--ease)}
 #drawer{display:none}
@@ -351,6 +341,35 @@ function simplifyStrand(o){
   recomputeRest(o);
 }
 
+/* Run a Catmull-Rom spline through the simplified samples and walk it at
+   an even spacing, carrying the width with it. Removes the facets left by
+   hand jitter and by simplification, so the tube reads as one curve. */
+function resampleStrand(o){
+  const n = o.pts.length;
+  if(n < 3) return;
+  const spacing = Math.max(6, (o.base || S.defR)*0.40);
+  const at = i => o.pts[Math.max(0, Math.min(n-1, i))];
+  const out = [];
+  for(let i=0;i<n-1;i++){
+    const p0 = at(i-1), p1 = at(i), p2 = at(i+1), p3 = at(i+2);
+    const steps = Math.max(1, Math.round(Math.hypot(p2.x-p1.x, p2.y-p1.y)/spacing));
+    for(let j=0;j<steps;j++){
+      const t = j/steps, t2 = t*t, t3 = t2*t;
+      const x = 0.5*(2*p1.x + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3);
+      const y = 0.5*(2*p1.y + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3);
+      const q = P(x, y, p1.r);
+      q.dyn = p1.dyn + (p2.dyn - p1.dyn)*t;
+      q.ang = Math.atan2(p2.y-p1.y, p2.x-p1.x);
+      out.push(q);
+    }
+  }
+  const last = o.pts[n-1];
+  const e = P(last.x, last.y, last.r); e.dyn = last.dyn; e.ang = last.ang;
+  out.push(e);
+  o.pts = out;
+  recomputeRest(o);
+}
+
 let prims = [];
 function bound(p){
   if(p.t === 1){
@@ -364,27 +383,28 @@ function bound(p){
 }
 function buildPrims(){
   prims = [];
+  let oidx = 0;
   for(const o of S.objs){
-    const k = blendOf(o), op = o.op;
+    const k = blendOf(o), op = o.op, oi = oidx++;
     if(o.kind === 'circle'){
       const p = o.pts[0];
-      prims.push(bound({ owner:o.id, t:0, op, k, ax:p.x, ay:p.y, az:Math.max(.5,p.r), aw:0, bx:0, by:0, bz:0, cz:0 }));
+      prims.push(bound({ owner:o.id, oi, t:0, op, k, ax:p.x, ay:p.y, az:Math.max(.5,p.r), aw:0, bx:0, by:0, bz:0, cz:0 }));
     } else if(o.kind === 'ring'){
       const p = o.pts[0];
-      prims.push(bound({ owner:o.id, t:3, op, k, ax:p.x, ay:p.y, az:Math.max(.5,p.r), aw:Math.max(.5,o.t), bx:0, by:0, bz:0, cz:0 }));
+      prims.push(bound({ owner:o.id, oi, t:3, op, k, ax:p.x, ay:p.y, az:Math.max(.5,p.r), aw:Math.max(.5,o.t), bx:0, by:0, bz:0, cz:0 }));
     } else if(o.kind === 'box'){
       const p = o.pts[0];
-      prims.push(bound({ owner:o.id, t:2, op, k, ax:p.x, ay:p.y, az:Math.max(.5,o.w/2), aw:Math.max(.5,o.h/2),
+      prims.push(bound({ owner:o.id, oi, t:2, op, k, ax:p.x, ay:p.y, az:Math.max(.5,o.w/2), aw:Math.max(.5,o.h/2),
                    bx:0, by:0, bz:o.rot, cz:Math.max(0,Math.min(o.cr, Math.min(o.w,o.h)/2)) }));
     } else {
       for(let i=0;i<o.pts.length-1;i++){
         const a = o.pts[i], b = o.pts[i+1];
-        prims.push(bound({ owner:o.id, t:1, op, k, ax:a.x, ay:a.y, az:Math.max(.5,a.r), aw:Math.max(.5,b.r),
+        prims.push(bound({ owner:o.id, oi, t:1, op, k, ax:a.x, ay:a.y, az:Math.max(.5,a.r), aw:Math.max(.5,b.r),
                      bx:b.x, by:b.y, bz:0, cz:0 }));
       }
       if(o.pts.length === 1){
         const a = o.pts[0];
-        prims.push(bound({ owner:o.id, t:0, op, k, ax:a.x, ay:a.y, az:Math.max(.5,a.r), aw:0, bx:0, by:0, bz:0, cz:0 }));
+        prims.push(bound({ owner:o.id, oi, t:0, op, k, ax:a.x, ay:a.y, az:Math.max(.5,a.r), aw:0, bx:0, by:0, bz:0, cz:0 }));
       }
     }
   }
@@ -428,16 +448,23 @@ function sminK(a,b,k){
 }
 const smaxK = (a,b,k) => -sminK(-a,-b,k);
 
+function foldObj(d, od, op, k){
+  if(op === 0) return sminK(d, od, k);
+  if(op === 1) return smaxK(d, -od, k);
+  return smaxK(d, od, k);
+}
 function fieldJS(x,y,list){
-  let d = 1e9;
+  let d = 1e9, od = 1e9, curOwner = -1, curOp = 0, curK = 0;
   for(let i=0;i<list.length;i++){
     const p = list[i];
-    if(p.op === 0 && Math.hypot(x-p.bcx, y-p.bcy) - p.brad - d > p.k*1.6 + 1) continue;
-    const s = primSd(p,x,y);
-    if(p.op === 0) d = sminK(d,s,p.k);
-    else if(p.op === 1) d = smaxK(d,-s,p.k);
-    else d = smaxK(d,s,p.k);
+    if(p.oi !== curOwner){
+      if(curOwner >= 0) d = foldObj(d, od, curOp, curK);
+      od = 1e9; curOwner = p.oi; curOp = p.op; curK = p.k;
+    }
+    if(p.op === 0 && Math.hypot(x-p.bcx, y-p.bcy) - p.brad - Math.min(d,od) > p.k*1.6 + 1) continue;
+    od = Math.min(od, primSd(p,x,y));
   }
+  if(curOwner >= 0) d = foldObj(d, od, curOp, curK);
   return d;
 }
 
@@ -497,7 +524,12 @@ float vnoise(vec2 p){
 
 float gGhost;
 float field(vec2 w){
+  // Segments of one path are welded with a plain min: consecutive cones
+  // already share an end sphere, so that is an exactly smooth tube. The
+  // blend radius applies only BETWEEN objects — blending a stroke to
+  // itself is what made it lumpy.
   float d = 1e9; gGhost = 1e9;
+  float od = 1e9; int curOwner = -1; int curOp = 0; float curK = 0.0;
   int N = (uAll == 1) ? uCount : uIdxN;
   for(int t=0;t<1024;t++){
     if(t >= N) break;
@@ -505,7 +537,16 @@ float field(vec2 w){
     vec4 A = texelFetch(uData, ivec2(i,0), 0);
     vec4 B = texelFetch(uData, ivec2(i,1), 0);
     vec4 C = texelFetch(uData, ivec2(i,2), 0);
-    int ty = int(C.x+0.5); int op = int(C.y+0.5); float k = B.w;
+    int ty = int(C.x+0.5); int op = int(C.y+0.5); float k = B.w; int ow = int(C.w+0.5);
+
+    if(ow != curOwner){
+      if(curOwner >= 0){
+        if(curOp == 0) d = sminK(d, od, curK);
+        else if(curOp == 1) d = smaxK(d, -od, curK);
+        else d = smaxK(d, od, curK);
+      }
+      od = 1e9; curOwner = ow; curOp = op; curK = k;
+    }
 
     // conservative bounding-circle distance: the true SDF is never smaller.
     // If this shape is farther than the blend can reach, it cannot change d.
@@ -515,7 +556,7 @@ float field(vec2 w){
     else if(ty == 2) bd = length(w-A.xy) - (length(vec2(A.z,A.w)) + C.z);
     else if(ty == 3) bd = length(w-A.xy) - (A.z + A.w);
     else bd = length(w-A.xy) - A.z;
-    if(uGhost == 0 && op == 0 && bd - d > k*1.6 + 1.0) continue;
+    if(uGhost == 0 && op == 0 && bd - min(d, od) > k*1.6 + 1.0) continue;
 
     float s;
     if(ty == 0) s = bd;
@@ -523,9 +564,12 @@ float field(vec2 w){
     else if(ty == 2) s = sdBox(w, A.xy, vec2(A.z,A.w), B.z, C.z);
     else s = abs(length(w-A.xy) - A.z) - A.w;
     if(uGhost == 1) gGhost = min(gGhost, abs(s));
-    if(op == 0) d = sminK(d, s, k);
-    else if(op == 1) d = smaxK(d, -s, k);
-    else d = smaxK(d, s, k);
+    od = min(od, s);
+  }
+  if(curOwner >= 0){
+    if(curOp == 0) d = sminK(d, od, curK);
+    else if(curOp == 1) d = smaxK(d, -od, curK);
+    else d = smaxK(d, od, curK);
   }
   return d;
 }
@@ -616,10 +660,14 @@ function uploadPrims(){
     const p = prims[i];
     let o = i*4;        texData[o]=p.ax; texData[o+1]=p.ay; texData[o+2]=p.az; texData[o+3]=p.aw;
     o = (1024+i)*4;     texData[o]=p.bx; texData[o+1]=p.by; texData[o+2]=p.bz; texData[o+3]=p.k;
-    o = (2048+i)*4;     texData[o]=p.t;  texData[o+1]=p.op; texData[o+2]=p.cz; texData[o+3]=0;
+    o = (2048+i)*4;     texData[o]=p.t;  texData[o+1]=p.op; texData[o+2]=p.cz; texData[o+3]=p.oi;
   }
   for(let r=0;r<3;r++) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r, n, 1, gl.RGBA, gl.FLOAT, texData, r*1024*4);
   return n;
+}
+function setInvert(v){
+  S.invert = v;
+  document.documentElement.setAttribute('data-theme', v ? 'dark' : 'light');
 }
 function themeColors(){
   const cs = getComputedStyle(document.documentElement);
@@ -629,9 +677,8 @@ function themeColors(){
     const m = v.match(/[\d.]+/g);
     return m ? [m[0]/255, m[1]/255, m[2]/255] : [0,0,0];
   };
-  const ink = toRGB(cs.getPropertyValue('--ink'));
-  const paper = toRGB(cs.getPropertyValue('--paper'));
-  return S.invert ? { ink:paper, paper:ink } : { ink, paper };
+  return { ink: toRGB(cs.getPropertyValue('--ink')),
+           paper: toRGB(cs.getPropertyValue('--paper')) };
 }
 
 const viewEl = document.getElementById('view');
@@ -1080,7 +1127,7 @@ function endDrag(){
         if(o.pts.some(p => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1)) S.sel.add(o.id);
   }
   if(drag.mode === 'size' && drag.o.pts[0].r < 3) remove(drag.o.id);
-  if(drag.mode === 'pen'){ simplifyStrand(drag.o); applyProfile(drag.o); }
+  if(drag.mode === 'pen'){ simplifyStrand(drag.o); resampleStrand(drag.o); applyProfile(drag.o); }
   if(drag.mode === 'segment') recomputeRest(drag.o);
   drag = null;
   freezeAll(); snap(); sync();
@@ -1156,7 +1203,7 @@ function rulers(){
     const sx = ((x - A.cx)*A.zoom + vw/2).toFixed(1);
     const maj = Math.abs(x/step - Math.round(x/step)) < 1e-6;
     h += `<path d="M${sx} ${maj?H*0.30:H*0.62}V${H}" stroke="currentColor" stroke-width="1" opacity="${maj?.55:.3}"/>`;
-    if(maj) h += `<text x="${+sx+3}" y="${H*0.6}" font-size="7.5" fill="currentColor" opacity=".55" font-family="var(--mono)">${Math.round(x)}</text>`;
+    if(maj) h += `<text x="${+sx+3}" y="${H*0.6}" font-size="8.5" fill="currentColor" opacity=".55" font-family="var(--font)">${Math.round(x)}</text>`;
   }
   if(hoverIn) h += `<path d="M${((hoverW.x-A.cx)*A.zoom+vw/2).toFixed(1)} 0V${H}" stroke="currentColor" stroke-width="1"/>`;
   rhEl.innerHTML = h;
@@ -1168,7 +1215,7 @@ function rulers(){
     const sy = ((y - A.cy)*A.zoom + vh/2).toFixed(1);
     const maj = Math.abs(y/step - Math.round(y/step)) < 1e-6;
     v += `<path d="M${maj?V*0.30:V*0.62} ${sy}H${V}" stroke="currentColor" stroke-width="1" opacity="${maj?.55:.3}"/>`;
-    if(maj) v += `<text x="${V*0.54}" y="${+sy-3}" font-size="7.5" fill="currentColor" opacity=".55" font-family="var(--mono)" transform="rotate(-90 ${V*0.54} ${+sy-3})">${Math.round(y)}</text>`;
+    if(maj) v += `<text x="${V*0.54}" y="${+sy-3}" font-size="8.5" fill="currentColor" opacity=".55" font-family="var(--font)" transform="rotate(-90 ${V*0.54} ${+sy-3})">${Math.round(y)}</text>`;
   }
   if(hoverIn) v += `<path d="M0 ${((hoverW.y-A.cy)*A.zoom+vh/2).toFixed(1)}H${V}" stroke="currentColor" stroke-width="1"/>`;
   rvEl.innerHTML = v;
@@ -1242,7 +1289,7 @@ function overlay(){
   }
 
   const fy = b.y - 14, fs = Math.max(7, Math.min(11, 9*A.zoom/0.62));
-  s += `<g fill="var(--t3)" font-family="var(--mono)" font-size="${fs}" letter-spacing="1.4">`
+  s += `<g fill="var(--t3)" font-family="var(--font)" font-size="${fs}" letter-spacing="1.4">`
      + `<text x="${a.x+16}" y="${fy}">${esc(S.cap1)}</text>`
      + `<text x="${(a.x+b.x)/2-40}" y="${fy}">${esc(S.cap2)}</text>`
      + `<text x="${(a.x+b.x)/2+70}" y="${fy}">${esc(S.cap3)}</text></g>`;
@@ -1713,7 +1760,7 @@ function buildPanel(){
   slider(s2,'Weight',0.4,6,.1, ()=>S.line, v=>{S.line=v;}, v=>v.toFixed(1));
   slider(s2,'Iso step',0,120,2, ()=>S.iso, v=>{S.iso=v;}, v=> v<1 ? 'off' : Math.round(v));
   check(s2,'Construction', ()=>S.ghost, v=>{S.ghost=v;});
-  check(s2,'Invert', ()=>S.invert, v=>{S.invert=v;});
+  check(s2,'Invert', ()=>S.invert, setInvert);
   panel.appendChild(s2);
 
   const s3 = el('div','sect'); s3.appendChild(el('h2',null,'Physics'));
@@ -1859,8 +1906,8 @@ document.getElementById('drawer').onclick = () => panel.classList.toggle('open')
    17 · BOOT
    ══════════════════════════════════════════════════════════════════ */
 resize();
+document.documentElement.setAttribute('data-theme','light');
 setTool('select');
-preset('tangent');
 fitView();
 A.zoom = S.zoom; A.cx = S.cam.x; A.cy = S.cam.y; A.k = S.k;
 snap(); sync(); buildOpts();
