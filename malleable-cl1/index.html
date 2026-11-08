@@ -222,7 +222,10 @@ const S = {
   persp:false, fov:0.61, ty:5,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
-  pitch:0.5, shade:3, tone:0.34, air:true, edges:false, hollow:true, wall:0.45,
+  // the extruded bead is the real unit here: 8 mm wide by 4 mm tall, and
+  // the layer pitch and wall thickness both follow from it
+  beadW:8, beadH:4, relief:0.4, wallBeads:1,
+  pitch:4/25.4, shade:3, tone:0.34, air:true, edges:false, hollow:true, wall:8/25.4,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -237,6 +240,7 @@ function say(t){
   clearTimeout(msgTimer);
   msgTimer = setTimeout(() => { e.style.opacity = '0'; }, 2400);
 }
+const MM = 1/25.4;
 const nearest = (v, list) => list.reduce((a,b) => Math.abs(b-v) < Math.abs(a-v) ? b : a);
 
 /* ══════════════════════════════════════════════════════════════════
@@ -380,13 +384,14 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone;
+uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis;
 uniform int uPersp, uAnyPress, uAir;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
 uniform sampler2D uData;
 uniform vec3 uInk, uPaper;
 out vec4 outColor;
+bool gNoBead;          // occlusion reads the smooth form, not the ribs
 
 float sminK(float a, float b, float k){
   if(k < 1e-4) return min(a,b);
@@ -426,6 +431,10 @@ float sdPot(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float 
   r -= inset;
   float drdy = drdt/max(h, 1e-4);
   float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
+  // every layer is a rounded bead standing proud of the wall; a stamp's
+  // sweep stays smooth so the clearance is not cut by the ribs
+  if(!sweep && !gNoBead && uBead > 1e-5)
+    radial -= uBead*sin(3.14159265*fract(p.y/max(uPitch, 1e-4)));
   float vert = sweep ? -p.y : max(-p.y, p.y - h);
   vec2 e = vec2(radial, vert);
   return min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
@@ -439,6 +448,8 @@ float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, flo
   r = max(r - wall, 0.02);
   float drdy = drdt/max(h, 1e-4);
   float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
+  if(!gNoBead && uBead > 1e-5)                     // the bore is ribbed too
+    radial -= uBead*sin(3.14159265*fract(p.y/max(uPitch, 1e-4)));
   return max(radial, wall - p.y);
 }
 
@@ -521,19 +532,28 @@ float scene(vec3 p){
   return d;
 }
 float occlusion(vec3 p, vec3 n){
-  // three taps is plenty once the result is posterised into a few steps
+  /* Three taps is plenty once the result is posterised. They reach much
+     further than one bead, so sampling the ribbed field would land each tap
+     on a different rib and come back as speckle. */
+  gNoBead = true;
   float occ = 0.0, sca = 1.0;
   for(int i=0;i<3;i++){
     float h = 0.12 + 1.15*float(i)/2.0;
     occ += (h - scene(p + n*h))*sca;
     sca *= 0.7;
   }
+  gNoBead = false;
   return clamp(1.0 - 1.1*occ, 0.0, 1.0);
 }
 vec3 normalAt(vec3 p, float e){
+  // smooth form only: a normal that follows every rib makes posterised
+  // shading flip band to band and the wall turns to speckle
+  gNoBead = true;
   vec2 h = vec2(1.0,-1.0)*0.5773*e;
-  return normalize(h.xyy*scene(p+h.xyy) + h.yyx*scene(p+h.yyx)
-                 + h.yxy*scene(p+h.yxy) + h.xxx*scene(p+h.xxx));
+  vec3 n = normalize(h.xyy*scene(p+h.xyy) + h.yyx*scene(p+h.yyx)
+                   + h.yxy*scene(p+h.yxy) + h.xxx*scene(p+h.xxx));
+  gNoBead = false;
+  return n;
 }
 
 void main(){
@@ -577,19 +597,32 @@ void main(){
       float ndl = dot(n, normalize(vec3(-0.58, 0.54, 0.61)));
       float f = clamp(ndl, 0.0, 1.0);
       f *= mix(1.0, occlusion(pos, n), 0.9);
+      /* The beads are lit analytically rather than through the normal, so
+         they stay clean at any zoom: crown bright, seam dark, flattening to
+         the mean once a bead is smaller than a pixel. */
+      if(uPitch > 0.001){
+        float ph = pos.y/uPitch;
+        float crown = 0.5 + 0.5*cos(6.2831853*fract(ph));
+        crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
+        f *= 0.74 + 0.40*crown;
+      }
       float steps = float(uShade);
       float q = clamp(floor(f*steps + 0.5)/steps, 0.0, 1.0);
       col = mix(uInk, uPaper, q*uTone);
     }
-    // layer lines at the print pitch, drawn over the tone
+    /* The bead seams. Once they fall below a pixel they resolve to the
+       average tone the ribbing would make rather than disappearing, so a
+       print still reads as a print when the whole piece is in frame; where
+       the relief is modelled the drawn seam steps back out of its way. */
     if(uPitch > 0.001){
       float ly = pos.y/uPitch;
       float w = fwidth(ly);
       float g = abs(fract(ly) - 0.5)/max(w, 1e-5);
-      float line = 1.0 - smoothstep(0.18, 0.78, g);
-      float fade = 1.0 - smoothstep(0.26, 0.46, w);   // drop below ~2px spacing
+      float sharp = 1.0 - smoothstep(0.18, 0.78, g);
+      float cov = mix(sharp, 0.24, smoothstep(0.20, 0.55, w));
+      cov *= 1.0 - uBeadVis*0.7;
       bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
-      if(!onCut) col = mix(col, uPaper, line*fade*0.85);
+      if(!onCut) col = mix(col, uPaper, cov*0.85);
     }
     // crease line where the surface folds — the rim, and where forms meet
     if(uEdges == 1){
@@ -622,8 +655,8 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone',
-                  'uPersp','uAnyPress','uAir','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead',
+                  'uPersp','uAnyPress','uAir','uBeadVis','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
   tex = gl.createTexture();
@@ -700,7 +733,7 @@ function draw(){
   gl.uniform1f(uni.uK, ci.k);
   gl.uniform1f(uni.uPix, A.scale/Math.max(1,cvs.height));
   gl.uniform1f(uni.uPixA, 1/(ci.k*Math.max(1,cvs.height)));
-  gl.uniform1f(uni.uStepK, anyStamp() && S.press > 0.001 ? 0.52 : 1.0);
+
   gl.uniform1i(uni.uCount, n);
   gl.uniform1i(uni.uKernel, S.kernel);
   gl.uniform1i(uni.uSteps, dragging ? 56 : S.steps);
@@ -715,6 +748,15 @@ function draw(){
   gl.uniform1f(uni.uPress, S.press);
   gl.uniform1f(uni.uSwell, S.swell);
   gl.uniform1f(uni.uTone, S.tone);
+  /* Ribbing finer than a few pixels only turns into moire, so the relief
+     fades out as the bead approaches the pixel and the drawn line takes
+     over instead. */
+  const pitchPx = (S.pitch*cvs.height)/Math.max(A.scale, 1e-4);
+  const beadFade = Math.max(0, Math.min(1, (pitchPx - 2.5)/4));
+  gl.uniform1f(uni.uBead, S.relief*S.beadH*MM*0.45*beadFade);
+  gl.uniform1f(uni.uBeadVis, S.relief > 0.01 ? beadFade : 0);
+  gl.uniform1f(uni.uStepK, Math.min(anyStamp() && S.press > 0.001 ? 0.52 : 1.0,
+                                    S.relief > 0.01 && beadFade > 0 ? 0.45 : 1.0));
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
@@ -1316,7 +1358,7 @@ function buildOpts(){
   oSeg(g3,'Proj',[[false,'ORTHO'],[true,'PERSP']], ()=>S.persp, v=>{ S.persp = v; say(v?'Perspective':'Orthographic'); }, 48);
 
   const g4 = oGroup();
-  oRange(g4,'Coil',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
+  oRange(g4,'Bead',1,10,.25, ()=>S.beadH, v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
   const sn = el('label','chk');
   const si = document.createElement('input');
   si.type = 'checkbox'; si.checked = S.snap;
@@ -1432,12 +1474,18 @@ function buildPanel(){
   panel.appendChild(s2);
 
   const s3 = el('div','sect'); s3.appendChild(el('h2',null,'Drawing'));
-  slider(s3,'Coil pitch',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
+  slider(s3,'Bead wide',2,20,.5, ()=>S.beadW,
+    v=>{ S.beadW=v; S.wall=v*S.wallBeads*MM; }, v=>v.toFixed(1)+'mm');
+  slider(s3,'Bead tall',1,10,.25, ()=>S.beadH,
+    v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
+  slider(s3,'Relief',0,1,.05, ()=>S.relief, v=>{S.relief=v;}, v=> v<0.01 ? 'flat' : v.toFixed(2));
   slider(s3,'Shade',0,6,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v)+' steps');
   if(S.shade > 0) slider(s3,'Tone',0.1,1,.05, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
   check(s3,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
   check(s3,'Hollow', ()=>S.hollow, v=>{S.hollow=v;});
-  if(S.hollow) slider(s3,'Wall',0.2,2,.05, ()=>S.wall, v=>{S.wall=v;}, v=>v.toFixed(2));
+  if(S.hollow) slider(s3,'Wall beads',1,4,1, ()=>S.wallBeads,
+    v=>{ S.wallBeads=Math.round(v); S.wall=S.beadW*S.wallBeads*MM; },
+    v=>Math.round(v)+' \u00D7 '+(S.beadW*Math.round(v)).toFixed(0)+'mm');
   check(s3,'Section', ()=>S.section, v=>{S.section=v;});
   if(S.section) slider(s3,'Cut at Z',-24,24,.5, ()=>S.secX, v=>{S.secX=v;}, v=>v.toFixed(1));
   check(s3,'Invert', ()=>S.invert, setInvert);
