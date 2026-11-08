@@ -217,14 +217,14 @@ let uid = 1;
 
 const S = {
   pots:[], sel:new Set(), tool:'select',
-  view:'iso', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
+  view:'sw', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
   k:3.2, kernel:2,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
-  pitch:0.6, shade:0, edges:false, hollow:false, wall:0.55,
+  pitch:0.5, shade:0, edges:false, hollow:true, wall:0.45,
   section:false, secX:0,
   grid:true, module:6, snap:true, invert:false,
-  steps:96, sliceY:4.5, traceRes:560,
+  steps:100, sliceY:4.5, traceRes:560,
   cap1:'MALLEABLE CL1', cap2:'coil pots', cap3:'nr.001'
 };
 const A = { k:S.k, scale:S.scale, az:S.az, el:S.el, tx:0, tz:0, pitch:S.pitch, secX:0 };
@@ -1041,14 +1041,20 @@ function setTool(id){
   document.getElementById('hint').textContent = HINTS[id] || '';
   buildOpts();
 }
+/* The four isometric corners, plus plan and front kept on the keyboard */
+const VIEWS = {
+  sw:   { az:-0.62, el:0.52,   label:'ISO SW' },
+  se:   { az: 0.62, el:0.52,   label:'ISO SE' },
+  ne:   { az: 2.52, el:0.52,   label:'ISO NE' },
+  nw:   { az:-2.52, el:0.52,   label:'ISO NW' },
+  plan: { az: 0,    el:1.5533, label:'PLAN'   },
+  front:{ az: 0,    el:0,      label:'FRONT'  }
+};
 function setView(v){
-  S.view = v;
-  if(v === 'plan'){ S.az = 0; S.el = 1.5533; }
-  else if(v === 'front'){ S.az = 0; S.el = 0.0; }
-  else if(v === 'iso'){ S.az = -0.62; S.el = 0.52; }
-  else if(v === 'iso2'){ S.az = 0.62; S.el = 0.52; }
-  document.getElementById('st-view').textContent =
-    ({ plan:'PLAN', front:'FRONT', iso:'ISO L', iso2:'ISO R' })[v] || v.toUpperCase();
+  const d = VIEWS[v];
+  if(!d) return;
+  S.view = v; S.az = d.az; S.el = d.el;
+  document.getElementById('st-view').textContent = d.label;
   fitView();
   buildOpts();
 }
@@ -1107,7 +1113,7 @@ function buildOpts(){
   }
 
   const g3 = oGroup();
-  oSeg(g3,'View',[['plan','PLAN'],['front','FRONT'],['iso','ISO L'],['iso2','ISO R']], ()=>S.view, setView, 48);
+  oSeg(g3,'Iso',[['sw','SW'],['se','SE'],['ne','NE'],['nw','NW']], ()=>S.view, setView, 40);
 
   const g4 = oGroup();
   oRange(g4,'Coil',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
@@ -1244,9 +1250,12 @@ function buildPanel(){
 
   const s5 = el('div','sect'); s5.appendChild(el('h2',null,'Presets'));
   const pg = el('div','grid2');
-  button(pg,'CLUSTER', ()=>preset('cluster'));
+  button(pg,'TRAY', ()=>preset('tray'));
+  button(pg,'BENCH', ()=>preset('bench'));
   button(pg,'ROW', ()=>preset('row'));
+  button(pg,'CROSS', ()=>preset('cross'));
   button(pg,'NEST', ()=>preset('nest'));
+  button(pg,'STEPS', ()=>preset('steps'));
   button(pg,'CLEAR', ()=>{ clearAll(); say('Cleared'); });
   s5.appendChild(pg);
   panel.appendChild(s5);
@@ -1267,7 +1276,7 @@ function buildPanel(){
 
   const s7 = el('div','sect'); s7.appendChild(el('h2',null,'Keys'));
   s7.appendChild(el('p','hint',
-    'V C L X R H Z tools - 1 2 3 4 plan front iso L iso R - alt subtracts - shift-drag orbits - space-drag pans - scroll zooms - Cmd+Z undo - Cmd+D duplicate - F fits'));
+    'V C L X R H Z tools - 1 2 3 4 iso corners, 5 plan, 6 front - alt subtracts - shift-drag orbits - space-drag pans - scroll zooms - Cmd+Z undo - Cmd+D duplicate - F fits'));
   panel.appendChild(s7);
 }
 
@@ -1281,21 +1290,39 @@ function preset(name){
     o.dia = dia; o.len = len||12; o.h = h; o.ang = ang||0;
     S.pots.push(o); return o;
   };
-  if(name === 'cluster'){
-    S.k = 3.2;
-    add('circle',-8,-2,12,0,11);
-    add('circle',1,4,6,0,7.5);
-    add('pill',6,-6,6,18,9, 0.5);
-    add('circle',12,2,12,0,9);
+  if(name === 'tray'){            // long trough with cups hung off the front
+    S.k = 3.4;
+    add('pill',  0,-6, 12, 36, 9,  0);
+    add('circle',-15, 5,  6, 0, 7);
+    add('circle', -2, 8, 12, 0, 11);
+    add('circle', 11, 5,  6, 0, 7);
+    add('circle', 18, 1,  6, 0, 6.5);
+  } else if(name === 'bench'){
+    S.k = 3.0;
+    add('pill',  0,-4, 12, 24, 8.5, 0);
+    add('circle',-13, 5, 6, 0, 7);
+    add('circle', 13, 5, 6, 0, 7);
+    add('circle',  0, 7, 6, 0, 6);
   } else if(name === 'row'){
-    S.k = 2.0;
-    for(let i=0;i<4;i++) add('pill',-18+i*12, 0, 6, 12, 6.5+i*1.5, Math.PI/2);
+    S.k = 2.2;
+    for(let i=0;i<4;i++) add('circle', -18+i*12, 0, i%2 ? 6 : 12, 0, 6.5+i*1.5);
+  } else if(name === 'cross'){
+    S.k = 4.0;
+    add('pill', 0, 0, 12, 36, 9,  0);
+    add('pill', 0, 0, 6,  24, 11, Math.PI/2);
+    add('circle', 0, 0, 12, 0, 12);
   } else if(name === 'nest'){
     S.k = 5.0;
-    add('pill',0,0,12,36,11, 0);
-    add('circle',-12,0,6,0,7);
-    add('circle',12,0,6,0,7);
-    add('circle',0,0,12,0,12);
+    add('pill',  0, 0, 12, 36, 10, 0);
+    add('circle',-12, 0, 6, 0, 7);
+    add('circle', 12, 0, 6, 0, 7);
+    add('circle',  0, 0, 12, 0, 12);
+  } else if(name === 'steps'){
+    S.k = 2.6;
+    add('pill', -8,-6, 6, 18, 6.5, 0.3);
+    add('pill',  4, 0, 6, 24, 9,   0.3);
+    add('circle',-18, 2, 12, 0, 8);
+    add('circle', 17, 6, 12, 0, 11.5);
   }
   snap(); sync(); say(name);
 }
@@ -1363,10 +1390,12 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if(KEYMAP[k]){ setTool(KEYMAP[k]); return; }
   if(e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); deleteSel(); return; }
-  if(e.key === '1'){ setView('plan'); return; }
-  if(e.key === '2'){ setView('front'); return; }
-  if(e.key === '3'){ setView('iso'); return; }
-  if(e.key === '4'){ setView('iso2'); return; }
+  if(e.key === '1'){ setView('sw'); return; }
+  if(e.key === '2'){ setView('se'); return; }
+  if(e.key === '3'){ setView('ne'); return; }
+  if(e.key === '4'){ setView('nw'); return; }
+  if(e.key === '5'){ setView('plan'); return; }
+  if(e.key === '6'){ setView('front'); return; }
   if(k === 'f'){ fitView(); say('Fit'); return; }
   if(e.key === 'Escape'){ S.sel.clear(); sync(); return; }
   if(e.key === '['){ S.k = Math.max(0, S.k-0.4); buildOpts(); return; }
@@ -1383,8 +1412,8 @@ document.getElementById('drawer').onclick = () => panel.classList.toggle('open')
 resize();
 document.documentElement.setAttribute('data-theme','light');
 setTool('select');
-setView('iso');
-preset('cluster');
+setView('sw');
+preset('tray');
 fitView();
 A.scale = S.scale; A.az = S.az; A.el = S.el; A.tx = S.tx; A.tz = S.tz; A.k = S.k;
 snap(); sync(); buildOpts();
