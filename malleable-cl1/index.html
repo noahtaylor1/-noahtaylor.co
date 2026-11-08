@@ -218,7 +218,7 @@ let uid = 1;
 const S = {
   pots:[], sel:new Set(), tool:'select',
   view:'sw', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
-  k:3.2, kernel:2,
+  k:3.2, kernel:2, tol:0.125,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
   pitch:0.5, shade:0, edges:false, hollow:true, wall:0.45,
@@ -295,11 +295,24 @@ function sminK(a,b,k){
   return Math.max(kk, Math.min(a,b)) - Math.hypot(ua,ub);
 }
 const smaxK = (a,b,k) => -sminK(-a,-b,k);
+function othersJS(x,y,z, skip){
+  let d = 1e9;
+  for(const o of S.pots){
+    if(o === skip || o.op === 1 || o.op === 2) continue;
+    d = Math.min(d, sdPotJS(o,x,y,z));
+  }
+  return d;
+}
 function sceneJS(x,y,z){
   let d = 1e9;
   for(const o of S.pots){
-    const s = sdPotJS(o,x,y,z), k = blendOf(o);
-    if(o.op === 0) d = sminK(d,s,k);
+    let s = sdPotJS(o,x,y,z);
+    const k = blendOf(o);
+    if(o.op === 3){
+      s = Math.max(s, -(othersJS(x,y,z,o) - S.tol));
+      d = Math.min(d, s);
+    }
+    else if(o.op === 0) d = sminK(d,s,k);
     else if(o.op === 1) d = smaxK(d,-s,k);
     else d = smaxK(d,s,k);
   }
@@ -324,7 +337,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall;
+uniform float uPitch, uSecX, uWall, uTol;
 uniform sampler2D uData;
 uniform vec3 uInk, uPaper;
 out vec4 outColor;
@@ -378,6 +391,27 @@ float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, flo
   return max(radial, wall - p.y);
 }
 
+/* Solid outer envelope of every pot but one. A nesting pot is carved by
+   this inflated by the clearance, so its face takes the shape of its
+   neighbours with a gap and the parts drop together. Cavities are ignored
+   here on purpose: you clear the outside of the neighbour, not its inside. */
+float othersAt(vec3 p, int skip){
+  float d = 1e9;
+  for(int j=0;j<96;j++){
+    if(j >= uCount) break;
+    if(j == skip) continue;
+    vec4 A = texelFetch(uData, ivec2(j,0), 0);
+    vec4 B = texelFetch(uData, ivec2(j,1), 0);
+    vec4 C = texelFetch(uData, ivec2(j,2), 0);
+    int op = int(C.y+0.5);
+    if(op == 1 || op == 2) continue;             // cutters do not carve
+    float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
+    if(bd > d) continue;
+    d = min(d, sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0));
+  }
+  return d;
+}
+
 float scene(vec3 p){
   float d = 1e9;
   for(int i=0;i<96;i++){
@@ -390,12 +424,17 @@ float scene(vec3 p){
     // bounding cylinder: cheap reject before the profile maths
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
     if(op == 0 && bd - d > k*1.6 + 0.4) continue;
+    if(op == 3 && bd > d) continue;
     float s = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
     if(uHollow == 1){
       float cav = sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall);
       s = max(s, -cav);
     }
-    if(op == 0) d = sminK(d, s, k);
+    if(op == 3){
+      s = max(s, -(othersAt(p, i) - uTol));
+      d = min(d, s);                             // hard union, or the blend fills the gap back in
+    }
+    else if(op == 0) d = sminK(d, s, k);
     else if(op == 1) d = smaxK(d, -s, k);
     else d = smaxK(d, s, k);
   }
@@ -480,7 +519,7 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uData','uInk','uPaper'])
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
   tex = gl.createTexture();
@@ -558,6 +597,7 @@ function draw(){
   gl.uniform1f(uni.uPitch, A.pitch);
   gl.uniform1f(uni.uSecX, A.secX);
   gl.uniform1f(uni.uWall, S.wall);
+  gl.uniform1f(uni.uTol, S.tol);
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
@@ -623,7 +663,7 @@ function setOp(v){
   if(!S.sel.size){ say('Select a pot first'); return; }
   snap();
   for(const id of S.sel){ const o = S.pots.find(p => p.id === id); if(o) o.op = v; }
-  sync(); say(['Unite','Minus front','Intersect'][v]);
+  sync(); say(['Unite','Minus front','Intersect','Nest with clearance'][v]);
 }
 function order(dir){
   if(!S.sel.size) return; snap();
@@ -1175,7 +1215,8 @@ function buildPanel(){
   const pf = el('div','pf');
   [['Unite','<rect x="2.5" y="2.5" width="9" height="9" fill="currentColor"/><rect x="6.5" y="6.5" width="9" height="9" fill="currentColor"/>'],
    ['Minus front','<rect x="2.5" y="2.5" width="9" height="9" fill="currentColor"/><rect x="6.5" y="6.5" width="9" height="9" fill="var(--chrome)" stroke="currentColor" stroke-width="1"/>'],
-   ['Intersect','<rect x="2.5" y="2.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/><rect x="6.5" y="6.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/><rect x="6.5" y="6.5" width="5" height="5" fill="currentColor"/>']
+   ['Intersect','<rect x="2.5" y="2.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/><rect x="6.5" y="6.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/><rect x="6.5" y="6.5" width="5" height="5" fill="currentColor"/>'],
+   ['Nest with clearance','<path d="M1.6 2.4h8.2v6.1a4.6 4.6 0 01-4.1 4.6H1.6z" fill="currentColor"/><circle cx="11.4" cy="11.4" r="4.6" fill="none" stroke="currentColor" stroke-width="0.9" stroke-dasharray="1.6 1.2"/><circle cx="11.4" cy="11.4" r="3.2" fill="currentColor"/>']
   ].forEach(([title,svg],i) => {
     const b = document.createElement('button');
     b.type = 'button'; b.title = title; b.setAttribute('aria-label', title);
@@ -1184,6 +1225,8 @@ function buildPanel(){
     pf.appendChild(b);
   });
   sp.appendChild(pf);
+  slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
+  sp.appendChild(el('p','hint','Nest carves the selected pot by the other pots grown by the clearance, so its face takes their shape with a gap and the parts drop together.'));
   panel.appendChild(sp);
 
   const sel = selPots();
