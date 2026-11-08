@@ -225,7 +225,7 @@ const S = {
   // the extruded bead is the real unit here: 8 mm wide by 4 mm tall, and
   // the layer pitch and wall thickness both follow from it
   beadW:8, beadH:4, relief:0.4, wallBeads:1,
-  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, air:true, stopSink:true, edges:false, hollow:true, wall:8/25.4,
+  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:4, air:true, stopSink:true, edges:false, hollow:true, wall:8/25.4,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -441,6 +441,10 @@ function sminK(a,b,k){
   return Math.max(kk, Math.min(a,b)) - Math.hypot(ua,ub);
 }
 const smaxK = (a,b,k) => -sminK(-a,-b,k);
+/* The fillet in scene units. Stated in millimetres and divided by the
+   circular kernel's 0.604 so the number on the slider is the radius
+   the corner actually has. */
+const FILLET = () => S.fillet*MM/0.604;
 function stampsJS(x,y,z, skip, mySeq){
   let d = 1e9;
   for(const o of S.pots){
@@ -460,8 +464,8 @@ function sceneJS(x,y,z){
     let ke = isStamp(o) ? 0 : k;
     if(press && o.op === 0){
       const q = stampsJS(x,y,z,o,o.seq||0) - S.tol;
-      if(S.press > 0.001){
-        const soft = S.press*0.9;
+      const soft = Math.max(S.press*0.9, FILLET());
+      {
         sOut = smaxK(sOut, -q, soft);
         if(S.hollow) cav = smaxK(cav, -(q - S.wall), soft);
         if(S.swell > 0.001){
@@ -471,9 +475,6 @@ function sceneJS(x,y,z){
           sOut -= lip;
           if(S.hollow) cav -= lip;
         }
-      } else {
-        sOut = Math.max(sOut, -q);
-        if(S.hollow) cav = Math.max(cav, -(q - S.wall));
       }
       if(!isStamp(o)){
         const band = (1.3 + S.press*2.6) + k*1.2;
@@ -482,9 +483,10 @@ function sceneJS(x,y,z){
       }
     }
     const s = S.hollow ? Math.max(sOut, -cav) : sOut;
-    if(o.op === 0) d = sminK(d,s,ke);
-    else if(o.op === 1) d = smaxK(d,-s,ke);
-    else d = smaxK(d,s,ke);
+    const kf = Math.max(ke, FILLET());
+    if(o.op === 0) d = sminK(d,s,kf);
+    else if(o.op === 1) d = smaxK(d,-s,kf);
+    else d = smaxK(d,s,kf);
   }
   return d;
 }
@@ -507,7 +509,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis, uAmb, uGap;
+uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis, uAmb, uGap, uFillet;
 uniform int uPersp, uAnyPress, uAir;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
@@ -638,8 +640,12 @@ float scene(vec3 p){
          the wall hanging; carrying the cavity along keeps it closed and of
          even thickness as it flows around the stamp. */
       float o = stampsAt(p, i, mySeq) - uTol;
-      if(uPress > 0.001){
-        float soft = uPress*0.9;
+      /* No inside corner is ever sharper than the fillet. A nozzle laying
+         an 8 mm bead cannot cut a knife edge into the wall it is passing,
+         so the socket meets the wall on a radius whatever the press is
+         set to - at zero press too, where this used to be a hard cut. */
+      float soft = max(uPress*0.9, uFillet);
+      {
         sOut = smaxK(sOut, -o, soft);
         if(uHollow == 1) cav = smaxK(cav, -(o - uWall), soft);
         if(uSwell > 0.001){
@@ -650,17 +656,21 @@ float scene(vec3 p){
           sOut -= lip;
           if(uHollow == 1) cav -= lip;
         }
-      } else {
-        sOut = max(sOut, -o);
-        if(uHollow == 1) cav = max(cav, -(o - uWall));
       }
       float band = (1.3 + uPress*2.6) + k*1.2;
       if(!stamp) ke = k*smoothstep(0.0, band, max(o, 0.0));
     }
     float s = uHollow == 1 ? max(sOut, -cav) : sOut;
-    if(op == 0) d = sminK(d, s, ke);
-    else if(op == 1) d = smaxK(d, -s, ke);
-    else d = smaxK(d, s, ke);
+    /* The fillet is a floor under every join, the plain union included.
+       Stamps carry ke = 0 so they used to meet their host on a hard min,
+       and the silhouette came to a point where the two crossed - the cusp
+       no nozzle could ever lay. A circular arc of radius r only closes a
+       gap narrower than (2-sqrt2)*r, which is 2.34 mm at four, so the
+       clearance between nested pots stays open. */
+    float kf = max(ke, uFillet);
+    if(op == 0) d = sminK(d, s, kf);
+    else if(op == 1) d = smaxK(d, -s, kf);
+    else d = smaxK(d, s, kf);
   }
   if(uSection == 1) d = max(d, p.z - uSecX);
   return d;
@@ -800,7 +810,7 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead','uAmb','uGap',
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead','uAmb','uGap','uFillet',
                   'uPersp','uAnyPress','uAir','uBeadVis','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
@@ -906,6 +916,9 @@ function draw(){
   gl.uniform1f(uni.uTone, S.tone);
   gl.uniform1f(uni.uAmb, S.ambient);
   gl.uniform1f(uni.uGap, S.gap);
+  /* The stated radius is the real one: the circular kernel's arc is
+     0.604*k across, so the millimetres are divided back out. */
+  gl.uniform1f(uni.uFillet, S.fillet*MM/0.604);
   gl.uniform1f(uni.uBead, S.relief*S.beadH*MM*0.45*beadFade);
   gl.uniform1f(uni.uBeadVis, S.relief > 0.01 ? beadFade : 0);
   gl.uniform1f(uni.uStepK, stride);
@@ -1207,26 +1220,10 @@ function rulers(){
 
 function overlay(){
   let s = '';
-  const hw = PLATE.w/2, hd = PLATE.d/2;
-  const P = (x,z) => worldToScreen(x,0,z);
+  const hw = PLATE.w/2;                 // still frames the section plane
 
-  // ground plate, drawn in projection so it reads as a floor in iso
-  const c0 = P(-hw,-hd), c1 = P(hw,-hd), c2 = P(hw,hd), c3 = P(-hw,hd);
-  if(S.grid && (S.module/A.scale)*vh > 4){
-    let g = '';
-    for(let x=-hw; x<=hw+.01; x+=S.module){
-      const a = P(x,-hd), b = P(x,hd);
-      const maj = Math.abs(x % (S.module*4)) < 0.01;
-      g += `<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)}L${b.x.toFixed(1)} ${b.y.toFixed(1)}" stroke="var(--ink)" stroke-width="${maj?0.8:0.5}" opacity="${maj?.15:.065}"/>`;
-    }
-    for(let z=-hd; z<=hd+.01; z+=S.module){
-      const a = P(-hw,z), b = P(hw,z);
-      const maj = Math.abs(z % (S.module*4)) < 0.01;
-      g += `<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)}L${b.x.toFixed(1)} ${b.y.toFixed(1)}" stroke="var(--ink)" stroke-width="${maj?0.8:0.5}" opacity="${maj?.15:.065}"/>`;
-    }
-    s += g;
-  }
-  s += `<path d="M${c0.x} ${c0.y}L${c1.x} ${c1.y}L${c2.x} ${c2.y}L${c3.x} ${c3.y}Z" fill="none" stroke="var(--rule)" stroke-width="1"/>`;
+  /* No plate and no grid. The pots are the drawing; a rectangle of floor
+     under them only told you where the origin was. */
 
   /* A selected pot is drawn as a ghost of its own profile — rings at a few
      heights plus a height stick — so it stays findable even when a nest has
@@ -1482,11 +1479,6 @@ function buildOpts(){
   const t = TOOLS.find(x => x && x[0] === S.tool);
   optsEl.appendChild(el('div','tname', t ? t[1] : S.tool));
 
-  const g1 = oGroup();
-  oSeg(g1,'Continuity',[[0,'G1'],[1,'G2'],[2,'ARC']], ()=>S.kernel,
-    v => { S.kernel = v; say(['Polynomial G1','Cubic G2','Circular arc'][v]); });
-  oRange(g1,'Blend',0,12,.1, ()=>S.k, v=>{S.k=v;}, v=>v.toFixed(1));
-
   if(S.tool === 'circle' || S.tool === 'cut'){
     const g = oGroup();
     oSeg(g,'Dia',DIA.map(d=>[d,String(d)]), ()=>S.dia, v=>{S.dia=v;});
@@ -1501,6 +1493,7 @@ function buildOpts(){
 
   const g3 = oGroup();
   oSeg(g3,'Iso',[['sw','SW'],['se','SE'],['ne','NE'],['nw','NW']], ()=>S.view, setView, 40);
+  oSeg(g3,'Ortho',[['plan','PLAN'],['front','FRONT']], ()=>S.view, setView, 46);
   oSeg(g3,'Proj',[[false,'ORTHO'],[true,'PERSP']], ()=>S.persp, v=>{ S.persp = v; say(v?'Perspective':'Orthographic'); }, 48);
 
   const g4 = oGroup();
@@ -1576,7 +1569,11 @@ function buildPanel(){
   check(sp,'Press on select', ()=>S.pressMode, v=>{S.pressMode=v;});
   check(sp,'Air rights', ()=>S.air, v=>{S.air=v;});
   check(sp,'Overlap stop', ()=>S.stopSink, v=>{S.stopSink=v;});
+  segment(sp,'Continuity',[[0,'G1'],[1,'G2'],[2,'ARC']], ()=>S.kernel,
+    v => { S.kernel = v; say(['Polynomial G1','Cubic G2','Circular arc'][v]); });
+  slider(sp,'Blend',0,12,.1, ()=>S.k, v=>{S.k=v;}, v=>v.toFixed(1));
   slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
+  slider(sp,'Fillet',0,10,.25, ()=>S.fillet, v=>{S.fillet=v;}, v=> v<0.125 ? 'sharp' : v.toFixed(2)+'mm');
   slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
   slider(sp,'Swell',0,1,.02, ()=>S.swell, v=>{S.swell=v;}, v=> v<0.02 ? 'off' : v.toFixed(2));
   sp.appendChild(el('p','hint','Selecting a pot makes it a stamp: it keeps its own shape and presses into everything else, which takes its form with the clearance as a gap. Stamps are kept in the order you apply them, and a pot is only pressed by stamps older than itself, so a later stamp never wipes out an impression already made. Unite turns a pot back into an ordinary one. Press softens the contact; Swell adds material around it, off by default.'));
@@ -1657,6 +1654,7 @@ function buildPanel(){
 
   const s5 = el('div','sect'); s5.appendChild(el('h2',null,'Presets'));
   const pg = el('div','grid2');
+  button(pg,'VASES', ()=>preset('vases'));
   button(pg,'TRAY', ()=>preset('tray'));
   button(pg,'BENCH', ()=>preset('bench'));
   button(pg,'ROW', ()=>preset('row'));
@@ -1697,7 +1695,16 @@ function preset(name){
     o.dia = dia; o.len = len||12; o.h = h; o.ang = ang||0;
     S.pots.push(o); return o;
   };
-  if(name === 'tray'){            // long trough with cups hung off the front
+  if(name === 'vases'){
+    /* Three of the standard vases, set close enough that each one presses
+       its neighbours and the three share one foot. The whole point of the
+       tool in one glance: a stamp, a clearance and a fillet. */
+    S.k = 3.4;
+    const r = 5.2;                              // 9.0 between centres
+    add('circle', 0,          -r,      12, 0, 12);
+    add('circle', r*0.866,  r*0.5,     12, 0,  9);
+    add('circle',-r*0.866,  r*0.5,     12, 0, 10.5);
+  } else if(name === 'tray'){     // long trough with cups hung off the front
     S.k = 3.4;
     add('pill',  0,-6, 12, 36, 9,  0);
     add('circle',-15, 5,  6, 0, 7);
@@ -1741,6 +1748,7 @@ function preset(name){
   };
   [...S.pots].sort((a,b) => vol(a) - vol(b)).forEach((o,i) => { o.seq = i+1; });
   S.stampN = S.pots.length;
+  fitView();                       // re-aim at the new group
   snap(); sync(); say(name);
 }
 
@@ -1777,7 +1785,10 @@ function fitView(){
     z0=Math.min(z0,Math.min(k.az,k.bz)-pad); z1=Math.max(z1,Math.max(k.az,k.bz)+pad);
     hi = Math.max(hi, o.h);
   }
-  S.tx = (x0+x1)/2; S.tz = (z0+z1)/2;
+  /* Aim at the middle of the group in all three axes. Pointing at the
+     floor left the pots sitting high in the frame with the empty plate
+     under them. */
+  S.tx = (x0+x1)/2; S.tz = (z0+z1)/2; S.ty = hi/2;
   const spread = S.view === 'front' ? Math.max(x1-x0, (hi+6)*1.9) : Math.max(x1-x0, z1-z0);
   S.scale = Math.max(16, Math.min(200, spread*1.35));
 }
@@ -1848,7 +1859,7 @@ resize();
 document.documentElement.setAttribute('data-theme','light');
 setTool('select');
 setView('sw');
-preset('tray');
+preset('vases');
 fitView();
 A.scale = S.scale; A.az = S.az; A.el = S.el; A.tx = S.tx; A.tz = S.tz; A.ty = S.ty; A.k = S.k;
 snap(); sync(); buildOpts();
