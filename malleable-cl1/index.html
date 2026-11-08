@@ -224,7 +224,7 @@ const S = {
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
   pitch:0.5, shade:0, edges:false, hollow:true, wall:0.45,
   section:false, secX:0,
-  grid:true, module:6, snap:true, invert:false,
+  grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
   cap1:'MALLEABLE CL1', cap2:'coil pots', cap3:'nr.001'
 };
@@ -277,6 +277,15 @@ function segDist2(px,pz, ax,az, bx,bz){
   const t = L2 < 1e-9 ? 0 : Math.min(1, Math.max(0, (wx*vx + wz*vz)/L2));
   return Math.hypot(wx - vx*t, wz - vz*t);
 }
+function sdCavityJS(o, x, y, z, wall){
+  const s = skel(o);
+  const q = segDist2(x,z, s.ax,s.az, s.bx,s.bz);
+  const t = Math.min(1, Math.max(0, y/o.h));
+  const [r0, drdt] = potR(t, s.R, o.tt, o.bt, o.belly);
+  const r = Math.max(r0 - wall, 0.02);
+  const drdy = drdt/Math.max(o.h, 1e-4);
+  return Math.max((q - r)/Math.sqrt(1 + drdy*drdy), wall - y);
+}
 function sdPotJS(o, x, y, z){
   const s = skel(o);
   const q = segDist2(x,z, s.ax,s.az, s.bx,s.bz);
@@ -307,15 +316,27 @@ function othersJS(x,y,z, skip){
 function sceneJS(x,y,z){
   let d = 1e9;
   for(const o of S.pots){
-    let s = sdPotJS(o,x,y,z);
+    let sOut = sdPotJS(o,x,y,z);
+    let cav = S.hollow ? sdCavityJS(o,x,y,z,S.wall) : 1e9;
     const k = blendOf(o);
     if(o.op === 3){
       const q = othersJS(x,y,z,o) - S.tol;
       if(S.press > 0.001){
-        s = smaxK(s, -q, S.press*0.9);
+        const soft = S.press*0.9;
+        sOut = smaxK(sOut, -q, soft);
+        if(S.hollow) cav = smaxK(cav, -(q - S.wall), soft);
         const lipW = 1 + S.press*2;
-        s -= S.press*0.55*Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW)));
-      } else s = Math.max(s, -q);
+        let lip = S.press*0.55*Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW)));
+        if(S.hollow) lip = Math.min(lip, S.wall*0.8);
+        sOut -= lip;
+        if(S.hollow) cav -= lip;
+      } else {
+        sOut = Math.max(sOut, -q);
+        if(S.hollow) cav = Math.max(cav, -(q - S.wall));
+      }
+    }
+    const s = S.hollow ? Math.max(sOut, -cav) : sOut;
+    if(o.op === 3){
       d = Math.min(d, s);
     }
     else if(o.op === 0) d = sminK(d,s,k);
@@ -434,23 +455,33 @@ float scene(vec3 p){
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
     if(op == 0 && bd - d > k*1.6 + 0.4) continue;
     if(op == 3 && bd > d) continue;
-    float s = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
-    if(uHollow == 1){
-      float cav = sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall);
-      s = max(s, -cav);
-    }
+    float sOut = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
+    float cav = uHollow == 1
+      ? sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall) : 1e9;
+
     if(op == 3){
+      /* Deform the inner surface by the same amount as the outer, offset by
+         the wall. Carving only the outside slices the shell open and leaves
+         the wall hanging; carrying the cavity along keeps it closed and of
+         even thickness as it flows around the neighbour. */
       float o = othersAt(p, i) - uTol;
       if(uPress > 0.001){
-        // the socket meets the face with a fillet, and the material it
-        // displaces piles into a lip just outside the contact
-        s = smaxK(s, -o, uPress*0.9);
+        float soft = uPress*0.9;
+        sOut = smaxK(sOut, -o, soft);
+        if(uHollow == 1) cav = smaxK(cav, -(o - uWall), soft);
         float lipW = 1.0 + uPress*2.0;
         float u = clamp(o/lipW, 0.0, 1.0);
-        s -= uPress*0.55*sin(3.14159265*u);
+        float lip = uPress*0.55*sin(3.14159265*u);
+        if(uHollow == 1) lip = min(lip, uWall*0.8);   // never thin the wall away
+        sOut -= lip;
+        if(uHollow == 1) cav -= lip;
       } else {
-        s = max(s, -o);
+        sOut = max(sOut, -o);
+        if(uHollow == 1) cav = max(cav, -(o - uWall));
       }
+    }
+    float s = uHollow == 1 ? max(sOut, -cav) : sOut;
+    if(op == 3){
       d = min(d, s);                             // hard union, or the blend fills the gap back in
     }
     else if(op == 0) d = sminK(d, s, k);
@@ -621,7 +652,7 @@ function draw(){
   gl.uniform1f(uni.uK, ci.k);
   gl.uniform1f(uni.uPix, A.scale/Math.max(1,cvs.height));
   gl.uniform1f(uni.uPixA, 1/(ci.k*Math.max(1,cvs.height)));
-  gl.uniform1f(uni.uStepK, S.pots.some(o => o.op === 3) && S.press > 0.001 ? 0.62 : 1.0);
+  gl.uniform1f(uni.uStepK, S.pots.some(o => o.op === 3) && S.press > 0.001 ? 0.52 : 1.0);
   gl.uniform1i(uni.uCount, n);
   gl.uniform1i(uni.uKernel, S.kernel);
   gl.uniform1i(uni.uSteps, dragging ? 56 : S.steps);
@@ -949,26 +980,35 @@ function overlay(){
   }
   s += `<path d="M${c0.x} ${c0.y}L${c1.x} ${c1.y}L${c2.x} ${c2.y}L${c3.x} ${c3.y}Z" fill="none" stroke="var(--rule)" stroke-width="1"/>`;
 
-  // selected pots: footprint outline on the ground plus a height stick
+  /* A selected pot is drawn as a ghost of its own profile — rings at a few
+     heights plus a height stick — so it stays findable even when a nest has
+     carved most of it away and there is nothing solid left to see. */
   for(const o of S.pots){
     if(!S.sel.has(o.id)) continue;
     const k = skel(o);
-    let d = '';
-    const steps = 44;
-    for(let i=0;i<=steps;i++){
-      const th = i/steps*Math.PI*2;
-      // outline of the capsule footprint at radius R
-      const cx = Math.cos(th) >= 0 ? k.bx : k.ax, cz = Math.cos(th) >= 0 ? k.bz : k.az;
-      const ux = Math.cos(o.ang), uz = Math.sin(o.ang);
-      const nx = -uz, nz = ux;
-      const px = cx + (Math.cos(th)*ux + Math.sin(th)*nx)*k.R;
-      const pz = cz + (Math.cos(th)*uz + Math.sin(th)*nz)*k.R;
-      const q = P(px,pz);
-      d += (i?'L':'M')+q.x.toFixed(1)+' '+q.y.toFixed(1);
+    const ux = Math.cos(o.ang), uz = Math.sin(o.ang), nx = -uz, nz = ux;
+    const ring = (R, y) => {
+      let d = '';
+      for(let i=0;i<=48;i++){
+        const th = i/48*Math.PI*2;
+        const cx = Math.cos(th) >= 0 ? k.bx : k.ax, cz = Math.cos(th) >= 0 ? k.bz : k.az;
+        const q = worldToScreen(cx + (Math.cos(th)*ux + Math.sin(th)*nx)*R, y,
+                                cz + (Math.cos(th)*uz + Math.sin(th)*nz)*R);
+        d += (i?'L':'M')+q.x.toFixed(1)+' '+q.y.toFixed(1);
+      }
+      return d+'Z';
+    };
+    for(const t of [0, 0.25, 0.5, 0.75, 1]){
+      const r = potR(t, k.R, o.tt, o.bt, o.belly)[0];
+      const d2 = ring(Math.max(r,0.3), t*o.h);
+      s += `<path d="${d2}" fill="none" stroke="var(--paper)" stroke-width="2.6" opacity=".8"/>`
+         + `<path d="${d2}" fill="none" stroke="var(--guide)" stroke-width="1" `
+         + `stroke-dasharray="3 3" opacity="${t === 0 ? .9 : .6}"/>`;
     }
-    s += `<path d="${d}Z" fill="none" stroke="var(--guide)" stroke-width="1" stroke-dasharray="3 3" opacity=".85"/>`;
     const b0 = P(o.x,o.z), b1 = worldToScreen(o.x, o.h, o.z);
-    s += `<path d="M${b0.x} ${b0.y}L${b1.x} ${b1.y}" stroke="var(--guide)" stroke-width="1" opacity=".5" stroke-dasharray="2 3"/>`
+    const stick = `M${b0.x} ${b0.y}L${b1.x} ${b1.y}`;
+    s += `<path d="${stick}" stroke="var(--paper)" stroke-width="2.6" opacity=".8"/>`
+       + `<path d="${stick}" stroke="var(--guide)" stroke-width="1" opacity=".6" stroke-dasharray="2 3"/>`
        + `<rect x="${b1.x-3}" y="${b1.y-3}" width="6" height="6" fill="var(--paper)" stroke="var(--sel)" stroke-width="1.2"/>`;
   }
 
