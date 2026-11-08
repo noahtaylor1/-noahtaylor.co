@@ -221,7 +221,7 @@ const S = {
   k:3.2, kernel:2,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
-  pitch:0.6, shade:0, edges:true, hollow:false, wall:0.55,
+  pitch:0.6, shade:0, edges:false, hollow:false, wall:0.55,
   section:false, secX:0,
   grid:true, module:6, snap:true, invert:false,
   steps:96, sliceY:4.5, traceRes:560,
@@ -633,6 +633,36 @@ function order(dir){
   sync();
 }
 function clearAll(){ snap(); S.pots = []; S.sel.clear(); sync(); }
+/* Volume pick: sphere-trace the same field the shader draws, then attribute
+   the hit to whichever pot's own surface is nearest. Works from any angle,
+   so a pot can be grabbed by its body and not only by its footprint. */
+function pickRay(sx, sy){
+  if(!S.pots.length) return null;
+  const b = basis();
+  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
+  const ty = S.view === 'plan' ? 0 : 5;
+  const ox = A.tx + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*180;
+  const oy = ty   + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*180;
+  const oz = A.tz + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*180;
+  const eps = Math.max(0.01, A.scale/vh*0.5);
+  let t = 0;
+  for(let i=0;i<200;i++){
+    const x = ox + b.fwd[0]*t, y = oy + b.fwd[1]*t, z = oz + b.fwd[2]*t;
+    let d = sceneJS(x,y,z);
+    if(S.section) d = Math.max(d, z - S.secX);
+    if(d < eps){
+      let best = null, bd = Infinity;
+      for(const o of S.pots){
+        const q = sdPotJS(o,x,y,z);
+        if(q < bd){ bd = q; best = o.id; }
+      }
+      return best;
+    }
+    t += Math.max(d, eps*0.5);
+    if(t > 420) break;
+  }
+  return null;
+}
 function pick(x,z){
   let best = null, bd = Infinity;
   for(const o of S.pots){
@@ -666,22 +696,24 @@ viewEl.addEventListener('pointerdown', e => {
     S.scale = Math.max(12, Math.min(260, S.scale*(e.altKey ? 1.5 : 1/1.5)));
     return;
   }
-  if(!g){ say('Switch to Plan or Iso to place pots'); return; }
-
-  switch(S.tool){
-    case 'select': {
-      const id = pick(g.x, g.z);
-      if(id){
-        if(e.shiftKey) S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
-        else if(!S.sel.has(id)){ S.sel.clear(); S.sel.add(id); }
+  if(S.tool === 'select'){
+    const id = pickRay(sx, sy) ?? (g ? pick(g.x, g.z) : null);
+    if(id){
+      if(e.shiftKey) S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
+      else if(!S.sel.has(id)){ S.sel.clear(); S.sel.add(id); }
+      if(g){
         drag = { mode:'move', g, start:[...S.sel].map(i => {
           const o = S.pots.find(p => p.id === i);
           return { o, x:o.x, z:o.z };
         })};
-        snap();
-      } else S.sel.clear();
-      sync(); return;
-    }
+      }
+      snap();
+    } else if(!e.shiftKey) S.sel.clear();
+    sync(); return;
+  }
+  if(!g){ say('Switch to a plan or iso view to place pots'); return; }
+
+  switch(S.tool){
     case 'circle': case 'cut': {
       const o = mkPot('circle', g.x, g.z);
       o.op = (S.tool === 'cut' || e.altKey) ? 1 : 0;
@@ -994,7 +1026,7 @@ TOOLS.forEach(t => {
 const CURSOR = { select:'default', circle:'crosshair', pill:'crosshair', cut:'crosshair',
                  orbit:'move', hand:'grab', zoom:'zoom-in' };
 const HINTS = {
-  select:'Click a pot to select, drag to move - shift-drag orbits',
+  select:'Click a pot anywhere on its body to select, drag to move - shift-drag orbits',
   circle:'Click to place a circle pot - alt places a subtract pot',
   pill:'Click to place, drag to aim - shift constrains the angle',
   cut:'Click to place a pot that subtracts from the others',
@@ -1014,7 +1046,9 @@ function setView(v){
   if(v === 'plan'){ S.az = 0; S.el = 1.5533; }
   else if(v === 'front'){ S.az = 0; S.el = 0.0; }
   else if(v === 'iso'){ S.az = -0.62; S.el = 0.52; }
-  document.getElementById('st-view').textContent = v.toUpperCase();
+  else if(v === 'iso2'){ S.az = 0.62; S.el = 0.52; }
+  document.getElementById('st-view').textContent =
+    ({ plan:'PLAN', front:'FRONT', iso:'ISO L', iso2:'ISO R' })[v] || v.toUpperCase();
   fitView();
   buildOpts();
 }
@@ -1073,7 +1107,7 @@ function buildOpts(){
   }
 
   const g3 = oGroup();
-  oSeg(g3,'View',[['plan','PLAN'],['front','FRONT'],['iso','ISO']], ()=>S.view, setView, 46);
+  oSeg(g3,'View',[['plan','PLAN'],['front','FRONT'],['iso','ISO L'],['iso2','ISO R']], ()=>S.view, setView, 48);
 
   const g4 = oGroup();
   oRange(g4,'Coil',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
@@ -1233,7 +1267,7 @@ function buildPanel(){
 
   const s7 = el('div','sect'); s7.appendChild(el('h2',null,'Keys'));
   s7.appendChild(el('p','hint',
-    'V C L X R H Z tools - 1 2 3 plan front iso - alt subtracts - shift-drag orbits - space-drag pans - scroll zooms - Cmd+Z undo - Cmd+D duplicate - F fits'));
+    'V C L X R H Z tools - 1 2 3 4 plan front iso L iso R - alt subtracts - shift-drag orbits - space-drag pans - scroll zooms - Cmd+Z undo - Cmd+D duplicate - F fits'));
   panel.appendChild(s7);
 }
 
@@ -1332,6 +1366,7 @@ addEventListener('keydown', e => {
   if(e.key === '1'){ setView('plan'); return; }
   if(e.key === '2'){ setView('front'); return; }
   if(e.key === '3'){ setView('iso'); return; }
+  if(e.key === '4'){ setView('iso2'); return; }
   if(k === 'f'){ fitView(); say('Fit'); return; }
   if(e.key === 'Escape'){ S.sel.clear(); sync(); return; }
   if(e.key === '['){ S.k = Math.max(0, S.k-0.4); buildOpts(); return; }
