@@ -1506,6 +1506,16 @@ function preset(name){
     add('circle',-18, 2, 12, 0, 8);
     add('circle', 17, 6, 12, 0, 11.5);
   }
+  /* Stamp the whole arrangement so a preset opens pressed rather than
+     blended. Smallest first: a small cup should press into a large trough,
+     not be swallowed by it, and a pot is only pressed by older stamps. */
+  const vol = o => {
+    const k = skel(o);
+    const segL = Math.hypot(k.bx-k.ax, k.bz-k.az);
+    return (Math.PI*k.R*k.R + 2*k.R*segL) * o.h;
+  };
+  [...S.pots].sort((a,b) => vol(a) - vol(b)).forEach((o,i) => { o.seq = i+1; });
+  S.stampN = S.pots.length;
   snap(); sync(); say(name);
 }
 
