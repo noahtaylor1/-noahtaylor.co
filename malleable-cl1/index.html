@@ -222,7 +222,7 @@ const S = {
   persp:false, fov:0.61, ty:5,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
-  pitch:0.5, shade:0, edges:false, hollow:true, wall:0.45,
+  pitch:0.5, shade:3, tone:0.34, edges:false, hollow:true, wall:0.45,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -379,7 +379,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell;
+uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone;
 uniform int uPersp, uAnyPress;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
@@ -514,6 +514,16 @@ float scene(vec3 p){
   if(uSection == 1) d = max(d, p.z - uSecX);
   return d;
 }
+float occlusion(vec3 p, vec3 n){
+  // three taps is plenty once the result is posterised into a few steps
+  float occ = 0.0, sca = 1.0;
+  for(int i=0;i<3;i++){
+    float h = 0.12 + 1.15*float(i)/2.0;
+    occ += (h - scene(p + n*h))*sca;
+    sca *= 0.7;
+  }
+  return clamp(1.0 - 1.1*occ, 0.0, 1.0);
+}
 vec3 normalAt(vec3 p, float e){
   vec2 h = vec2(1.0,-1.0)*0.5773*e;
   return normalize(h.xyy*scene(p+h.xyy) + h.yyx*scene(p+h.yyx)
@@ -554,7 +564,18 @@ void main(){
     bool needN = uEdges == 1 || uShade > 0;
     if(needN) n = normalAt(pos, px*1.1);
 
-    // layer lines at the print pitch — the form is read from these
+    /* Posterised tone first, so it is the ground the line work sits on:
+       a fixed number of flat steps from one side light, darkened where the
+       form closes in on itself. Banding keeps it a drawing, not a render. */
+    if(uShade > 0 && uTone > 0.001){
+      float ndl = dot(n, normalize(vec3(-0.58, 0.54, 0.61)));
+      float f = clamp(ndl, 0.0, 1.0);
+      f *= mix(1.0, occlusion(pos, n), 0.9);
+      float steps = float(uShade);
+      float q = clamp(floor(f*steps + 0.5)/steps, 0.0, 1.0);
+      col = mix(uInk, uPaper, q*uTone);
+    }
+    // layer lines at the print pitch, drawn over the tone
     if(uPitch > 0.001){
       float ly = pos.y/uPitch;
       float w = fwidth(ly);
@@ -563,11 +584,6 @@ void main(){
       float fade = 1.0 - smoothstep(0.26, 0.46, w);   // drop below ~2px spacing
       bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
       if(!onCut) col = mix(col, uPaper, line*fade*0.85);
-    }
-    if(uShade > 0){
-      float f = clamp(dot(n, normalize(vec3(-0.35, 0.80, 0.48)))*0.5 + 0.5, 0.0, 1.0);
-      float q = floor(f*float(uShade))/float(uShade-1 > 0 ? uShade-1 : 1);
-      col = mix(col, mix(uInk, uPaper, clamp(q,0.0,1.0)*0.55), 0.85);
     }
     // crease line where the surface folds — the rim, and where forms meet
     if(uEdges == 1){
@@ -600,7 +616,7 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell',
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone',
                   'uPersp','uAnyPress','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
@@ -691,6 +707,7 @@ function draw(){
   gl.uniform1f(uni.uTol, S.tol);
   gl.uniform1f(uni.uPress, S.press);
   gl.uniform1f(uni.uSwell, S.swell);
+  gl.uniform1f(uni.uTone, S.tone);
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
@@ -1408,7 +1425,8 @@ function buildPanel(){
 
   const s3 = el('div','sect'); s3.appendChild(el('h2',null,'Drawing'));
   slider(s3,'Coil pitch',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
-  slider(s3,'Shade',0,4,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v));
+  slider(s3,'Shade',0,6,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v)+' steps');
+  if(S.shade > 0) slider(s3,'Tone',0.1,1,.05, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
   check(s3,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
   check(s3,'Hollow', ()=>S.hollow, v=>{S.hollow=v;});
   if(S.hollow) slider(s3,'Wall',0.2,2,.05, ()=>S.wall, v=>{S.wall=v;}, v=>v.toFixed(2));
