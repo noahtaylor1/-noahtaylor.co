@@ -218,7 +218,8 @@ let uid = 1;
 const S = {
   pots:[], sel:new Set(), tool:'select',
   view:'sw', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
-  k:3.2, kernel:2, tol:0.125,
+  k:3.2, kernel:2, tol:0.125, press:0.5,
+  persp:false, fov:0.61, ty:5,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
   pitch:0.5, shade:0, edges:false, hollow:true, wall:0.45,
@@ -227,7 +228,7 @@ const S = {
   steps:100, sliceY:4.5, traceRes:560,
   cap1:'MALLEABLE CL1', cap2:'coil pots', cap3:'nr.001'
 };
-const A = { k:S.k, scale:S.scale, az:S.az, el:S.el, tx:0, tz:0, pitch:S.pitch, secX:0 };
+const A = { k:S.k, scale:S.scale, az:S.az, el:S.el, tx:0, tz:0, ty:5, pitch:S.pitch, secX:0 };
 
 let msgTimer = 0;
 function say(t){
@@ -309,7 +310,12 @@ function sceneJS(x,y,z){
     let s = sdPotJS(o,x,y,z);
     const k = blendOf(o);
     if(o.op === 3){
-      s = Math.max(s, -(othersJS(x,y,z,o) - S.tol));
+      const q = othersJS(x,y,z,o) - S.tol;
+      if(S.press > 0.001){
+        s = smaxK(s, -q, S.press*0.9);
+        const lipW = 1 + S.press*2;
+        s -= S.press*0.55*Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW)));
+      } else s = Math.max(s, -q);
       d = Math.min(d, s);
     }
     else if(o.op === 0) d = sminK(d,s,k);
@@ -337,7 +343,10 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol;
+uniform float uPitch, uSecX, uWall, uTol, uPress;
+uniform int uPersp;
+uniform vec3 uCamPos;
+uniform float uK, uPix, uPixA, uStepK;
 uniform sampler2D uData;
 uniform vec3 uInk, uPaper;
 out vec4 outColor;
@@ -431,7 +440,17 @@ float scene(vec3 p){
       s = max(s, -cav);
     }
     if(op == 3){
-      s = max(s, -(othersAt(p, i) - uTol));
+      float o = othersAt(p, i) - uTol;
+      if(uPress > 0.001){
+        // the socket meets the face with a fillet, and the material it
+        // displaces piles into a lip just outside the contact
+        s = smaxK(s, -o, uPress*0.9);
+        float lipW = 1.0 + uPress*2.0;
+        float u = clamp(o/lipW, 0.0, 1.0);
+        s -= uPress*0.55*sin(3.14159265*u);
+      } else {
+        s = max(s, -o);
+      }
       d = min(d, s);                             // hard union, or the blend fills the gap back in
     }
     else if(op == 0) d = sminK(d, s, k);
@@ -449,21 +468,29 @@ vec3 normalAt(vec3 p, float e){
 
 void main(){
   vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
-  float px = uScale/uRes.y;                       // world units per pixel
-  vec3 ro = uTarget + uRight*(uv.x*uScale) + uUp*(uv.y*uScale) - uFwd*180.0;
-  vec3 rd = uFwd;
+  vec3 ro, rd;
+  if(uPersp == 1){
+    ro = uCamPos;
+    rd = normalize(uRight*uv.x + uUp*uv.y + uFwd*uK);
+  } else {
+    ro = uTarget + uRight*(uv.x*uScale) + uUp*(uv.y*uScale) - uFwd*180.0;
+    rd = uFwd;
+  }
+  float px = uPix;
 
-  float t = 0.0, minD = 1e9;
+  float t = 0.0, minD = 1e9, minR = 1e9;
   bool hit = false;
   vec3 pos = ro;
   for(int i=0;i<256;i++){
     if(i >= uSteps) break;
     pos = ro + rd*t;
     float d = scene(pos);
+    px = uPersp == 1 ? max(uPixA*t, 1e-4) : uPix;
     minD = min(minD, d);
+    minR = min(minR, d/px);
     if(d < px*0.4){ hit = true; break; }
-    t += max(d, px*0.25);
-    if(t > 420.0) break;
+    t += max(d*uStepK, px*0.25);
+    if(t > 900.0) break;
   }
 
   vec3 col = uPaper;
@@ -497,7 +524,7 @@ void main(){
     }
     if(uSection == 1 && abs(pos.z - uSecX) < px*1.5) col = uInk;   // poché the cut face
   } else {
-    float cov = clamp(minD/(px*0.8), 0.0, 1.0);
+    float cov = clamp(minR/0.8, 0.0, 1.0);
     col = mix(uInk, uPaper, cov);
   }
   outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
@@ -519,7 +546,8 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uData','uInk','uPaper'])
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress',
+                  'uPersp','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
   tex = gl.createTexture();
@@ -585,8 +613,15 @@ function draw(){
   gl.uniform3fv(uni.uRight, b.right);
   gl.uniform3fv(uni.uUp, b.up);
   gl.uniform3fv(uni.uFwd, b.fwd);
-  gl.uniform3f(uni.uTarget, A.tx, S.view === 'plan' ? 0 : 5, A.tz);
+  const ci = camInfo();
+  gl.uniform3f(uni.uTarget, ci.tgt[0], ci.tgt[1], ci.tgt[2]);
   gl.uniform1f(uni.uScale, A.scale);
+  gl.uniform1i(uni.uPersp, S.persp ? 1 : 0);
+  gl.uniform3fv(uni.uCamPos, ci.persp ? ci.cam : ci.tgt);
+  gl.uniform1f(uni.uK, ci.k);
+  gl.uniform1f(uni.uPix, A.scale/Math.max(1,cvs.height));
+  gl.uniform1f(uni.uPixA, 1/(ci.k*Math.max(1,cvs.height)));
+  gl.uniform1f(uni.uStepK, S.pots.some(o => o.op === 3) && S.press > 0.001 ? 0.62 : 1.0);
   gl.uniform1i(uni.uCount, n);
   gl.uniform1i(uni.uKernel, S.kernel);
   gl.uniform1i(uni.uSteps, dragging ? 56 : S.steps);
@@ -598,6 +633,7 @@ function draw(){
   gl.uniform1f(uni.uSecX, A.secX);
   gl.uniform1f(uni.uWall, S.wall);
   gl.uniform1f(uni.uTol, S.tol);
+  gl.uniform1f(uni.uPress, S.press);
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
@@ -605,23 +641,54 @@ function draw(){
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-/* world ↔ screen, through the same orthographic basis the shader uses */
-function worldToScreen(x,y,z){
+/* One camera, two projections. k is the focal term: at distance k*scale a
+   perspective frame covers the same height the orthographic one does, so
+   switching projection keeps the framing and only changes the depth cue. */
+function camInfo(){
   const b = basis();
-  const rx = x-A.tx, ry = y-(S.view === 'plan' ? 0 : 5), rz = z-A.tz;
-  const u = rx*b.right[0] + ry*b.right[1] + rz*b.right[2];
-  const v = rx*b.up[0] + ry*b.up[1] + rz*b.up[2];
-  return { x: u/A.scale*vh + vw/2, y: -v/A.scale*vh + vh/2 };
+  const tgt = [A.tx, A.ty, A.tz];
+  const k = 0.5/Math.tan(S.fov*0.5);
+  if(!S.persp) return { b, tgt, k, persp:false };
+  const D = A.scale*k;
+  return { b, tgt, k, persp:true, D,
+           cam:[tgt[0]+b.eye[0]*D, tgt[1]+b.eye[1]*D, tgt[2]+b.eye[2]*D] };
+}
+function rayFor(sx,sy){
+  const ci = camInfo(), b = ci.b;
+  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
+  if(!ci.persp){
+    return { o:[ ci.tgt[0] + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*180,
+                 ci.tgt[1] + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*180,
+                 ci.tgt[2] + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*180 ],
+             d: b.fwd };
+  }
+  const dx = b.right[0]*ux + b.up[0]*uy + b.fwd[0]*ci.k;
+  const dy = b.right[1]*ux + b.up[1]*uy + b.fwd[1]*ci.k;
+  const dz = b.right[2]*ux + b.up[2]*uy + b.fwd[2]*ci.k;
+  const L = Math.hypot(dx,dy,dz) || 1;
+  return { o: ci.cam, d:[dx/L, dy/L, dz/L] };
+}
+function worldToScreen(x,y,z){
+  const ci = camInfo(), b = ci.b;
+  if(!ci.persp){
+    const rx = x-ci.tgt[0], ry = y-ci.tgt[1], rz = z-ci.tgt[2];
+    const u = rx*b.right[0] + ry*b.right[1] + rz*b.right[2];
+    const v = rx*b.up[0] + ry*b.up[1] + rz*b.up[2];
+    return { x: u/A.scale*vh + vw/2, y: -v/A.scale*vh + vh/2 };
+  }
+  const rx = x-ci.cam[0], ry = y-ci.cam[1], rz = z-ci.cam[2];
+  const c = rx*b.fwd[0] + ry*b.fwd[1] + rz*b.fwd[2];
+  if(c < 0.05) return { x:-99999, y:-99999 };          // behind the camera
+  const a = rx*b.right[0] + ry*b.right[1] + rz*b.right[2];
+  const e = rx*b.up[0] + ry*b.up[1] + rz*b.up[2];
+  return { x: (a/c*ci.k)*vh + vw/2, y: -(e/c*ci.k)*vh + vh/2 };
 }
 function screenToGround(sx,sy){
-  const b = basis();
-  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
-  const ox = A.tx + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*180;
-  const oy = (S.view === 'plan' ? 0 : 5) + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*180;
-  const oz = A.tz + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*180;
-  if(Math.abs(b.fwd[1]) < 1e-4) return null;          // front elevation: ray never meets the ground
-  const t = -oy/b.fwd[1];
-  return { x: ox + b.fwd[0]*t, z: oz + b.fwd[2]*t };
+  const r = rayFor(sx,sy);
+  if(Math.abs(r.d[1]) < 1e-4) return null;             // ray runs parallel to the floor
+  const t = -r.o[1]/r.d[1];
+  if(t <= 0) return null;                              // ground is behind the camera
+  return { x: r.o[0] + r.d[0]*t, z: r.o[2] + r.d[2]*t };
 }
 const snapG = (p, invert) => {
   const on = S.snap !== !!invert;
@@ -678,16 +745,11 @@ function clearAll(){ snap(); S.pots = []; S.sel.clear(); sync(); }
    so a pot can be grabbed by its body and not only by its footprint. */
 function pickRay(sx, sy){
   if(!S.pots.length) return null;
-  const b = basis();
-  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
-  const ty = S.view === 'plan' ? 0 : 5;
-  const ox = A.tx + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*180;
-  const oy = ty   + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*180;
-  const oz = A.tz + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*180;
+  const r = rayFor(sx,sy);
   const eps = Math.max(0.01, A.scale/vh*0.5);
   let t = 0;
   for(let i=0;i<200;i++){
-    const x = ox + b.fwd[0]*t, y = oy + b.fwd[1]*t, z = oz + b.fwd[2]*t;
+    const x = r.o[0] + r.d[0]*t, y = r.o[1] + r.d[1]*t, z = r.o[2] + r.d[2]*t;
     let d = sceneJS(x,y,z);
     if(S.section) d = Math.max(d, z - S.secX);
     if(d < eps){
@@ -699,7 +761,7 @@ function pickRay(sx, sy){
       return best;
     }
     t += Math.max(d, eps*0.5);
-    if(t > 420) break;
+    if(t > 900) break;
   }
   return null;
 }
@@ -748,7 +810,10 @@ viewEl.addEventListener('pointerdown', e => {
         })};
       }
       snap();
-    } else if(!e.shiftKey) S.sel.clear();
+    } else {
+      if(!e.shiftKey) S.sel.clear();
+      drag = { mode:'orbit', sx, sy, az:S.az, el:S.el };   // empty space orbits
+    }
     sync(); return;
   }
   if(!g){ say('Switch to a plan or iso view to place pots'); return; }
@@ -792,7 +857,7 @@ viewEl.addEventListener('pointermove', e => {
     }
     case 'orbit': {
       S.az = drag.az + (sx-drag.sx)*0.008;
-      S.el = Math.max(-0.02, Math.min(1.553, drag.el + (sy-drag.sy)*0.006));
+      S.el = Math.max(-1.50, Math.min(1.553, drag.el + (sy-drag.sy)*0.006));
       S.view = 'free';
       document.getElementById('st-view').textContent = 'FREE';
       break;
@@ -1066,7 +1131,7 @@ TOOLS.forEach(t => {
 const CURSOR = { select:'default', circle:'crosshair', pill:'crosshair', cut:'crosshair',
                  orbit:'move', hand:'grab', zoom:'zoom-in' };
 const HINTS = {
-  select:'Click a pot anywhere on its body to select, drag to move - shift-drag orbits',
+  select:'Drag a pot to move it, drag empty space to orbit',
   circle:'Click to place a circle pot - alt places a subtract pot',
   pill:'Click to place, drag to aim - shift constrains the angle',
   cut:'Click to place a pot that subtracts from the others',
@@ -1093,7 +1158,7 @@ const VIEWS = {
 function setView(v){
   const d = VIEWS[v];
   if(!d) return;
-  S.view = v; S.az = d.az; S.el = d.el;
+  S.view = v; S.az = d.az; S.el = d.el; S.ty = v === 'plan' ? 0 : 5;
   document.getElementById('st-view').textContent = d.label;
   fitView();
   buildOpts();
@@ -1154,6 +1219,7 @@ function buildOpts(){
 
   const g3 = oGroup();
   oSeg(g3,'Iso',[['sw','SW'],['se','SE'],['ne','NE'],['nw','NW']], ()=>S.view, setView, 40);
+  oSeg(g3,'Proj',[[false,'ORTHO'],[true,'PERSP']], ()=>S.persp, v=>{ S.persp = v; say(v?'Perspective':'Orthographic'); }, 48);
 
   const g4 = oGroup();
   oRange(g4,'Coil',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
@@ -1226,7 +1292,8 @@ function buildPanel(){
   });
   sp.appendChild(pf);
   slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
-  sp.appendChild(el('p','hint','Nest carves the selected pot by the other pots grown by the clearance, so its face takes their shape with a gap and the parts drop together.'));
+  slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
+  sp.appendChild(el('p','hint','Nest carves the selected pot by its neighbours grown by the clearance. Press makes that contact behave like clay: the socket softens and the displaced material lifts into a lip. At 0 it is a clean cut.'));
   panel.appendChild(sp);
 
   const sel = selPots();
@@ -1407,6 +1474,7 @@ function frame(t){
   A.el    = ease(A.el,    S.el,    dt, 0.07);
   A.tx    = ease(A.tx,    S.tx,    dt, 0.07);
   A.tz    = ease(A.tz,    S.tz,    dt, 0.07);
+  A.ty    = ease(A.ty,    S.ty,    dt, 0.07);
   A.pitch = ease(A.pitch, S.pitch, dt, 0.09);
   A.secX  = ease(A.secX,  S.secX,  dt, 0.08);
   draw();
@@ -1458,7 +1526,7 @@ setTool('select');
 setView('sw');
 preset('tray');
 fitView();
-A.scale = S.scale; A.az = S.az; A.el = S.el; A.tx = S.tx; A.tz = S.tz; A.k = S.k;
+A.scale = S.scale; A.az = S.az; A.el = S.el; A.tx = S.tx; A.tz = S.tz; A.ty = S.ty; A.k = S.k;
 snap(); sync(); buildOpts();
 requestAnimationFrame(frame);
 
