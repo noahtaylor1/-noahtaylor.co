@@ -225,7 +225,7 @@ const S = {
   // the extruded bead is the real unit here: 8 mm wide by 4 mm tall, and
   // the layer pitch and wall thickness both follow from it
   beadW:8, beadH:4, relief:0.4, wallBeads:1,
-  pitch:4/25.4, shade:3, tone:0.34, air:true, edges:false, hollow:true, wall:8/25.4,
+  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, air:true, edges:false, hollow:true, wall:8/25.4,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -384,7 +384,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis;
+uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis, uAmb, uGap;
 uniform int uPersp, uAnyPress, uAir;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
@@ -596,7 +596,7 @@ void main(){
     if(uShade > 0 && uTone > 0.001){
       float ndl = dot(n, normalize(vec3(-0.58, 0.54, 0.61)));
       float f = clamp(ndl, 0.0, 1.0);
-      f *= mix(1.0, occlusion(pos, n), 0.9);
+      f *= mix(1.0, occlusion(pos, n), 0.55);
       /* The beads are lit analytically rather than through the normal, so
          they stay clean at any zoom: crown bright, seam dark, flattening to
          the mean once a bead is smaller than a pixel. */
@@ -606,6 +606,8 @@ void main(){
         crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
         f *= 0.74 + 0.40*crown;
       }
+      // an ambient floor, so the deepest tone is shadow and not a void
+      f = uAmb + (1.0 - uAmb)*f;
       float steps = float(uShade);
       float q = clamp(floor(f*steps + 0.5)/steps, 0.0, 1.0);
       col = mix(uInk, uPaper, q*uTone);
@@ -635,6 +637,13 @@ void main(){
   } else {
     float cov = clamp(minR/0.8, 0.0, 1.0);
     col = mix(uInk, uPaper, cov);
+    /* A ray that threads the clearance between two parts has passed close
+       to both, so the slot is shaded instead of reading as a white seam. */
+    if(uGap > 0.001){
+      float near = clamp(minD/(uTol*4.0 + 0.2), 0.0, 1.0);
+      near = near*near*(3.0 - 2.0*near);
+      col = mix(col, mix(col, uInk, 0.55), uGap*(1.0 - near));
+    }
   }
   outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -655,7 +664,7 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead',
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead','uAmb','uGap',
                   'uPersp','uAnyPress','uAir','uBeadVis','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
@@ -748,6 +757,8 @@ function draw(){
   gl.uniform1f(uni.uPress, S.press);
   gl.uniform1f(uni.uSwell, S.swell);
   gl.uniform1f(uni.uTone, S.tone);
+  gl.uniform1f(uni.uAmb, S.ambient);
+  gl.uniform1f(uni.uGap, S.gap);
   /* Ribbing finer than a few pixels only turns into moire, so the relief
      fades out as the bead approaches the pixel and the drawn line takes
      over instead. */
@@ -1480,7 +1491,11 @@ function buildPanel(){
     v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
   slider(s3,'Relief',0,1,.05, ()=>S.relief, v=>{S.relief=v;}, v=> v<0.01 ? 'flat' : v.toFixed(2));
   slider(s3,'Shade',0,6,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v)+' steps');
-  if(S.shade > 0) slider(s3,'Tone',0.1,1,.05, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
+  if(S.shade > 0){
+    slider(s3,'Tone',0.1,1,.05, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
+    slider(s3,'Ambient',0,0.6,.02, ()=>S.ambient, v=>{S.ambient=v;}, v=>v.toFixed(2));
+  }
+  slider(s3,'Gap shade',0,1,.05, ()=>S.gap, v=>{S.gap=v;}, v=> v<0.02 ? 'off' : v.toFixed(2));
   check(s3,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
   check(s3,'Hollow', ()=>S.hollow, v=>{S.hollow=v;});
   if(S.hollow) slider(s3,'Wall beads',1,4,1, ()=>S.wallBeads,
