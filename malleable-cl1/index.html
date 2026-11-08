@@ -225,7 +225,7 @@ const S = {
   // the extruded bead is the real unit here: 8 mm wide by 4 mm tall, and
   // the layer pitch and wall thickness both follow from it
   beadW:8, beadH:4, relief:0.4, wallBeads:1,
-  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, air:true, edges:false, hollow:true, wall:8/25.4,
+  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, air:true, stopSink:true, edges:false, hollow:true, wall:8/25.4,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -262,6 +262,129 @@ function skel(o){
   return { ax:o.x - c*s, az:o.z - si*s, bx:o.x + c*s, bz:o.z + si*s, R };
 }
 const blendOf = o => (o.k < 0 ? A.k : o.k);
+
+/* THE OVERLAP STOP
+   A pot may press into its neighbour, but not disappear into it. Past
+   about four fifths of its own width the socket stops being a socket: the
+   wall it is pressing into goes vertical and then undercut, the sliver
+   left on the far side thins to nothing, and the coil path has no closed
+   loop left to walk. So placement meets a wall first.
+
+   Written as a gap between the two skeletons. A pot of radius Rm is f of
+   its own width into one of radius Ro once the near side of Rm has passed
+   Ro's surface by 2*f*Rm, that is once the skeletons close to
+   Ro + Rm - 2*f*Rm. Both directions are checked, so the big pot cannot
+   swallow the small one either. */
+const MAX_SINK = 0.8;
+function sinkGap(Rm, Ro){
+  const s = 1 - 2*MAX_SINK;                      // -0.6 at four fifths
+  return Math.max(Ro + s*Rm, Rm + s*Ro, 0);
+}
+/* Closest pair of points between two segments in plan. */
+function segSeg(ax,az,bx,bz, cx,cz,dx,dz){
+  const ux=bx-ax, uz=bz-az, vx=dx-cx, vz=dz-cz, wx=ax-cx, wz=az-cz;
+  const a=ux*ux+uz*uz, b=ux*vx+uz*vz, c=vx*vx+vz*vz, d=ux*wx+uz*wz, e=vx*wx+vz*wz;
+  const D=a*c-b*b;
+  let t = (D < 1e-12) ? (c > 1e-12 ? e/c : 0)
+                      : Math.max(0, Math.min(1, (a*e-b*d)/D));
+  let sA = a > 1e-12 ? Math.max(0, Math.min(1, (b*t-d)/a)) : 0;
+  t = c > 1e-12 ? Math.max(0, Math.min(1, (b*sA+e)/c)) : 0;
+  return { px:ax+ux*sA, pz:az+uz*sA, qx:cx+vx*t, qz:cz+vz*t };
+}
+/* How much room is left over every pair: positive is clear, negative is
+   too deep. The moved set is rigid, so it is only ever measured against
+   the pots that stayed put. */
+function sinkSlack(moving){
+  const fixed = S.pots.filter(o => moving.indexOf(o) < 0);
+  let slack = 1e9;
+  for(const m of moving){
+    const km = skel(m);
+    for(const f of fixed){
+      const kf = skel(f);
+      const need = sinkGap(km.R, kf.R);
+      if(need <= 0) continue;
+      const cp = segSeg(km.ax,km.az,km.bx,km.bz, kf.ax,kf.az,kf.bx,kf.bz);
+      slack = Math.min(slack, Math.hypot(cp.px-cp.qx, cp.pz-cp.qz) - need);
+    }
+  }
+  return slack;
+}
+/* The wall. A drag travels as far along its own path as it legally can and
+   then stops dead, rather than being shoved out to the nearest legal spot
+   - projecting it out let one neighbour hand it to the next and flung the
+   pot across the table. What is left of the motion is tried again on each
+   axis alone, so a pot slides along the face it has met instead of
+   sticking to it.
+
+   The limit is measured against the slack the drag started with, never
+   against zero, so a layout that already nests deeper than MAX_SINK stays
+   draggable - it just cannot be pushed in any further. */
+function dragClamped(base, dx, dz){
+  const movers = base.map(b => b.o);
+  const put = (fx,fz) => { for(const b of base){ b.o.x = b.x+fx; b.o.z = b.z+fz; } };
+  put(0,0);
+  const floor = Math.min(0, sinkSlack(movers)) - 1e-6;
+  const ok = () => sinkSlack(movers) >= floor;
+  put(dx,dz);
+  if(!S.stopSink || ok()) return;
+  let lo = 0, hi = 1;
+  for(let i=0;i<16;i++){ const m=(lo+hi)/2; put(dx*m,dz*m); if(ok()) lo=m; else hi=m; }
+  let cx = dx*lo, cz = dz*lo;
+  for(const [ax,az] of [[dx*(1-lo),0],[0,dz*(1-lo)]]){
+    if(Math.abs(ax)+Math.abs(az) < 1e-9) continue;
+    let l=0, h=1;
+    for(let i=0;i<12;i++){ const m=(l+h)/2; put(cx+ax*m, cz+az*m); if(ok()) l=m; else h=m; }
+    cx += ax*l; cz += az*l;
+  }
+  put(cx,cz);
+}
+/* Turning a pill sweeps its skeleton through its neighbours, so the angle
+   gets the same treatment along its own one dimension. */
+function turnClamped(o, from, to){
+  if(!S.stopSink) { o.ang = to; return; }
+  o.ang = from;
+  const floor = Math.min(0, sinkSlack([o])) - 1e-6;
+  o.ang = to;
+  if(sinkSlack([o]) >= floor) return;
+  let lo=0, hi=1;
+  for(let i=0;i<16;i++){ const m=(lo+hi)/2; o.ang = from + (to-from)*m;
+    if(sinkSlack([o]) >= floor) lo=m; else hi=m; }
+  o.ang = from + (to-from)*lo;
+}
+/* A pot that has just appeared has no legal place to fall back to, so this
+   one does project to the nearest clear spot - bounded, and against the
+   pots that were already there. */
+function placeClear(moving){
+  if(!S.stopSink || !moving.length) return;
+  const fixed = S.pots.filter(o => moving.indexOf(o) < 0);
+  if(!fixed.length) return;
+  for(let pass=0; pass<4; pass++){
+    let worst = 0;
+    for(const m of moving){
+      const km = skel(m);
+      let bx=0, bz=0, deepest=0;
+      for(const f of fixed){
+        const kf = skel(f);
+        const need = sinkGap(km.R, kf.R);
+        if(need <= 0) continue;
+        const cp = segSeg(km.ax,km.az,km.bx,km.bz, kf.ax,kf.az,kf.bx,kf.bz);
+        let nx = cp.px-cp.qx, nz = cp.pz-cp.qz;
+        const g = Math.hypot(nx,nz);
+        if(g >= need || need-g <= deepest) continue;
+        deepest = need-g;
+        if(g < 1e-6){ const a = Math.atan2(km.az-kf.az, km.ax-kf.ax);
+                      bx = Math.cos(a); bz = Math.sin(a); }
+        else { bx = nx/g; bz = nz/g; }
+      }
+      if(deepest <= 0) continue;                 // only the worst, once a pass
+      m.x += bx*deepest; m.z += bz*deepest;
+      km.ax += bx*deepest; km.bx += bx*deepest;
+      km.az += bz*deepest; km.bz += bz*deepest;
+      worst = Math.max(worst, deepest);
+    }
+    if(worst < 1e-4) break;
+  }
+}
 /* A stamp keeps its own shape and presses into everything else. The
    selection is a stamp by default, so moving a pot pushes its neighbours
    around live; op 3 makes a pot a stamp permanently. */
@@ -323,7 +446,7 @@ function stampsJS(x,y,z, skip, mySeq){
   for(const o of S.pots){
     if(o === skip || !isStamp(o)) continue;
     if(mySeq > 0 && o.seq >= mySeq) continue;
-    d = Math.min(d, sdPotJS(o,x,y,z,S.air));
+    d = sminK(d, sdPotJS(o,x,y,z,S.air), S.wall);   // stamps merge, as on the GPU
   }
   return d;
 }
@@ -459,6 +582,7 @@ float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, flo
    outside, not its inside. */
 float stampsAt(vec3 p, int skip, float mySeq){
   float d = 1e9;
+  bool sweep = uAir == 1;
   for(int j=0;j<96;j++){
     if(j >= uCount) break;
     if(j == skip) continue;
@@ -467,9 +591,19 @@ float stampsAt(vec3 p, int skip, float mySeq){
     if(mySeq > 0.5 && C.w > mySeq - 0.5) continue;   // and only older ones
     vec4 A = texelFetch(uData, ivec2(j,0), 0);
     vec4 B = texelFetch(uData, ivec2(j,1), 0);
-    float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
+    /* The reject is only sound while the cylinder really holds the stamp.
+       Air rights carry the widest section straight up with no top, so the
+       cylinder is open above and only the floor caps it; capping it at the
+       stamp's own height dropped stamps that were still carving, and the
+       cut ended on a flat facet wherever the loop happened to drop one. */
+    float vcap = sweep ? -p.y : max(-p.y, p.y - B.y);
+    float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x - uBead, vcap);
     if(bd > d) continue;
-    d = min(d, sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, uAir == 1));
+    /* Stamps merge rather than meet. Two that almost touch would leave a
+       membrane of nothing between their sockets - invisible to print and
+       a flickering sheet on screen - so they join over a wall thickness
+       and the socket becomes one. */
+    d = sminK(d, sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, sweep), uWall);
   }
   return d;
 }
@@ -486,7 +620,7 @@ float scene(vec3 p){
     bool stamp = mySeq > 0.5;
     float k = C.z;
     // bounding cylinder: cheap reject before the profile maths
-    float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
+    float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x - uBead, max(-p.y, p.y - B.y));
     float pad = uAnyPress == 1 ? 1.4 : 0.4;      // the lip can grow the shape
     if(op == 0 && bd - d > k*1.6 + pad) continue;
     float sOut = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, false);
@@ -865,7 +999,7 @@ function duplicateSel(){
     const o = S.pots.find(p => p.id === id); if(!o) continue;
     const c = JSON.parse(JSON.stringify(o)); c.id = uid++; c.x += 6; c.z += 6; add.push(c);
   }
-  S.pots.push(...add); S.sel = new Set(add.map(o => o.id)); sync();
+  S.pots.push(...add); placeClear(add); S.sel = new Set(add.map(o => o.id)); sync();
 }
 function setOp(v){
   if(!S.sel.size){ say('Select a pot first'); return; }
@@ -1010,15 +1144,15 @@ viewEl.addEventListener('pointermove', e => {
     case 'move': {
       if(!g) break;
       const dx = g.x-drag.g.x, dz = g.z-drag.g.z;
-      for(const s of drag.start){ s.o.x = s.x+dx; s.o.z = s.z+dz; }
+      dragClamped(drag.start, dx, dz);
       break;
     }
-    case 'place': { if(g){ drag.o.x = g.x; drag.o.z = g.z; } break; }
+    case 'place': { if(g){ drag.o.x = g.x; drag.o.z = g.z; placeClear([drag.o]); } break; }
     case 'aim': {
       if(!g) break;
       let a = Math.atan2(g.z-drag.g.z, g.x-drag.g.x);
       if(e.shiftKey) a = Math.round(a/(Math.PI/12))*(Math.PI/12);
-      if(Math.hypot(g.x-drag.g.x, g.z-drag.g.z) > 0.6) drag.o.ang = a;
+      if(Math.hypot(g.x-drag.g.x, g.z-drag.g.z) > 0.6) turnClamped(drag.o, drag.o.ang, a);
       break;
     }
   }
@@ -1441,6 +1575,7 @@ function buildPanel(){
   sp.appendChild(pf);
   check(sp,'Press on select', ()=>S.pressMode, v=>{S.pressMode=v;});
   check(sp,'Air rights', ()=>S.air, v=>{S.air=v;});
+  check(sp,'Overlap stop', ()=>S.stopSink, v=>{S.stopSink=v;});
   slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
   slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
   slider(sp,'Swell',0,1,.02, ()=>S.swell, v=>{S.swell=v;}, v=> v<0.02 ? 'off' : v.toFixed(2));
