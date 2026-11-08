@@ -1525,8 +1525,21 @@ function preset(name){
 function sync(){
   // selecting a pot makes it the stamp for good, so the press does not
   // evaporate (and the blend does not rush back in) the moment you click away
-  if(S.pressMode) for(const o of S.pots)
-    if(S.sel.has(o.id) && o.op === 0 && !(o.seq > 0)) o.seq = ++S.stampN;
+  /* Selecting a pot ranks it first among the stamps, so it always presses
+     into everything else rather than only into whatever happens to be newer
+     than it. Without this the press works or not depending on where the pot
+     already sat in the order, which reads as the deform firing at random. */
+  if(S.pressMode && S.sel.size){
+    const picked = S.pots.filter(o => S.sel.has(o.id) && o.op === 0);
+    if(picked.length){
+      const rest = S.pots
+        .filter(o => o.op === 0 && (o.seq > 0) && !S.sel.has(o.id))
+        .sort((a,b) => a.seq - b.seq);
+      picked.forEach((o,i) => { o.seq = i+1; });
+      rest.forEach((o,i) => { o.seq = picked.length + i + 1; });
+      S.stampN = picked.length + rest.length;
+    }
+  }
   buildPanel();
   document.getElementById('st-n').textContent = S.pots.length;
 }
