@@ -218,7 +218,7 @@ let uid = 1;
 const S = {
   pots:[], sel:new Set(), tool:'select',
   view:'sw', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
-  k:3.2, kernel:2, tol:0.125, press:0.5, pressMode:true,
+  k:3.2, kernel:2, tol:0.125, press:0.5, swell:0, pressMode:true, stampN:0,
   persp:false, fov:0.61, ty:5,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
@@ -261,7 +261,10 @@ const blendOf = o => (o.k < 0 ? A.k : o.k);
 /* A stamp keeps its own shape and presses into everything else. The
    selection is a stamp by default, so moving a pot pushes its neighbours
    around live; op 3 makes a pot a stamp permanently. */
-const isStamp = o => o.op === 3;
+/* A stamp carries the order in which it was applied. A pot is deformed only
+   by stamps older than itself, so pressing a second pot never wipes out the
+   impression the first one already left — and nothing deforms both ways. */
+const isStamp = o => (o.seq || 0) > 0;
 const anyStamp = () => S.pots.some(isStamp);
 
 /* profile radius at height fraction t, plus its slope — analytic, so the
@@ -310,10 +313,11 @@ function sminK(a,b,k){
   return Math.max(kk, Math.min(a,b)) - Math.hypot(ua,ub);
 }
 const smaxK = (a,b,k) => -sminK(-a,-b,k);
-function stampsJS(x,y,z, skip){
+function stampsJS(x,y,z, skip, mySeq){
   let d = 1e9;
   for(const o of S.pots){
     if(o === skip || !isStamp(o)) continue;
+    if(mySeq > 0 && o.seq >= mySeq) continue;
     d = Math.min(d, sdPotJS(o,x,y,z));
   }
   return d;
@@ -326,27 +330,31 @@ function sceneJS(x,y,z){
     let cav = S.hollow ? sdCavityJS(o,x,y,z,S.wall) : 1e9;
     const k = blendOf(o);
     let ke = isStamp(o) ? 0 : k;
-    if(!isStamp(o) && press && (o.op === 0 || o.op === 3)){
-      const q = stampsJS(x,y,z,o) - S.tol;
+    if(press && o.op === 0){
+      const q = stampsJS(x,y,z,o,o.seq||0) - S.tol;
       if(S.press > 0.001){
         const soft = S.press*0.9;
         sOut = smaxK(sOut, -q, soft);
         if(S.hollow) cav = smaxK(cav, -(q - S.wall), soft);
-        const lipW = 1.3 + S.press*2.6;
-        let lip = S.press*0.26*Math.pow(Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW))), 1.6);
-        if(S.hollow) lip = Math.min(lip, S.wall*0.6);
-        sOut -= lip;
-        if(S.hollow) cav -= lip;
+        if(S.swell > 0.001){
+          const lipW = 1.3 + S.swell*2.6;
+          let lip = S.swell*0.26*Math.pow(Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW))), 1.6);
+          if(S.hollow) lip = Math.min(lip, S.wall*0.6);
+          sOut -= lip;
+          if(S.hollow) cav -= lip;
+        }
       } else {
         sOut = Math.max(sOut, -q);
         if(S.hollow) cav = Math.max(cav, -(q - S.wall));
       }
-      const band = (1.3 + S.press*2.6) + k*1.2;
-      const t2 = Math.min(1, Math.max(0, Math.max(q,0)/band));
-      ke = k*t2*t2*(3-2*t2);
+      if(!isStamp(o)){
+        const band = (1.3 + S.press*2.6) + k*1.2;
+        const t2 = Math.min(1, Math.max(0, Math.max(q,0)/band));
+        ke = k*t2*t2*(3-2*t2);
+      }
     }
     const s = S.hollow ? Math.max(sOut, -cav) : sOut;
-    if(o.op === 0 || o.op === 3) d = sminK(d,s,ke);
+    if(o.op === 0) d = sminK(d,s,ke);
     else if(o.op === 1) d = smaxK(d,-s,ke);
     else d = smaxK(d,s,ke);
   }
@@ -371,7 +379,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol, uPress;
+uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell;
 uniform int uPersp, uAnyPress;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
@@ -432,13 +440,14 @@ float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, flo
    deformed by this inflated by the clearance, so it takes the stamp's shape
    with a gap. Cavities are ignored on purpose: you clear the stamp's
    outside, not its inside. */
-float stampsAt(vec3 p, int skip){
+float stampsAt(vec3 p, int skip, float mySeq){
   float d = 1e9;
   for(int j=0;j<96;j++){
     if(j >= uCount) break;
     if(j == skip) continue;
     vec4 C = texelFetch(uData, ivec2(j,2), 0);
     if(C.w < 0.5) continue;                      // only stamps press
+    if(mySeq > 0.5 && C.w > mySeq - 0.5) continue;   // and only older ones
     vec4 A = texelFetch(uData, ivec2(j,0), 0);
     vec4 B = texelFetch(uData, ivec2(j,1), 0);
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
@@ -456,12 +465,13 @@ float scene(vec3 p){
     vec4 B = texelFetch(uData, ivec2(i,1), 0);
     vec4 C = texelFetch(uData, ivec2(i,2), 0);
     int op = int(C.y+0.5);
-    bool stamp = C.w > 0.5;
+    float mySeq = C.w;
+    bool stamp = mySeq > 0.5;
     float k = C.z;
     // bounding cylinder: cheap reject before the profile maths
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
     float pad = uAnyPress == 1 ? 1.4 : 0.4;      // the lip can grow the shape
-    if((op == 0 || op == 3) && bd - d > k*1.6 + pad) continue;
+    if(op == 0 && bd - d > k*1.6 + pad) continue;
     float sOut = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
     float cav = uHollow == 1
       ? sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall) : 1e9;
@@ -471,32 +481,33 @@ float scene(vec3 p){
        nothing changes character when the selection moves. */
     float ke = stamp ? 0.0 : k;
 
-    if(!stamp && uAnyPress == 1){
+    if(uAnyPress == 1){
       /* Deform the inner surface by the same amount as the outer, offset by
          the wall. Carving only the outside slices the shell open and leaves
          the wall hanging; carrying the cavity along keeps it closed and of
          even thickness as it flows around the stamp. */
-      float o = stampsAt(p, i) - uTol;
+      float o = stampsAt(p, i, mySeq) - uTol;
       if(uPress > 0.001){
         float soft = uPress*0.9;
         sOut = smaxK(sOut, -o, soft);
         if(uHollow == 1) cav = smaxK(cav, -(o - uWall), soft);
-        float lipW = 1.3 + uPress*2.6;
-        float u = clamp(o/lipW, 0.0, 1.0);
-        // a lower, softer swell — a tall narrow ridge bunches at the lead-in
-        float lip = uPress*0.26*pow(sin(3.14159265*u), 1.6);
-        if(uHollow == 1) lip = min(lip, uWall*0.6);   // never thin the wall away
-        sOut -= lip;
-        if(uHollow == 1) cav -= lip;
+        if(uSwell > 0.001){
+          float lipW = 1.3 + uSwell*2.6;
+          float u = clamp(o/lipW, 0.0, 1.0);
+          float lip = uSwell*0.26*pow(sin(3.14159265*u), 1.6);
+          if(uHollow == 1) lip = min(lip, uWall*0.6);  // never thin the wall away
+          sOut -= lip;
+          if(uHollow == 1) cav -= lip;
+        }
       } else {
         sOut = max(sOut, -o);
         if(uHollow == 1) cav = max(cav, -(o - uWall));
       }
       float band = (1.3 + uPress*2.6) + k*1.2;
-      ke = k*smoothstep(0.0, band, max(o, 0.0));
+      if(!stamp) ke = k*smoothstep(0.0, band, max(o, 0.0));
     }
     float s = uHollow == 1 ? max(sOut, -cav) : sOut;
-    if(op == 0 || op == 3) d = sminK(d, s, ke);
+    if(op == 0) d = sminK(d, s, ke);
     else if(op == 1) d = smaxK(d, -s, ke);
     else d = smaxK(d, s, ke);
   }
@@ -589,7 +600,7 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress',
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell',
                   'uPersp','uAnyPress','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
@@ -612,7 +623,7 @@ function upload(){
     let q = i*4;      texData[q]=s.ax; texData[q+1]=s.az; texData[q+2]=s.bx; texData[q+3]=s.bz;
     q = (96+i)*4;     texData[q]=s.R;  texData[q+1]=o.h;  texData[q+2]=o.tt;  texData[q+3]=o.bt;
     q = (192+i)*4;    texData[q]=o.belly; texData[q+1]=o.op; texData[q+2]=blendOf(o);
-                      texData[q+3]=isStamp(o) ? 1 : 0;
+                      texData[q+3]=o.seq || 0;
   }
   if(n) for(let r=0;r<3;r++) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r, n, 1, gl.RGBA, gl.FLOAT, texData, r*96*4);
   return n;
@@ -679,6 +690,7 @@ function draw(){
   gl.uniform1f(uni.uWall, S.wall);
   gl.uniform1f(uni.uTol, S.tol);
   gl.uniform1f(uni.uPress, S.press);
+  gl.uniform1f(uni.uSwell, S.swell);
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
@@ -774,8 +786,12 @@ function duplicateSel(){
 function setOp(v){
   if(!S.sel.size){ say('Select a pot first'); return; }
   snap();
-  for(const id of S.sel){ const o = S.pots.find(p => p.id === id); if(o) o.op = v; }
-  sync(); say(['Unite','Minus front','Intersect','Stamp permanently'][v]);
+  for(const id of S.sel){
+    const o = S.pots.find(p => p.id === id); if(!o) continue;
+    if(v === 3){ if(!(o.seq > 0)) o.seq = ++S.stampN; o.op = 0; }
+    else { o.op = v; if(v === 0) o.seq = 0; }
+  }
+  sync(); say(['Unite','Minus front','Intersect','Stamp'][v]);
 }
 function order(dir){
   if(!S.sel.size) return; snap();
@@ -1348,7 +1364,8 @@ function buildPanel(){
   check(sp,'Press on select', ()=>S.pressMode, v=>{S.pressMode=v;});
   slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
   slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
-  sp.appendChild(el('p','hint','Selecting a pot makes it the stamp: it keeps its own shape and presses into everything else, which takes its form with the clearance as a gap. It stays a stamp once set, so the press holds when you click away; Unite turns it back into an ordinary pot. Blending fades out near a stamp and carries on elsewhere.'));
+  slider(sp,'Swell',0,1,.02, ()=>S.swell, v=>{S.swell=v;}, v=> v<0.02 ? 'off' : v.toFixed(2));
+  sp.appendChild(el('p','hint','Selecting a pot makes it a stamp: it keeps its own shape and presses into everything else, which takes its form with the clearance as a gap. Stamps are kept in the order you apply them, and a pot is only pressed by stamps older than itself, so a later stamp never wipes out an impression already made. Unite turns a pot back into an ordinary one. Press softens the contact; Swell adds material around it, off by default.'));
   panel.appendChild(sp);
 
   const sel = selPots();
@@ -1498,7 +1515,8 @@ function preset(name){
 function sync(){
   // selecting a pot makes it the stamp for good, so the press does not
   // evaporate (and the blend does not rush back in) the moment you click away
-  if(S.pressMode) for(const o of S.pots) if(S.sel.has(o.id) && o.op === 0) o.op = 3;
+  if(S.pressMode) for(const o of S.pots)
+    if(S.sel.has(o.id) && o.op === 0 && !(o.seq > 0)) o.seq = ++S.stampN;
   buildPanel();
   document.getElementById('st-n').textContent = S.pots.length;
 }
