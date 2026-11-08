@@ -261,8 +261,7 @@ const blendOf = o => (o.k < 0 ? A.k : o.k);
 /* A stamp keeps its own shape and presses into everything else. The
    selection is a stamp by default, so moving a pot pushes its neighbours
    around live; op 3 makes a pot a stamp permanently. */
-const isStamp = o => (o.op === 0 || o.op === 3)
-  && (o.op === 3 || (S.pressMode && S.sel.has(o.id)));
+const isStamp = o => o.op === 3;
 const anyStamp = () => S.pots.some(isStamp);
 
 /* profile radius at height fraction t, plus its slope — analytic, so the
@@ -325,27 +324,31 @@ function sceneJS(x,y,z){
   for(const o of S.pots){
     let sOut = sdPotJS(o,x,y,z);
     let cav = S.hollow ? sdCavityJS(o,x,y,z,S.wall) : 1e9;
-    const k = press ? 0 : blendOf(o);
+    const k = blendOf(o);
+    let ke = isStamp(o) ? 0 : k;
     if(!isStamp(o) && press && (o.op === 0 || o.op === 3)){
       const q = stampsJS(x,y,z,o) - S.tol;
       if(S.press > 0.001){
         const soft = S.press*0.9;
         sOut = smaxK(sOut, -q, soft);
         if(S.hollow) cav = smaxK(cav, -(q - S.wall), soft);
-        const lipW = 1 + S.press*2;
-        let lip = S.press*0.55*Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW)));
-        if(S.hollow) lip = Math.min(lip, S.wall*0.8);
+        const lipW = 1.3 + S.press*2.6;
+        let lip = S.press*0.26*Math.pow(Math.sin(Math.PI*Math.min(1, Math.max(0, q/lipW))), 1.6);
+        if(S.hollow) lip = Math.min(lip, S.wall*0.6);
         sOut -= lip;
         if(S.hollow) cav -= lip;
       } else {
         sOut = Math.max(sOut, -q);
         if(S.hollow) cav = Math.max(cav, -(q - S.wall));
       }
+      const band = (1.3 + S.press*2.6) + k*1.2;
+      const t2 = Math.min(1, Math.max(0, Math.max(q,0)/band));
+      ke = k*t2*t2*(3-2*t2);
     }
     const s = S.hollow ? Math.max(sOut, -cav) : sOut;
-    if(o.op === 0 || o.op === 3) d = sminK(d,s,k);
-    else if(o.op === 1) d = smaxK(d,-s,k);
-    else d = smaxK(d,s,k);
+    if(o.op === 0 || o.op === 3) d = sminK(d,s,ke);
+    else if(o.op === 1) d = smaxK(d,-s,ke);
+    else d = smaxK(d,s,ke);
   }
   return d;
 }
@@ -454,8 +457,7 @@ float scene(vec3 p){
     vec4 C = texelFetch(uData, ivec2(i,2), 0);
     int op = int(C.y+0.5);
     bool stamp = C.w > 0.5;
-    // a press means separate parts, so blending is off while one is active
-    float k = uAnyPress == 1 ? 0.0 : C.z;
+    float k = C.z;
     // bounding cylinder: cheap reject before the profile maths
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
     float pad = uAnyPress == 1 ? 1.4 : 0.4;      // the lip can grow the shape
@@ -463,6 +465,11 @@ float scene(vec3 p){
     float sOut = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
     float cav = uHollow == 1
       ? sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall) : 1e9;
+
+    /* Blending is dropped only where a stamp is close enough to matter, and
+       eased back in beyond that, so the rest of the scene keeps blending and
+       nothing changes character when the selection moves. */
+    float ke = stamp ? 0.0 : k;
 
     if(!stamp && uAnyPress == 1){
       /* Deform the inner surface by the same amount as the outer, offset by
@@ -474,21 +481,24 @@ float scene(vec3 p){
         float soft = uPress*0.9;
         sOut = smaxK(sOut, -o, soft);
         if(uHollow == 1) cav = smaxK(cav, -(o - uWall), soft);
-        float lipW = 1.0 + uPress*2.0;
+        float lipW = 1.3 + uPress*2.6;
         float u = clamp(o/lipW, 0.0, 1.0);
-        float lip = uPress*0.55*sin(3.14159265*u);
-        if(uHollow == 1) lip = min(lip, uWall*0.8);   // never thin the wall away
+        // a lower, softer swell — a tall narrow ridge bunches at the lead-in
+        float lip = uPress*0.26*pow(sin(3.14159265*u), 1.6);
+        if(uHollow == 1) lip = min(lip, uWall*0.6);   // never thin the wall away
         sOut -= lip;
         if(uHollow == 1) cav -= lip;
       } else {
         sOut = max(sOut, -o);
         if(uHollow == 1) cav = max(cav, -(o - uWall));
       }
+      float band = (1.3 + uPress*2.6) + k*1.2;
+      ke = k*smoothstep(0.0, band, max(o, 0.0));
     }
     float s = uHollow == 1 ? max(sOut, -cav) : sOut;
-    if(op == 0 || op == 3) d = sminK(d, s, k);   // k is 0 while a press is live
-    else if(op == 1) d = smaxK(d, -s, k);
-    else d = smaxK(d, s, k);
+    if(op == 0 || op == 3) d = sminK(d, s, ke);
+    else if(op == 1) d = smaxK(d, -s, ke);
+    else d = smaxK(d, s, ke);
   }
   if(uSection == 1) d = max(d, p.z - uSecX);
   return d;
@@ -1338,7 +1348,7 @@ function buildPanel(){
   check(sp,'Press on select', ()=>S.pressMode, v=>{S.pressMode=v;});
   slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
   slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
-  sp.appendChild(el('p','hint','The selected pot is the stamp: it keeps its own shape and presses into everything else, which takes its form with the clearance as a gap. Press governs how much like clay that contact behaves; at 0 it is a clean cut. Blending is suspended while a stamp is live, since the parts are meant to come apart.'));
+  sp.appendChild(el('p','hint','Selecting a pot makes it the stamp: it keeps its own shape and presses into everything else, which takes its form with the clearance as a gap. It stays a stamp once set, so the press holds when you click away; Unite turns it back into an ordinary pot. Blending fades out near a stamp and carries on elsewhere.'));
   panel.appendChild(sp);
 
   const sel = selPots();
@@ -1486,6 +1496,9 @@ function preset(name){
    11 · LOOP
    ══════════════════════════════════════════════════════════════════ */
 function sync(){
+  // selecting a pot makes it the stamp for good, so the press does not
+  // evaporate (and the blend does not rush back in) the moment you click away
+  if(S.pressMode) for(const o of S.pots) if(S.sel.has(o.id) && o.op === 0) o.op = 3;
   buildPanel();
   document.getElementById('st-n').textContent = S.pots.length;
 }
