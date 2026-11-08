@@ -1,0 +1,1362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Malleable CL1 — Noah Taylor</title>
+<style>
+/* Same plate-and-chrome identity as Malleable: strictly achromatic, Helvetica,
+   options bar over [rail | ruled viewport | inspector], status strip beneath. */
+:root{
+  --paper:#ffffff;
+  --ink:#000000;
+  --chrome:#ffffff;
+  --chrome-2:#f4f4f4;
+  --chrome-3:#e9e9e9;
+  --rule:rgba(0,0,0,.16);
+  --rule-soft:rgba(0,0,0,.08);
+  --t1:rgba(0,0,0,.92);
+  --t2:rgba(0,0,0,.56);
+  --t3:rgba(0,0,0,.34);
+  --guide:rgba(0,0,0,.78);
+  --sel:#000000;
+  --font:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --nav-h:56px;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --paper:#000000;--ink:#ffffff;--chrome:#0b0b0b;--chrome-2:#161616;--chrome-3:#232323;
+  --rule:rgba(255,255,255,.18);--rule-soft:rgba(255,255,255,.09);
+  --t1:rgba(255,255,255,.94);--t2:rgba(255,255,255,.58);--t3:rgba(255,255,255,.34);
+  --guide:rgba(255,255,255,.82);--sel:#ffffff;color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;padding-top:var(--nav-h);background:var(--chrome);color:var(--t1);
+  font:13px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+
+.site-nav{position:fixed;top:0;left:0;right:0;height:var(--nav-h);z-index:30;
+  display:flex;align-items:center;justify-content:space-between;padding:0 48px;
+  background:var(--chrome);border-bottom:1px solid var(--rule);font-family:var(--font)}
+.site-nav a{color:var(--t1);text-decoration:none;transition:color .15s var(--ease)}
+.site-nav a:hover{color:var(--t3)}
+.nav-logo{font-size:14px;font-weight:500;letter-spacing:.03em}
+.nav-links{display:flex;gap:32px;list-style:none;margin:0;padding:0;font-size:13px;letter-spacing:.02em}
+@media (max-width:900px) and (min-width:701px){.site-nav{padding:0 24px}.nav-links{gap:22px}}
+@media (max-width:700px){.site-nav{padding:0 20px}.nav-links li:not(.keep){display:none}}
+
+#app{display:grid;grid-template-columns:40px 1fr 264px;grid-template-rows:34px 1fr 24px;height:100%}
+
+#opts{grid-column:1/4;grid-row:1;background:var(--chrome);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;padding:0 10px 0 12px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+#opts::-webkit-scrollbar{display:none}
+#opts .tname{font-weight:500;letter-spacing:.18em;text-transform:uppercase;font-size:10px;
+  white-space:nowrap;flex:none;padding-right:12px;margin-right:12px;border-right:1px solid var(--rule);min-width:104px}
+#opts .ogrp{display:flex;align-items:center;gap:7px;flex:none;padding-right:12px;margin-right:12px;
+  border-right:1px solid var(--rule-soft);animation:fadein .18s var(--ease)}
+#opts .ogrp:last-child{border-right:0}
+@keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+#opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
+#opts output{font-size:12px;font-variant-numeric:tabular-nums;min-width:32px;text-align:right}
+#opts input[type=range]{width:84px}
+
+#rail{grid-column:1;grid-row:2/4;background:var(--chrome);border-right:1px solid var(--rule);
+  display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 0;overflow-y:auto;scrollbar-width:none}
+#rail::-webkit-scrollbar{display:none}
+.tool{width:30px;height:30px;display:grid;place-items:center;border:1px solid transparent;flex:none;
+  background:none;border-radius:2px;cursor:pointer;color:var(--t1);position:relative;
+  transition:background .14s var(--ease),color .14s var(--ease)}
+.tool svg{width:17px;height:17px;display:block;transition:transform .16s var(--ease)}
+.tool:hover{background:var(--chrome-3)}
+.tool:hover svg{transform:scale(1.08)}
+.tool[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.tool[aria-pressed="true"] svg{transform:none}
+.tool:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
+.rail-sep{width:18px;height:1px;background:var(--rule);margin:5px 0;flex:none}
+
+#stage{grid-column:2;grid-row:2;display:grid;grid-template-columns:18px 1fr;grid-template-rows:18px 1fr;
+  background:var(--chrome);min-width:0;min-height:0}
+#corner{background:var(--chrome-2);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+#rulerH{border-bottom:1px solid var(--rule);background:var(--chrome-2);display:block;width:100%;height:100%}
+#rulerV{border-right:1px solid var(--rule);background:var(--chrome-2);display:block;width:100%;height:100%}
+#view{position:relative;overflow:hidden;touch-action:none;background:var(--paper);min-width:0;min-height:0}
+#gl,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
+#ov{pointer-events:none}
+#hint{position:absolute;left:12px;bottom:9px;font-size:11.5px;color:var(--t3);pointer-events:none;user-select:none}
+#perf{position:absolute;right:12px;bottom:9px;font-size:11px;color:var(--t3);pointer-events:none;
+  font-variant-numeric:tabular-nums}
+
+#panel{grid-column:3;grid-row:2/4;background:var(--chrome);border-left:1px solid var(--rule);
+  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.sect{border-bottom:1px solid var(--rule);padding:9px 11px}
+.sect h2{margin:0 0 9px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);font-weight:400}
+.row{display:flex;align-items:center;gap:7px;margin-bottom:5px;min-width:0}
+.row:last-child{margin-bottom:0}
+.row label{flex:0 0 72px;font-size:12px;color:var(--t2);min-width:0}
+.row output{flex:0 0 34px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
+input[type=range]{flex:1;min-width:0;height:14px;-webkit-appearance:none;appearance:none;background:none;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--rule)}
+input[type=range]::-moz-range-track{height:1px;background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:8px;border-radius:50%;
+  background:var(--ink);margin-top:-3.5px;cursor:pointer;transition:transform .12s var(--ease)}
+input[type=range]::-moz-range-thumb{width:8px;height:8px;border:0;border-radius:50%;background:var(--ink);cursor:pointer}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.35)}
+input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
+.seg{display:flex;flex:1;border:1px solid var(--rule);border-radius:2px;overflow:hidden;min-width:0}
+.seg button{flex:1;min-width:0;padding:4px 2px;background:none;border:0;border-right:1px solid var(--rule);
+  cursor:pointer;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--t2);white-space:nowrap;
+  transition:background .14s var(--ease),color .14s var(--ease)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.seg button:hover:not([aria-pressed="true"]){background:var(--chrome-3);color:var(--t1)}
+.btn{padding:5px 7px;background:none;border:1px solid var(--rule);border-radius:2px;cursor:pointer;
+  font-size:12px;font-weight:500;letter-spacing:.02em;flex:1;min-width:0;white-space:nowrap;
+  transition:background .14s var(--ease),color .14s var(--ease),border-color .14s var(--ease)}
+.btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn:focus-visible,.seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
+.pf{display:flex;gap:4px}
+.pf button{flex:1;height:26px;display:grid;place-items:center;border:1px solid var(--rule);
+  border-radius:2px;background:none;cursor:pointer;transition:background .14s var(--ease)}
+.pf button svg{width:17px;height:17px}
+.pf button:hover{background:var(--chrome-3)}
+.chk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);cursor:pointer;padding:3px 0;user-select:none}
+.chk input{appearance:none;-webkit-appearance:none;width:10px;height:10px;border:1px solid var(--rule);
+  border-radius:1px;margin:0;flex:none;cursor:pointer;transition:background .14s var(--ease)}
+.chk input:checked{background:var(--ink);border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--chrome)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.txt{width:100%;background:none;border:0;border-bottom:1px solid var(--rule-soft);padding:4px 0;
+  font-size:12px;letter-spacing:.06em;min-width:0;transition:border-color .14s var(--ease)}
+.txt:focus{outline:none;border-bottom-color:var(--ink)}
+.hint{font-size:11.5px;line-height:1.6;color:var(--t3);margin:7px 0 0}
+#selnone{font-size:12px;color:var(--t3);line-height:1.6}
+
+#status{grid-column:2;grid-row:3;border-top:1px solid var(--rule);background:var(--chrome);
+  display:flex;align-items:center;gap:15px;padding:0 12px;font-size:11px;color:var(--t2);
+  letter-spacing:.02em;overflow:hidden;white-space:nowrap}
+#status b{font-weight:500;color:var(--t1)}
+#status span{font-variant-numeric:tabular-nums}
+#st-msg{color:var(--t1);transition:opacity .3s var(--ease)}
+#drawer{display:none}
+
+@media (max-width:880px){
+  #app{grid-template-columns:1fr;grid-template-rows:34px 36px 1fr 24px}
+  #opts{grid-column:1;grid-row:1;padding-left:max(12px,env(safe-area-inset-left,0px));
+    padding-right:max(12px,env(safe-area-inset-right,0px))}
+  #rail{grid-column:1;grid-row:2;flex-direction:row;border-right:0;border-bottom:1px solid var(--rule);
+    padding:0 max(6px,env(safe-area-inset-left,0px));overflow-x:auto;overflow-y:hidden}
+  .rail-sep{width:1px;height:18px;margin:0 4px}
+  #stage{grid-column:1;grid-row:3}
+  #status{grid-column:1;grid-row:4;padding-left:max(11px,env(safe-area-inset-left,0px));
+    padding-right:max(11px,env(safe-area-inset-right,0px))}
+  #panel{position:fixed;right:0;bottom:24px;top:calc(70px + var(--nav-h));width:min(248px,86vw);z-index:5;
+    transform:translateX(102%);transition:transform .22s var(--ease);box-shadow:-8px 0 26px rgba(0,0,0,.18)}
+  #panel.open{transform:none}
+  #drawer{display:grid;place-items:center;position:fixed;right:10px;bottom:34px;z-index:6;
+    width:36px;height:36px;border-radius:50%;background:var(--ink);color:var(--paper);border:0;cursor:pointer;
+    box-shadow:0 2px 10px rgba(0,0,0,.3)}
+  #drawer svg{width:17px;height:17px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="/index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li class="keep"><a href="/work.html">Work</a></li>
+    <li><a href="/shop.html">Shop</a></li>
+    <li><a href="/index.html">Concepts</a></li>
+    <li><a href="/resume.html">Resume</a></li>
+    <li><a href="/lattice/">Lattice</a></li>
+    <li><a href="/malleable/">Malleable</a></li>
+  </ul>
+</nav>
+
+<div id="app">
+  <div id="opts"></div>
+  <nav id="rail" aria-label="Tools"></nav>
+
+  <div id="stage">
+    <div id="corner"></div>
+    <svg id="rulerH" aria-hidden="true"></svg>
+    <svg id="rulerV" aria-hidden="true"></svg>
+    <div id="view">
+      <canvas id="gl"></canvas>
+      <svg id="ov" aria-hidden="true"></svg>
+      <div id="hint"></div>
+      <div id="perf"></div>
+    </div>
+  </div>
+
+  <aside id="panel" aria-label="Inspector"></aside>
+
+  <div id="status">
+    <span>X <b id="st-x">0</b></span>
+    <span>Z <b id="st-z">0</b></span>
+    <span><b id="st-view">ISO</b></span>
+    <span>POTS <b id="st-n">0</b></span>
+    <span id="st-msg"></span>
+  </div>
+</div>
+<button id="drawer" aria-label="Toggle inspector"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 5h12M3 9h12M3 13h12"/></svg></button>
+
+<script>
+"use strict";
+(() => {
+
+/* ══════════════════════════════════════════════════════════════════
+   1 · STATE  —  units are inches, matching the standard pot sizes
+   ══════════════════════════════════════════════════════════════════ */
+const PLATE = { w:72, d:48 };          // ground plate, X by Z
+const DIA   = [6, 12];                 // standard circle diameters / pill widths
+const LEN   = [12, 18, 24, 36];        // standard pill lengths, overall
+let uid = 1;
+
+const S = {
+  pots:[], sel:new Set(), tool:'select',
+  view:'iso', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
+  k:3.2, kernel:2,
+  dia:12, len:24, h:9,
+  tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
+  pitch:0.6, shade:0, edges:true, hollow:false, wall:0.55,
+  section:false, secX:0,
+  grid:true, module:6, snap:true, invert:false,
+  steps:96, sliceY:4.5, traceRes:560,
+  cap1:'MALLEABLE CL1', cap2:'coil pots', cap3:'nr.001'
+};
+const A = { k:S.k, scale:S.scale, az:S.az, el:S.el, tx:0, tz:0, pitch:S.pitch, secX:0 };
+
+let msgTimer = 0;
+function say(t){
+  const e = document.getElementById('st-msg');
+  e.textContent = t; e.style.opacity = '1';
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { e.style.opacity = '0'; }, 2400);
+}
+const nearest = (v, list) => list.reduce((a,b) => Math.abs(b-v) < Math.abs(a-v) ? b : a);
+
+/* ══════════════════════════════════════════════════════════════════
+   2 · POT MODEL
+   A pot is a profile swept around a plan skeleton: a point for a
+   circle, a segment for a pill. R is the widest radius; the profile
+   narrows toward the rim and, more sharply, toward the foot.
+   ══════════════════════════════════════════════════════════════════ */
+function mkPot(kind, x, z){
+  return { id:uid++, kind, x, z, ang:0,
+           dia:S.dia, len:S.len, h:S.h,
+           tt:S.tt, bt:S.bt, belly:S.belly, op:0, k:-1 };
+}
+function skel(o){
+  const R = o.dia/2;
+  if(o.kind === 'circle') return { ax:o.x, az:o.z, bx:o.x, bz:o.z, R };
+  const s = Math.max(0, (o.len - o.dia)/2);
+  const c = Math.cos(o.ang), si = Math.sin(o.ang);
+  return { ax:o.x - c*s, az:o.z - si*s, bx:o.x + c*s, bz:o.z + si*s, R };
+}
+const blendOf = o => (o.k < 0 ? A.k : o.k);
+
+/* profile radius at height fraction t, plus its slope — analytic, so the
+   marcher gets a proper Lipschitz bound without extra samples */
+function potR(t, R, tt, bt, belly){
+  if(t < belly){
+    const b = Math.max(belly, 1e-4), u = Math.min(1, Math.max(0, t/b));
+    const r0 = R*(1-bt), s = u*u*(3-2*u);
+    return [r0 + (R-r0)*s, (R-r0)*6*u*(1-u)/b];
+  }
+  const b = Math.max(1-belly, 1e-4), u = Math.min(1, Math.max(0, (t-belly)/b));
+  const rT = R*(1-tt), s = u*u*(3-2*u);
+  return [R + (rT-R)*s, (rT-R)*6*u*(1-u)/b];
+}
+function segDist2(px,pz, ax,az, bx,bz){
+  const vx = bx-ax, vz = bz-az, wx = px-ax, wz = pz-az;
+  const L2 = vx*vx + vz*vz;
+  const t = L2 < 1e-9 ? 0 : Math.min(1, Math.max(0, (wx*vx + wz*vz)/L2));
+  return Math.hypot(wx - vx*t, wz - vz*t);
+}
+function sdPotJS(o, x, y, z){
+  const s = skel(o);
+  const q = segDist2(x,z, s.ax,s.az, s.bx,s.bz);
+  const t = Math.min(1, Math.max(0, y/o.h));
+  const [r, drdt] = potR(t, s.R, o.tt, o.bt, o.belly);
+  const drdy = drdt/Math.max(o.h, 1e-4);
+  const radial = (q - r)/Math.sqrt(1 + drdy*drdy);
+  const vert = Math.max(-y, y - o.h);
+  const ex = Math.max(radial, 0), ey = Math.max(vert, 0);
+  return Math.min(Math.max(radial, vert), 0) + Math.hypot(ex, ey);
+}
+function sminK(a,b,k){
+  if(k < 1e-4) return Math.min(a,b);
+  if(S.kernel === 0){ const h = Math.max(0,Math.min(1,.5+.5*(b-a)/k)); return b+(a-b)*h - k*h*(1-h); }
+  if(S.kernel === 1){ const kk = k*1.5, h = Math.max(kk-Math.abs(a-b),0)/kk; return Math.min(a,b) - h*h*h*kk/6; }
+  const kk = k*0.604, ua = Math.max(kk-a,0), ub = Math.max(kk-b,0);
+  return Math.max(kk, Math.min(a,b)) - Math.hypot(ua,ub);
+}
+const smaxK = (a,b,k) => -sminK(-a,-b,k);
+function sceneJS(x,y,z){
+  let d = 1e9;
+  for(const o of S.pots){
+    const s = sdPotJS(o,x,y,z), k = blendOf(o);
+    if(o.op === 0) d = sminK(d,s,k);
+    else if(o.op === 1) d = smaxK(d,-s,k);
+    else d = smaxK(d,s,k);
+  }
+  return d;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   3 · WEBGL — orthographic sphere tracing
+   No perspective and no lighting model: the form is read from its
+   silhouette and from layer lines at the print pitch, so the result
+   stays a drawing rather than a render.
+   ══════════════════════════════════════════════════════════════════ */
+const cvs = document.getElementById('gl');
+const gl = cvs.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+
+const VS = `#version 300 es
+void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); gl_Position = vec4(p*2.0-1.0,0.0,1.0); }`;
+
+const FS = `#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform vec3 uRight, uUp, uFwd, uTarget;
+uniform float uScale;
+uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
+uniform float uPitch, uSecX, uWall;
+uniform sampler2D uData;
+uniform vec3 uInk, uPaper;
+out vec4 outColor;
+
+float sminK(float a, float b, float k){
+  if(k < 1e-4) return min(a,b);
+  if(uKernel == 0){ float h = clamp(0.5+0.5*(b-a)/k,0.0,1.0); return mix(b,a,h) - k*h*(1.0-h); }
+  if(uKernel == 1){ float kk = k*1.5; float h = max(kk-abs(a-b),0.0)/kk; return min(a,b) - h*h*h*kk/6.0; }
+  float kk = k*0.604; vec2 u = max(vec2(kk-a, kk-b), 0.0);
+  return max(kk, min(a,b)) - length(u);
+}
+float smaxK(float a, float b, float k){ return -sminK(-a,-b,k); }
+
+float segDist2(vec2 p, vec2 a, vec2 b){
+  vec2 v = b-a, w = p-a;
+  float L2 = dot(v,v);
+  float t = L2 < 1e-9 ? 0.0 : clamp(dot(w,v)/L2, 0.0, 1.0);
+  return length(w - v*t);
+}
+void potR(float t, float R, float tt, float bt, float belly, out float r, out float drdt){
+  if(t < belly){
+    float b = max(belly, 1e-4), u = clamp(t/b, 0.0, 1.0);
+    float r0 = R*(1.0-bt), s = u*u*(3.0-2.0*u);
+    r = mix(r0, R, s); drdt = (R-r0)*6.0*u*(1.0-u)/b;
+  } else {
+    float b = max(1.0-belly, 1e-4), u = clamp((t-belly)/b, 0.0, 1.0);
+    float rT = R*(1.0-tt), s = u*u*(3.0-2.0*u);
+    r = mix(R, rT, s); drdt = (rT-R)*6.0*u*(1.0-u)/b;
+  }
+}
+float sdPot(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float belly, float inset){
+  float q = segDist2(p.xz, a, b);
+  float t = clamp(p.y/h, 0.0, 1.0);
+  float r, drdt; potR(t, R, tt, bt, belly, r, drdt);
+  r -= inset;
+  float drdy = drdt/max(h, 1e-4);
+  float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
+  float vert = max(-p.y, p.y - h);
+  vec2 e = vec2(radial, vert);
+  return min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
+}
+/* the cavity is the same profile stepped inward, floored at the wall
+   thickness and left open at the rim */
+float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float belly, float wall){
+  float q = segDist2(p.xz, a, b);
+  float t = clamp(p.y/h, 0.0, 1.0);
+  float r, drdt; potR(t, R, tt, bt, belly, r, drdt);
+  r = max(r - wall, 0.02);
+  float drdy = drdt/max(h, 1e-4);
+  float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
+  return max(radial, wall - p.y);
+}
+
+float scene(vec3 p){
+  float d = 1e9;
+  for(int i=0;i<96;i++){
+    if(i >= uCount) break;
+    vec4 A = texelFetch(uData, ivec2(i,0), 0);
+    vec4 B = texelFetch(uData, ivec2(i,1), 0);
+    vec4 C = texelFetch(uData, ivec2(i,2), 0);
+    int op = int(C.y+0.5);
+    float k = C.z;
+    // bounding cylinder: cheap reject before the profile maths
+    float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
+    if(op == 0 && bd - d > k*1.6 + 0.4) continue;
+    float s = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
+    if(uHollow == 1){
+      float cav = sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall);
+      s = max(s, -cav);
+    }
+    if(op == 0) d = sminK(d, s, k);
+    else if(op == 1) d = smaxK(d, -s, k);
+    else d = smaxK(d, s, k);
+  }
+  if(uSection == 1) d = max(d, p.z - uSecX);
+  return d;
+}
+vec3 normalAt(vec3 p, float e){
+  vec2 h = vec2(1.0,-1.0)*0.5773*e;
+  return normalize(h.xyy*scene(p+h.xyy) + h.yyx*scene(p+h.yyx)
+                 + h.yxy*scene(p+h.yxy) + h.xxx*scene(p+h.xxx));
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  float px = uScale/uRes.y;                       // world units per pixel
+  vec3 ro = uTarget + uRight*(uv.x*uScale) + uUp*(uv.y*uScale) - uFwd*180.0;
+  vec3 rd = uFwd;
+
+  float t = 0.0, minD = 1e9;
+  bool hit = false;
+  vec3 pos = ro;
+  for(int i=0;i<256;i++){
+    if(i >= uSteps) break;
+    pos = ro + rd*t;
+    float d = scene(pos);
+    minD = min(minD, d);
+    if(d < px*0.4){ hit = true; break; }
+    t += max(d, px*0.25);
+    if(t > 420.0) break;
+  }
+
+  vec3 col = uPaper;
+  if(hit){
+    col = uInk;
+    vec3 n = vec3(0.0);
+    bool needN = uEdges == 1 || uShade > 0;
+    if(needN) n = normalAt(pos, px*1.1);
+
+    // layer lines at the print pitch — the form is read from these
+    if(uPitch > 0.001){
+      float ly = pos.y/uPitch;
+      float w = fwidth(ly);
+      float g = abs(fract(ly) - 0.5)/max(w, 1e-5);
+      float line = 1.0 - smoothstep(0.18, 0.78, g);
+      float fade = 1.0 - smoothstep(0.26, 0.46, w);   // drop below ~2px spacing
+      bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
+      if(!onCut) col = mix(col, uPaper, line*fade*0.85);
+    }
+    if(uShade > 0){
+      float f = clamp(dot(n, normalize(vec3(-0.35, 0.80, 0.48)))*0.5 + 0.5, 0.0, 1.0);
+      float q = floor(f*float(uShade))/float(uShade-1 > 0 ? uShade-1 : 1);
+      col = mix(col, mix(uInk, uPaper, clamp(q,0.0,1.0)*0.55), 0.85);
+    }
+    // crease line where the surface folds — the rim, and where forms meet
+    if(uEdges == 1){
+      float cr = length(fwidth(n));
+      float facing = abs(dot(n, rd));
+      float e = smoothstep(0.45, 1.25, cr)*smoothstep(0.06, 0.28, facing);
+      col = mix(col, uPaper, e*0.9);
+    }
+    if(uSection == 1 && abs(pos.z - uSecX) < px*1.5) col = uInk;   // poché the cut face
+  } else {
+    float cov = clamp(minD/(px*0.8), 0.0, 1.0);
+    col = mix(uInk, uPaper, cov);
+  }
+  outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+let prog, uni = {}, tex, texData = new Float32Array(96*3*4), ok = true;
+function compile(type, src){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+function initGL(){
+  if(!gl){ ok = false; return; }
+  prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uData','uInk','uPaper'])
+    uni[n] = gl.getUniformLocation(prog, n);
+  gl.bindVertexArray(gl.createVertexArray());
+  tex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 96, 3);
+  gl.uniform1i(uni.uData, 0);
+}
+try { initGL(); } catch(e){ ok = false; console.error(e); }
+
+function upload(){
+  const n = Math.min(S.pots.length, 96);
+  for(let i=0;i<n;i++){
+    const o = S.pots[i], s = skel(o);
+    let q = i*4;      texData[q]=s.ax; texData[q+1]=s.az; texData[q+2]=s.bx; texData[q+3]=s.bz;
+    q = (96+i)*4;     texData[q]=s.R;  texData[q+1]=o.h;  texData[q+2]=o.tt;  texData[q+3]=o.bt;
+    q = (192+i)*4;    texData[q]=o.belly; texData[q+1]=o.op; texData[q+2]=blendOf(o); texData[q+3]=0;
+  }
+  if(n) for(let r=0;r<3;r++) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r, n, 1, gl.RGBA, gl.FLOAT, texData, r*96*4);
+  return n;
+}
+function themeColors(){
+  const cs = getComputedStyle(document.documentElement);
+  const toRGB = v => { v = v.trim();
+    return v.startsWith('#') ? [parseInt(v.slice(1,3),16)/255, parseInt(v.slice(3,5),16)/255, parseInt(v.slice(5,7),16)/255]
+                             : [0,0,0]; };
+  return { ink: toRGB(cs.getPropertyValue('--ink')), paper: toRGB(cs.getPropertyValue('--paper')) };
+}
+
+/* ── camera basis ─────────────────────────────────────────────────── */
+function basis(){
+  const ce = Math.cos(A.el), se = Math.sin(A.el);
+  const eye = [ce*Math.sin(A.az), se, ce*Math.cos(A.az)];        // target → camera
+  const upRef = Math.abs(A.el) > 1.45 ? [0,0,-1] : [0,1,0];
+  let rx = upRef[1]*eye[2] - upRef[2]*eye[1];
+  let ry = upRef[2]*eye[0] - upRef[0]*eye[2];
+  let rz = upRef[0]*eye[1] - upRef[1]*eye[0];
+  let L = Math.hypot(rx,ry,rz) || 1; rx/=L; ry/=L; rz/=L;
+  const ux = eye[1]*rz - eye[2]*ry, uy = eye[2]*rx - eye[0]*rz, uz = eye[0]*ry - eye[1]*rx;
+  return { right:[rx,ry,rz], up:[ux,uy,uz], fwd:[-eye[0],-eye[1],-eye[2]], eye };
+}
+const viewEl = document.getElementById('view');
+const ovEl = document.getElementById('ov');
+let vw = 0, vh = 0;
+function resize(){
+  const r = viewEl.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 1.75);
+  vw = r.width; vh = r.height;
+  const w = Math.max(1, Math.round(r.width*dpr)), h = Math.max(1, Math.round(r.height*dpr));
+  if(cvs.width !== w || cvs.height !== h){ cvs.width = w; cvs.height = h; }
+  ovEl.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
+}
+function draw(){
+  if(!ok) return;
+  const b = basis(), c = themeColors(), n = upload();
+  gl.viewport(0,0,cvs.width,cvs.height);
+  gl.useProgram(prog);
+  gl.uniform2f(uni.uRes, cvs.width, cvs.height);
+  gl.uniform3fv(uni.uRight, b.right);
+  gl.uniform3fv(uni.uUp, b.up);
+  gl.uniform3fv(uni.uFwd, b.fwd);
+  gl.uniform3f(uni.uTarget, A.tx, S.view === 'plan' ? 0 : 5, A.tz);
+  gl.uniform1f(uni.uScale, A.scale);
+  gl.uniform1i(uni.uCount, n);
+  gl.uniform1i(uni.uKernel, S.kernel);
+  gl.uniform1i(uni.uSteps, dragging ? 56 : S.steps);
+  gl.uniform1i(uni.uShade, S.shade);
+  gl.uniform1i(uni.uSection, S.section ? 1 : 0);
+  gl.uniform1i(uni.uHollow, S.hollow ? 1 : 0);
+  gl.uniform1i(uni.uEdges, S.edges ? 1 : 0);
+  gl.uniform1f(uni.uPitch, A.pitch);
+  gl.uniform1f(uni.uSecX, A.secX);
+  gl.uniform1f(uni.uWall, S.wall);
+  gl.uniform3fv(uni.uInk, c.ink);
+  gl.uniform3fv(uni.uPaper, c.paper);
+  gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* world ↔ screen, through the same orthographic basis the shader uses */
+function worldToScreen(x,y,z){
+  const b = basis();
+  const rx = x-A.tx, ry = y-(S.view === 'plan' ? 0 : 5), rz = z-A.tz;
+  const u = rx*b.right[0] + ry*b.right[1] + rz*b.right[2];
+  const v = rx*b.up[0] + ry*b.up[1] + rz*b.up[2];
+  return { x: u/A.scale*vh + vw/2, y: -v/A.scale*vh + vh/2 };
+}
+function screenToGround(sx,sy){
+  const b = basis();
+  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
+  const ox = A.tx + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*180;
+  const oy = (S.view === 'plan' ? 0 : 5) + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*180;
+  const oz = A.tz + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*180;
+  if(Math.abs(b.fwd[1]) < 1e-4) return null;          // front elevation: ray never meets the ground
+  const t = -oy/b.fwd[1];
+  return { x: ox + b.fwd[0]*t, z: oz + b.fwd[2]*t };
+}
+const snapG = (p, invert) => {
+  const on = S.snap !== !!invert;
+  if(!on || !p) return p;
+  const g = S.module/2;
+  return { x: Math.round(p.x/g)*g, z: Math.round(p.z/g)*g };
+};
+
+/* ══════════════════════════════════════════════════════════════════
+   4 · HISTORY + EDIT OPS
+   ══════════════════════════════════════════════════════════════════ */
+const hist = []; let histAt = -1;
+function snap(){
+  const j = JSON.stringify({ pots:S.pots, uid });
+  if(hist[histAt] === j) return;
+  hist.length = histAt+1; hist.push(j); histAt = hist.length-1;
+  if(hist.length > 60){ hist.shift(); histAt--; }
+}
+function restore(i){
+  if(i < 0 || i >= hist.length) return;
+  const d = JSON.parse(hist[i]);
+  S.pots = d.pots; uid = d.uid; S.sel.clear(); histAt = i; sync();
+}
+const undo = () => { restore(histAt-1); say('Undo'); };
+const redo = () => { restore(histAt+1); say('Redo'); };
+
+function remove(id){ S.pots = S.pots.filter(o => o.id !== id); S.sel.delete(id); }
+function deleteSel(){ if(!S.sel.size) return; snap(); [...S.sel].forEach(remove); S.sel.clear(); sync(); }
+function duplicateSel(){
+  if(!S.sel.size) return; snap();
+  const add = [];
+  for(const id of S.sel){
+    const o = S.pots.find(p => p.id === id); if(!o) continue;
+    const c = JSON.parse(JSON.stringify(o)); c.id = uid++; c.x += 6; c.z += 6; add.push(c);
+  }
+  S.pots.push(...add); S.sel = new Set(add.map(o => o.id)); sync();
+}
+function setOp(v){
+  if(!S.sel.size){ say('Select a pot first'); return; }
+  snap();
+  for(const id of S.sel){ const o = S.pots.find(p => p.id === id); if(o) o.op = v; }
+  sync(); say(['Unite','Minus front','Intersect'][v]);
+}
+function order(dir){
+  if(!S.sel.size) return; snap();
+  const picked = S.pots.filter(o => S.sel.has(o.id));
+  const rest = S.pots.filter(o => !S.sel.has(o.id));
+  S.pots = dir > 0 ? [...rest,...picked] : [...picked,...rest];
+  sync();
+}
+function clearAll(){ snap(); S.pots = []; S.sel.clear(); sync(); }
+function pick(x,z){
+  let best = null, bd = Infinity;
+  for(const o of S.pots){
+    const s = skel(o);
+    const d = segDist2(x,z, s.ax,s.az, s.bx,s.bz) - s.R;
+    if(d < bd){ bd = d; best = o.id; }
+  }
+  return bd < 1.2 ? best : null;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   5 · POINTER
+   ══════════════════════════════════════════════════════════════════ */
+let drag = null, dragging = false, spaceDown = false, hoverG = null;
+
+viewEl.addEventListener('pointerdown', e => {
+  viewEl.setPointerCapture(e.pointerId);
+  const r = viewEl.getBoundingClientRect();
+  const sx = e.clientX-r.left, sy = e.clientY-r.top;
+  const g = snapG(screenToGround(sx,sy), e.ctrlKey);
+  dragging = true;
+
+  if(e.button === 1 || spaceDown || S.tool === 'hand'){
+    drag = { mode:'pan', sx, sy, tx:A.tx, tz:A.tz }; return;
+  }
+  if(e.button !== 0) return;
+  if(S.tool === 'orbit' || e.shiftKey && S.tool === 'select'){
+    drag = { mode:'orbit', sx, sy, az:S.az, el:S.el }; return;
+  }
+  if(S.tool === 'zoom'){
+    S.scale = Math.max(12, Math.min(260, S.scale*(e.altKey ? 1.5 : 1/1.5)));
+    return;
+  }
+  if(!g){ say('Switch to Plan or Iso to place pots'); return; }
+
+  switch(S.tool){
+    case 'select': {
+      const id = pick(g.x, g.z);
+      if(id){
+        if(e.shiftKey) S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
+        else if(!S.sel.has(id)){ S.sel.clear(); S.sel.add(id); }
+        drag = { mode:'move', g, start:[...S.sel].map(i => {
+          const o = S.pots.find(p => p.id === i);
+          return { o, x:o.x, z:o.z };
+        })};
+        snap();
+      } else S.sel.clear();
+      sync(); return;
+    }
+    case 'circle': case 'cut': {
+      const o = mkPot('circle', g.x, g.z);
+      o.op = (S.tool === 'cut' || e.altKey) ? 1 : 0;
+      S.pots.push(o); S.sel.clear(); S.sel.add(o.id);
+      drag = { mode:'place', o, g }; snap(); sync(); return;
+    }
+    case 'pill': {
+      const o = mkPot('pill', g.x, g.z);
+      o.op = e.altKey ? 1 : 0;
+      S.pots.push(o); S.sel.clear(); S.sel.add(o.id);
+      drag = { mode:'aim', o, g }; snap(); sync(); return;
+    }
+  }
+});
+
+viewEl.addEventListener('pointermove', e => {
+  const r = viewEl.getBoundingClientRect();
+  const sx = e.clientX-r.left, sy = e.clientY-r.top;
+  const raw = screenToGround(sx,sy);
+  const g = snapG(raw, e.ctrlKey);
+  hoverG = raw;
+  if(raw){
+    document.getElementById('st-x').textContent = raw.x.toFixed(1);
+    document.getElementById('st-z').textContent = raw.z.toFixed(1);
+  }
+  if(!drag) return;
+
+  switch(drag.mode){
+    case 'pan': {
+      const b = basis();
+      const dx = -(sx-drag.sx)/vh*A.scale, dy = (sy-drag.sy)/vh*A.scale;
+      S.tx = drag.tx + b.right[0]*dx + b.up[0]*dy;
+      S.tz = drag.tz + b.right[2]*dx + b.up[2]*dy;
+      A.tx = S.tx; A.tz = S.tz;
+      break;
+    }
+    case 'orbit': {
+      S.az = drag.az + (sx-drag.sx)*0.008;
+      S.el = Math.max(-0.02, Math.min(1.553, drag.el + (sy-drag.sy)*0.006));
+      S.view = 'free';
+      document.getElementById('st-view').textContent = 'FREE';
+      break;
+    }
+    case 'move': {
+      if(!g) break;
+      const dx = g.x-drag.g.x, dz = g.z-drag.g.z;
+      for(const s of drag.start){ s.o.x = s.x+dx; s.o.z = s.z+dz; }
+      break;
+    }
+    case 'place': { if(g){ drag.o.x = g.x; drag.o.z = g.z; } break; }
+    case 'aim': {
+      if(!g) break;
+      let a = Math.atan2(g.z-drag.g.z, g.x-drag.g.x);
+      if(e.shiftKey) a = Math.round(a/(Math.PI/12))*(Math.PI/12);
+      if(Math.hypot(g.x-drag.g.x, g.z-drag.g.z) > 0.6) drag.o.ang = a;
+      break;
+    }
+  }
+});
+function endDrag(){
+  dragging = false;
+  if(!drag) return;
+  drag = null;
+  snap(); sync();
+}
+viewEl.addEventListener('pointerup', endDrag);
+viewEl.addEventListener('pointercancel', endDrag);
+viewEl.addEventListener('pointerleave', () => { hoverG = null; });
+viewEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.scale = Math.max(12, Math.min(260, S.scale*Math.exp(e.deltaY*0.0014)));
+}, { passive:false });
+
+/* ══════════════════════════════════════════════════════════════════
+   6 · OVERLAY + RULERS
+   ══════════════════════════════════════════════════════════════════ */
+const rhEl = document.getElementById('rulerH');
+const rvEl = document.getElementById('rulerV');
+const esc = t => String(t).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+function rulers(){
+  const rh = rhEl.getBoundingClientRect(), rv = rvEl.getBoundingClientRect();
+  if(!rh.width || !rv.height) return;
+  rhEl.setAttribute('viewBox', `0 0 ${rh.width} ${rh.height}`);
+  rvEl.setAttribute('viewBox', `0 0 ${rv.width} ${rv.height}`);
+  rhEl.style.color = 'var(--t1)'; rvEl.style.color = 'var(--t1)';
+  if(S.view !== 'plan' && S.view !== 'front'){ rhEl.innerHTML = ''; rvEl.innerHTML = ''; return; }
+  const H = rh.height, V = rv.width, step = S.module;
+  let h = '', v = '';
+  for(let x=-PLATE.w; x<=PLATE.w; x+=step){
+    const p = worldToScreen(x, 0, S.view === 'plan' ? 0 : 0);
+    if(p.x < -20 || p.x > rh.width+20) continue;
+    h += `<path d="M${p.x.toFixed(1)} ${H*0.3}V${H}" stroke="currentColor" stroke-width="1" opacity=".5"/>`
+       + `<text x="${p.x+3}" y="${H*0.62}" font-size="8.5" fill="currentColor" opacity=".55" font-family="var(--font)">${x}</text>`;
+  }
+  const vert = S.view === 'plan'
+    ? (z => worldToScreen(0,0,z)) : (y => worldToScreen(0,y,0));
+  for(let q=-PLATE.d; q<=PLATE.d; q+=step){
+    if(S.view === 'front' && q < 0) continue;
+    const p = vert(q);
+    if(p.y < -20 || p.y > rv.height+20) continue;
+    v += `<path d="M${V*0.3} ${p.y.toFixed(1)}H${V}" stroke="currentColor" stroke-width="1" opacity=".5"/>`
+       + `<text x="${V*0.54}" y="${p.y-3}" font-size="8.5" fill="currentColor" opacity=".55" font-family="var(--font)" transform="rotate(-90 ${V*0.54} ${p.y-3})">${q}</text>`;
+  }
+  rhEl.innerHTML = h; rvEl.innerHTML = v;
+}
+
+function overlay(){
+  let s = '';
+  const hw = PLATE.w/2, hd = PLATE.d/2;
+  const P = (x,z) => worldToScreen(x,0,z);
+
+  // ground plate, drawn in projection so it reads as a floor in iso
+  const c0 = P(-hw,-hd), c1 = P(hw,-hd), c2 = P(hw,hd), c3 = P(-hw,hd);
+  if(S.grid && (S.module/A.scale)*vh > 4){
+    let g = '';
+    for(let x=-hw; x<=hw+.01; x+=S.module){
+      const a = P(x,-hd), b = P(x,hd);
+      const maj = Math.abs(x % (S.module*4)) < 0.01;
+      g += `<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)}L${b.x.toFixed(1)} ${b.y.toFixed(1)}" stroke="var(--ink)" stroke-width="${maj?0.8:0.5}" opacity="${maj?.15:.065}"/>`;
+    }
+    for(let z=-hd; z<=hd+.01; z+=S.module){
+      const a = P(-hw,z), b = P(hw,z);
+      const maj = Math.abs(z % (S.module*4)) < 0.01;
+      g += `<path d="M${a.x.toFixed(1)} ${a.y.toFixed(1)}L${b.x.toFixed(1)} ${b.y.toFixed(1)}" stroke="var(--ink)" stroke-width="${maj?0.8:0.5}" opacity="${maj?.15:.065}"/>`;
+    }
+    s += g;
+  }
+  s += `<path d="M${c0.x} ${c0.y}L${c1.x} ${c1.y}L${c2.x} ${c2.y}L${c3.x} ${c3.y}Z" fill="none" stroke="var(--rule)" stroke-width="1"/>`;
+
+  // selected pots: footprint outline on the ground plus a height stick
+  for(const o of S.pots){
+    if(!S.sel.has(o.id)) continue;
+    const k = skel(o);
+    let d = '';
+    const steps = 44;
+    for(let i=0;i<=steps;i++){
+      const th = i/steps*Math.PI*2;
+      // outline of the capsule footprint at radius R
+      const cx = Math.cos(th) >= 0 ? k.bx : k.ax, cz = Math.cos(th) >= 0 ? k.bz : k.az;
+      const ux = Math.cos(o.ang), uz = Math.sin(o.ang);
+      const nx = -uz, nz = ux;
+      const px = cx + (Math.cos(th)*ux + Math.sin(th)*nx)*k.R;
+      const pz = cz + (Math.cos(th)*uz + Math.sin(th)*nz)*k.R;
+      const q = P(px,pz);
+      d += (i?'L':'M')+q.x.toFixed(1)+' '+q.y.toFixed(1);
+    }
+    s += `<path d="${d}Z" fill="none" stroke="var(--guide)" stroke-width="1" stroke-dasharray="3 3" opacity=".85"/>`;
+    const b0 = P(o.x,o.z), b1 = worldToScreen(o.x, o.h, o.z);
+    s += `<path d="M${b0.x} ${b0.y}L${b1.x} ${b1.y}" stroke="var(--guide)" stroke-width="1" opacity=".5" stroke-dasharray="2 3"/>`
+       + `<rect x="${b1.x-3}" y="${b1.y-3}" width="6" height="6" fill="var(--paper)" stroke="var(--sel)" stroke-width="1.2"/>`;
+  }
+
+  // section plane indicator
+  if(S.section && S.view !== 'front'){
+    const a = worldToScreen(-hw, 0, A.secX), b = worldToScreen(hw, 0, A.secX);
+    const a2 = worldToScreen(-hw, 14, A.secX), b2 = worldToScreen(hw, 14, A.secX);
+    s += `<path d="M${a.x} ${a.y}L${b.x} ${b.y}L${b2.x} ${b2.y}L${a2.x} ${a2.y}Z" fill="var(--ink)" fill-opacity=".04" stroke="var(--guide)" stroke-width="1" stroke-dasharray="6 3"/>`;
+  }
+
+  // caption row, bottom left of the viewport
+  s += `<g fill="var(--t3)" font-family="var(--font)" font-size="9" letter-spacing="1.4">`
+     + `<text x="14" y="20">${esc(S.cap1)}</text>`
+     + `<text x="14" y="32">${esc(S.cap2)} \u00B7 ${esc(S.cap3)}</text></g>`;
+  ovEl.innerHTML = s;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   7 · EXPORT
+   ══════════════════════════════════════════════════════════════════ */
+function download(name, blob){
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 4000);
+}
+function exportPNG(){
+  draw();                                   // make sure the buffer holds the current frame
+  cvs.toBlob(b => { if(b){ download('malleable-cl1.png', b); say('PNG saved'); } }, 'image/png');
+}
+/* plan outline: marching squares over a horizontal slice of the field */
+function planSVG(){
+  if(!S.pots.length) return null;
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(const o of S.pots){
+    const k = skel(o), pad = k.R + S.k + 2;
+    x0 = Math.min(x0, Math.min(k.ax,k.bx)-pad); x1 = Math.max(x1, Math.max(k.ax,k.bx)+pad);
+    z0 = Math.min(z0, Math.min(k.az,k.bz)-pad); z1 = Math.max(z1, Math.max(k.az,k.bz)+pad);
+  }
+  const res = S.traceRes;
+  const nx = res, nz = Math.max(16, Math.round(res*(z1-z0)/(x1-x0)));
+  const dx = (x1-x0)/nx, dz = (z1-z0)/nz, W = nx+1;
+  const y = S.sliceY;
+  const g = new Float32Array(W*(nz+1));
+  for(let j=0;j<=nz;j++){
+    const pz = z0+j*dz, row = j*W;
+    for(let i=0;i<=nx;i++) g[row+i] = sceneJS(x0+i*dx, y, pz);
+  }
+  const ip = (a,b) => a/(a-b);
+  const segs = [];
+  for(let j=0;j<nz;j++) for(let i=0;i<nx;i++){
+    const o = j*W+i;
+    const v0=g[o], v1=g[o+1], v2=g[o+W+1], v3=g[o+W];
+    let c = 0;
+    if(v0<0) c|=8; if(v1<0) c|=4; if(v2<0) c|=2; if(v3<0) c|=1;
+    if(c === 0 || c === 15) continue;
+    const X = x0+i*dx, Z = z0+j*dz;
+    const E0 = () => [X+dx*ip(v0,v1), Z];
+    const E1 = () => [X+dx, Z+dz*ip(v1,v2)];
+    const E2 = () => [X+dx*ip(v3,v2), Z+dz];
+    const E3 = () => [X, Z+dz*ip(v0,v3)];
+    const push = (p,q) => segs.push([p,q]);
+    switch(c){
+      case 1: push(E3(),E2()); break;   case 2: push(E2(),E1()); break;
+      case 3: push(E3(),E1()); break;   case 4: push(E0(),E1()); break;
+      case 6: push(E0(),E2()); break;   case 7: push(E3(),E0()); break;
+      case 8: push(E0(),E3()); break;   case 9: push(E0(),E2()); break;
+      case 11: push(E0(),E1()); break;  case 12: push(E3(),E1()); break;
+      case 13: push(E1(),E2()); break;  case 14: push(E3(),E2()); break;
+      case 5: { const m=(v0+v1+v2+v3)/4;
+        if(m<0){ push(E0(),E3()); push(E2(),E1()); } else { push(E0(),E1()); push(E3(),E2()); } break; }
+      case 10: { const m=(v0+v1+v2+v3)/4;
+        if(m<0){ push(E0(),E1()); push(E3(),E2()); } else { push(E0(),E3()); push(E2(),E1()); } break; }
+    }
+  }
+  const key = p => p[0].toFixed(4)+','+p[1].toFixed(4);
+  const map = new Map();
+  segs.forEach((sg,i) => { for(const end of [0,1]){
+    const k = key(sg[end]); if(!map.has(k)) map.set(k,[]); map.get(k).push({i,end});
+  }});
+  const used = new Uint8Array(segs.length), loops = [];
+  for(let i=0;i<segs.length;i++){
+    if(used[i]) continue;
+    used[i] = 1;
+    const line = [segs[i][0], segs[i][1]];
+    for(const grow of [1,0]){
+      while(true){
+        const tip = grow ? line[line.length-1] : line[0];
+        const cands = map.get(key(tip)) || [];
+        let nx2 = null;
+        for(const c of cands) if(!used[c.i]){ nx2 = c; break; }
+        if(!nx2) break;
+        used[nx2.i] = 1;
+        const other = segs[nx2.i][1-nx2.end];
+        if(grow) line.push(other); else line.unshift(other);
+      }
+    }
+    if(line.length > 3) loops.push(line);
+  }
+  const f = v => Math.round(v*1000)/1000;
+  const ds = loops.map(l => {
+    let d = `M${f(l[0][0])} ${f(l[0][1])}`;
+    for(let i=1;i<l.length;i++) d += `L${f(l[i][0])} ${f(l[i][1])}`;
+    return d+'Z';
+  });
+  if(!ds.length) return null;
+  const ink = S.invert ? '#ffffff' : '#000000', paper = S.invert ? '#000000' : '#ffffff';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(x0)} ${f(z0)} ${f(x1-x0)} ${f(z1-z0)}" `
+       + `width="${f(x1-x0)}" height="${f(z1-z0)}">`
+       + `<rect x="${f(x0)}" y="${f(z0)}" width="${f(x1-x0)}" height="${f(z1-z0)}" fill="${paper}"/>`
+       + `<path d="${ds.join('')}" fill="${ink}" fill-rule="evenodd"/></svg>`;
+}
+function exportPlan(){
+  say('Slicing plan...');
+  setTimeout(() => {
+    const svg = planSVG();
+    if(!svg){ say('Nothing to slice'); return; }
+    download('malleable-cl1-plan.svg', new Blob([svg], { type:'image/svg+xml' }));
+    say('Plan SVG saved at Z '+S.sliceY.toFixed(1));
+  }, 16);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   8 · TOOL RAIL
+   ══════════════════════════════════════════════════════════════════ */
+const sw = 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"';
+const I = {
+  select:'<path d="M4 2l10.5 7.6-4.6.8 2.4 4.6-1.9.9-2.4-4.6L4 15z" fill="currentColor"/>',
+  // a pot in elevation: slight rim taper, belly, heavier taper to the foot
+  circle:`<path d="M6.1 4.2L11.9 4.2C13.3 7 13.6 10.2 12.2 13.4L5.8 13.4C4.4 10.2 4.7 7 6.1 4.2Z" ${sw}/>`
+    + `<ellipse cx="9" cy="4.2" rx="2.9" ry="1.1" ${sw}/>`,
+  // two pots side by side, merged — the pill footprint
+  pill:`<path d="M4.6 4.4L13.4 4.4C14.6 7.2 14.8 10.3 13.6 13.3L4.4 13.3C3.2 10.3 3.4 7.2 4.6 4.4Z" ${sw}/>`
+    + `<path d="M4.6 4.4C6 3.4 12 3.4 13.4 4.4" ${sw}/>`,
+  cut:`<circle cx="5" cy="13" r="2.3" ${sw}/><circle cx="13" cy="13" r="2.3" ${sw}/>`
+    + `<path d="M6.6 11.4L14 2.5M11.4 11.4L4 2.5" ${sw}/>`,
+  orbit:`<ellipse cx="9" cy="9" rx="7" ry="3" ${sw}/><ellipse cx="9" cy="9" rx="3" ry="7" ${sw} opacity=".5"/>`,
+  hand:`<path d="M6.2 9.4V3.9a1.2 1.2 0 112.4 0V8m0-.6V3.2a1.2 1.2 0 012.4 0V8m0-.9a1.2 1.2 0 112.4 0v4.3c0 2.5-1.8 4.4-4.4 4.4-2.2 0-3.3-.8-4.4-2.4L3.4 11c-.6-.9.5-2 1.4-1.4z" ${sw}/>`,
+  zoom:`<circle cx="7.8" cy="7.8" r="5.2" ${sw}/><path d="M11.6 11.6L16 16" ${sw}/>`
+};
+const TOOLS = [
+  ['select','Selection','V'],
+  null,
+  ['circle','Circle pot','C'], ['pill','Pill pot','L'], ['cut','Subtract pot','X'],
+  null,
+  ['orbit','Orbit','R'], ['hand','Pan','H'], ['zoom','Zoom','Z']
+];
+const railEl = document.getElementById('rail');
+TOOLS.forEach(t => {
+  if(!t){ railEl.appendChild(Object.assign(document.createElement('div'), { className:'rail-sep' })); return; }
+  const [id,title,key] = t;
+  const b = document.createElement('button');
+  b.className = 'tool'; b.type = 'button'; b.title = `${title}  (${key})`;
+  b.dataset.tool = id; b.setAttribute('aria-label', title);
+  b.innerHTML = `<svg viewBox="0 0 18 18" aria-hidden="true">${I[id]}</svg>`;
+  b.onclick = () => setTool(id);
+  railEl.appendChild(b);
+});
+const CURSOR = { select:'default', circle:'crosshair', pill:'crosshair', cut:'crosshair',
+                 orbit:'move', hand:'grab', zoom:'zoom-in' };
+const HINTS = {
+  select:'Click a pot to select, drag to move - shift-drag orbits',
+  circle:'Click to place a circle pot - alt places a subtract pot',
+  pill:'Click to place, drag to aim - shift constrains the angle',
+  cut:'Click to place a pot that subtracts from the others',
+  orbit:'Drag to orbit - the view stays orthographic',
+  hand:'Drag to pan',
+  zoom:'Click to zoom in - alt-click to zoom out'
+};
+function setTool(id){
+  S.tool = id;
+  railEl.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
+  viewEl.style.cursor = CURSOR[id] || 'crosshair';
+  document.getElementById('hint').textContent = HINTS[id] || '';
+  buildOpts();
+}
+function setView(v){
+  S.view = v;
+  if(v === 'plan'){ S.az = 0; S.el = 1.5533; }
+  else if(v === 'front'){ S.az = 0; S.el = 0.0; }
+  else if(v === 'iso'){ S.az = -0.62; S.el = 0.52; }
+  document.getElementById('st-view').textContent = v.toUpperCase();
+  fitView();
+  buildOpts();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   9 · OPTIONS BAR + INSPECTOR
+   ══════════════════════════════════════════════════════════════════ */
+const optsEl = document.getElementById('opts');
+const panel = document.getElementById('panel');
+const el = (tag,cls,html) => { const e = document.createElement(tag); if(cls) e.className = cls; if(html != null) e.innerHTML = html; return e; };
+const oGroup = () => { const g = el('div','ogrp'); optsEl.appendChild(g); return g; };
+
+function oRange(grp, label, min, max, st, get, set, fmt){
+  grp.appendChild(el('label',null,label));
+  const r = document.createElement('input');
+  r.type = 'range'; r.min = min; r.max = max; r.step = st; r.value = get();
+  r.setAttribute('aria-label', label);
+  const out = el('output',null,String((fmt||(v=>v))(get())));
+  r.oninput = () => { set(parseFloat(r.value)); out.textContent = String((fmt||(v=>v))(parseFloat(r.value))); };
+  r.onchange = () => snap();
+  grp.append(r,out);
+}
+function oSeg(grp, label, opts, get, set, wide){
+  if(label) grp.appendChild(el('label',null,label));
+  const seg = el('div','seg');
+  seg.style.width = (opts.length*(wide||40))+'px'; seg.style.flex = 'none';
+  opts.forEach(([v,t]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = t;
+    b.setAttribute('aria-pressed', String(get() === v));
+    b.onclick = () => { set(v); buildOpts(); buildPanel(); };
+    seg.appendChild(b);
+  });
+  grp.appendChild(seg);
+}
+function buildOpts(){
+  optsEl.innerHTML = '';
+  const t = TOOLS.find(x => x && x[0] === S.tool);
+  optsEl.appendChild(el('div','tname', t ? t[1] : S.tool));
+
+  const g1 = oGroup();
+  oSeg(g1,'Continuity',[[0,'G1'],[1,'G2'],[2,'ARC']], ()=>S.kernel,
+    v => { S.kernel = v; say(['Polynomial G1','Cubic G2','Circular arc'][v]); });
+  oRange(g1,'Blend',0,12,.1, ()=>S.k, v=>{S.k=v;}, v=>v.toFixed(1));
+
+  if(S.tool === 'circle' || S.tool === 'cut'){
+    const g = oGroup();
+    oSeg(g,'Dia',DIA.map(d=>[d,String(d)]), ()=>S.dia, v=>{S.dia=v;});
+    oRange(g,'Height',6,12,.5, ()=>S.h, v=>{S.h=v;}, v=>v.toFixed(1));
+  }
+  if(S.tool === 'pill'){
+    const g = oGroup();
+    oSeg(g,'Width',DIA.map(d=>[d,String(d)]), ()=>S.dia, v=>{S.dia=v;});
+    oSeg(g,'Length',LEN.map(l=>[l,String(l)]), ()=>S.len, v=>{S.len=v;});
+    oRange(g,'Height',6,12,.5, ()=>S.h, v=>{S.h=v;}, v=>v.toFixed(1));
+  }
+
+  const g3 = oGroup();
+  oSeg(g3,'View',[['plan','PLAN'],['front','FRONT'],['iso','ISO']], ()=>S.view, setView, 46);
+
+  const g4 = oGroup();
+  oRange(g4,'Coil',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
+  const sn = el('label','chk');
+  const si = document.createElement('input');
+  si.type = 'checkbox'; si.checked = S.snap;
+  si.onchange = () => { S.snap = si.checked; };
+  sn.append(si, document.createTextNode('Snap'));
+  g4.appendChild(sn);
+}
+
+function slider(parent, label, min, max, st, get, set, fmt){
+  const row = el('div','row');
+  row.appendChild(el('label',null,label));
+  const r = document.createElement('input');
+  r.type = 'range'; r.min = min; r.max = max; r.step = st; r.value = get();
+  r.setAttribute('aria-label', label);
+  const out = el('output',null,String((fmt||(v=>v))(get())));
+  r.oninput = () => { set(parseFloat(r.value)); out.textContent = String((fmt||(v=>v))(parseFloat(r.value))); };
+  r.onchange = () => snap();
+  row.append(r,out); parent.appendChild(row);
+}
+function segment(parent, label, opts, get, set){
+  const row = el('div','row');
+  if(label) row.appendChild(el('label',null,label));
+  const seg = el('div','seg');
+  opts.forEach(([v,t]) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = t;
+    b.setAttribute('aria-pressed', String(get() === v));
+    b.onclick = () => { set(v); sync(); };
+    seg.appendChild(b);
+  });
+  row.appendChild(seg); parent.appendChild(row);
+}
+function check(parent, label, get, set){
+  const l = el('label','chk');
+  const i = document.createElement('input');
+  i.type = 'checkbox'; i.checked = get();
+  i.onchange = () => { set(i.checked); sync(); };
+  l.append(i, document.createTextNode(label));
+  parent.appendChild(l);
+}
+function button(parent, label, fn){
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'btn'; b.textContent = label; b.onclick = fn;
+  parent.appendChild(b);
+}
+const selPots = () => S.pots.filter(o => S.sel.has(o.id));
+function setInvert(v){
+  S.invert = v;
+  document.documentElement.setAttribute('data-theme', v ? 'dark' : 'light');
+}
+
+function buildPanel(){
+  panel.innerHTML = '';
+
+  const sp = el('div','sect'); sp.appendChild(el('h2',null,'Pathfinder'));
+  const pf = el('div','pf');
+  [['Unite','<rect x="2.5" y="2.5" width="9" height="9" fill="currentColor"/><rect x="6.5" y="6.5" width="9" height="9" fill="currentColor"/>'],
+   ['Minus front','<rect x="2.5" y="2.5" width="9" height="9" fill="currentColor"/><rect x="6.5" y="6.5" width="9" height="9" fill="var(--chrome)" stroke="currentColor" stroke-width="1"/>'],
+   ['Intersect','<rect x="2.5" y="2.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/><rect x="6.5" y="6.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/><rect x="6.5" y="6.5" width="5" height="5" fill="currentColor"/>']
+  ].forEach(([title,svg],i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.title = title; b.setAttribute('aria-label', title);
+    b.innerHTML = `<svg viewBox="0 0 18 18" aria-hidden="true">${svg}</svg>`;
+    b.onclick = () => setOp(i);
+    pf.appendChild(b);
+  });
+  sp.appendChild(pf);
+  panel.appendChild(sp);
+
+  const sel = selPots();
+  const s1 = el('div','sect');
+  s1.appendChild(el('h2',null,'Pot - '+sel.length+' selected'));
+  if(!sel.length){
+    s1.appendChild(el('div','','<div id="selnone">Nothing selected. Place a pot with the Circle or Pill tool, or click one with Selection.</div>'));
+  } else {
+    const o = sel[0];
+    segment(s1, o.kind === 'pill' ? 'Width' : 'Dia', DIA.map(d=>[d,String(d)]),
+      ()=>o.dia, v => { snap(); sel.forEach(p => { p.dia = v; if(p.kind==='pill') p.len = Math.max(p.len, v+6); }); });
+    if(o.kind === 'pill'){
+      segment(s1,'Length', LEN.map(l=>[l,String(l)]), ()=>o.len, v => { snap(); sel.forEach(p => { if(p.kind==='pill') p.len = v; }); });
+      slider(s1,'Rotate',-180,180,1, ()=>o.ang*180/Math.PI,
+        v => sel.forEach(p => { if(p.kind==='pill') p.ang = v*Math.PI/180; }), v=>Math.round(v)+'°');
+    }
+    slider(s1,'Height',6,12,.1, ()=>o.h, v=>sel.forEach(p=>p.h=v), v=>v.toFixed(1));
+    slider(s1,'Rim taper',0,0.6,.01, ()=>o.tt, v=>sel.forEach(p=>p.tt=v), v=>v.toFixed(2));
+    slider(s1,'Foot taper',0,0.85,.01, ()=>o.bt, v=>sel.forEach(p=>p.bt=v), v=>v.toFixed(2));
+    slider(s1,'Belly',0.15,0.9,.01, ()=>o.belly, v=>sel.forEach(p=>p.belly=v), v=>v.toFixed(2));
+    slider(s1,'Blend',0,12,.1, ()=> o.k < 0 ? S.k : o.k, v=>sel.forEach(p=>p.k=v), v=>v.toFixed(1));
+    segment(s1,'Source',[['g','GLOBAL'],['l','LOCAL']], ()=> o.k<0?'g':'l',
+      v => { snap(); sel.forEach(p => p.k = v==='g' ? -1 : S.k); });
+    const g = el('div','grid2'); g.style.marginTop = '7px';
+    button(g,'DUPLICATE', duplicateSel);
+    button(g,'DELETE', deleteSel);
+    button(g,'FRONT', ()=>order(1));
+    button(g,'BACK', ()=>order(-1));
+    s1.appendChild(g);
+  }
+  panel.appendChild(s1);
+
+  const s2 = el('div','sect'); s2.appendChild(el('h2',null,'New pot profile'));
+  slider(s2,'Height',6,12,.1, ()=>S.h, v=>{S.h=v;}, v=>v.toFixed(1));
+  slider(s2,'Rim taper',0,0.6,.01, ()=>S.tt, v=>{S.tt=v;}, v=>v.toFixed(2));
+  slider(s2,'Foot taper',0,0.85,.01, ()=>S.bt, v=>{S.bt=v;}, v=>v.toFixed(2));
+  slider(s2,'Belly',0.15,0.9,.01, ()=>S.belly, v=>{S.belly=v;}, v=>v.toFixed(2));
+  s2.appendChild(el('p','hint','Standard plan sizes: circles ø 6 and 12; pills 6 or 12 wide by 12, 18, 24 or 36 long. Heights run 6 to 12.'));
+  panel.appendChild(s2);
+
+  const s3 = el('div','sect'); s3.appendChild(el('h2',null,'Drawing'));
+  slider(s3,'Coil pitch',0,2,.05, ()=>S.pitch, v=>{S.pitch=v;}, v=> v<0.03 ? 'off' : v.toFixed(2));
+  slider(s3,'Shade',0,4,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v));
+  check(s3,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
+  check(s3,'Hollow', ()=>S.hollow, v=>{S.hollow=v;});
+  if(S.hollow) slider(s3,'Wall',0.2,2,.05, ()=>S.wall, v=>{S.wall=v;}, v=>v.toFixed(2));
+  check(s3,'Section', ()=>S.section, v=>{S.section=v;});
+  if(S.section) slider(s3,'Cut at Z',-24,24,.5, ()=>S.secX, v=>{S.secX=v;}, v=>v.toFixed(1));
+  check(s3,'Invert', ()=>S.invert, setInvert);
+  slider(s3,'Quality',32,180,4, ()=>S.steps, v=>{S.steps=Math.round(v);}, v=>Math.round(v));
+  panel.appendChild(s3);
+
+  const s4 = el('div','sect'); s4.appendChild(el('h2',null,'Plate'));
+  check(s4,'Grid', ()=>S.grid, v=>{S.grid=v;});
+  slider(s4,'Module',3,12,1, ()=>S.module, v=>{S.module=v;}, v=>Math.round(v));
+  ['cap1','cap2','cap3'].forEach((k,i) => {
+    const inp = document.createElement('input');
+    inp.className = 'txt'; inp.type = 'text'; inp.value = S[k];
+    inp.setAttribute('aria-label','Caption '+(i+1));
+    inp.oninput = () => { S[k] = inp.value; };
+    s4.appendChild(inp);
+  });
+  panel.appendChild(s4);
+
+  const s5 = el('div','sect'); s5.appendChild(el('h2',null,'Presets'));
+  const pg = el('div','grid2');
+  button(pg,'CLUSTER', ()=>preset('cluster'));
+  button(pg,'ROW', ()=>preset('row'));
+  button(pg,'NEST', ()=>preset('nest'));
+  button(pg,'CLEAR', ()=>{ clearAll(); say('Cleared'); });
+  s5.appendChild(pg);
+  panel.appendChild(s5);
+
+  const s6 = el('div','sect'); s6.appendChild(el('h2',null,'Export'));
+  slider(s6,'Slice at Z',0,12,.5, ()=>S.sliceY, v=>{S.sliceY=v;}, v=>v.toFixed(1));
+  slider(s6,'Trace',180,1200,20, ()=>S.traceRes, v=>{S.traceRes=Math.round(v);}, v=>Math.round(v));
+  const eg = el('div','grid2'); eg.style.marginTop = '7px';
+  button(eg,'SAVE PNG', exportPNG);
+  button(eg,'PLAN SVG', exportPlan);
+  button(eg,'SAVE JSON', ()=>download('malleable-cl1.json',
+    new Blob([JSON.stringify({pots:S.pots, k:S.k}, null, 2)], {type:'application/json'})));
+  button(eg,'COPY JSON', ()=>navigator.clipboard?.writeText(JSON.stringify({pots:S.pots,k:S.k}))
+    .then(()=>say('Scene copied')).catch(()=>say('Copy blocked')));
+  s6.appendChild(eg);
+  s6.appendChild(el('p','hint','Plan SVG cuts the blended field at the chosen height and traces the outline, so it matches what the pots actually make in plan.'));
+  panel.appendChild(s6);
+
+  const s7 = el('div','sect'); s7.appendChild(el('h2',null,'Keys'));
+  s7.appendChild(el('p','hint',
+    'V C L X R H Z tools - 1 2 3 plan front iso - alt subtracts - shift-drag orbits - space-drag pans - scroll zooms - Cmd+Z undo - Cmd+D duplicate - F fits'));
+  panel.appendChild(s7);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   10 · PRESETS
+   ══════════════════════════════════════════════════════════════════ */
+function preset(name){
+  snap(); S.pots = []; S.sel.clear();
+  const add = (kind,x,z,dia,len,h,ang) => {
+    const o = mkPot(kind,x,z);
+    o.dia = dia; o.len = len||12; o.h = h; o.ang = ang||0;
+    S.pots.push(o); return o;
+  };
+  if(name === 'cluster'){
+    S.k = 3.2;
+    add('circle',-8,-2,12,0,11);
+    add('circle',1,4,6,0,7.5);
+    add('pill',6,-6,6,18,9, 0.5);
+    add('circle',12,2,12,0,9);
+  } else if(name === 'row'){
+    S.k = 2.0;
+    for(let i=0;i<4;i++) add('pill',-18+i*12, 0, 6, 12, 6.5+i*1.5, Math.PI/2);
+  } else if(name === 'nest'){
+    S.k = 5.0;
+    add('pill',0,0,12,36,11, 0);
+    add('circle',-12,0,6,0,7);
+    add('circle',12,0,6,0,7);
+    add('circle',0,0,12,0,12);
+  }
+  snap(); sync(); say(name);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   11 · LOOP
+   ══════════════════════════════════════════════════════════════════ */
+function sync(){
+  buildPanel();
+  document.getElementById('st-n').textContent = S.pots.length;
+}
+function fitView(){
+  if(!S.pots.length){ S.tx = 0; S.tz = 0; S.scale = 62; return; }
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9,hi=0;
+  for(const o of S.pots){
+    const k = skel(o), pad = k.R+3;
+    x0=Math.min(x0,Math.min(k.ax,k.bx)-pad); x1=Math.max(x1,Math.max(k.ax,k.bx)+pad);
+    z0=Math.min(z0,Math.min(k.az,k.bz)-pad); z1=Math.max(z1,Math.max(k.az,k.bz)+pad);
+    hi = Math.max(hi, o.h);
+  }
+  S.tx = (x0+x1)/2; S.tz = (z0+z1)/2;
+  const spread = S.view === 'front' ? Math.max(x1-x0, (hi+6)*1.9) : Math.max(x1-x0, z1-z0);
+  S.scale = Math.max(16, Math.min(200, spread*1.35));
+}
+let prev = performance.now(), fAcc = 0, fN = 0;
+const ease = (c,t,dt,tau) => c + (t-c)*(1 - Math.exp(-dt/tau));
+function frame(t){
+  const dt = Math.min(0.05, (t-prev)/1000) || 0.016;
+  prev = t;
+  fAcc += dt; fN++;
+  if(fAcc > 0.5){
+    document.getElementById('perf').textContent = Math.round(fN/fAcc)+' fps / '+S.pots.length+' pots';
+    fAcc = 0; fN = 0;
+  }
+  resize();
+  A.k     = ease(A.k,     S.k,     dt, 0.075);
+  A.scale = ease(A.scale, S.scale, dt, 0.07);
+  A.az    = ease(A.az,    S.az,    dt, 0.07);
+  A.el    = ease(A.el,    S.el,    dt, 0.07);
+  A.tx    = ease(A.tx,    S.tx,    dt, 0.07);
+  A.tz    = ease(A.tz,    S.tz,    dt, 0.07);
+  A.pitch = ease(A.pitch, S.pitch, dt, 0.09);
+  A.secX  = ease(A.secX,  S.secX,  dt, 0.08);
+  draw();
+  overlay();
+  rulers();
+  requestAnimationFrame(frame);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   12 · KEYBOARD
+   ══════════════════════════════════════════════════════════════════ */
+const KEYMAP = { v:'select', c:'circle', l:'pill', x:'cut', r:'orbit', h:'hand', z:'zoom' };
+addEventListener('keydown', e => {
+  const tag = (e.target.tagName||'').toLowerCase();
+  if(tag === 'input' || tag === 'textarea') return;
+  if(e.code === 'Space'){ spaceDown = true; viewEl.style.cursor = 'grab'; e.preventDefault(); return; }
+  if(e.metaKey || e.ctrlKey){
+    const k = e.key.toLowerCase();
+    if(k === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if(k === 'd'){ e.preventDefault(); duplicateSel(); }
+    else if(k === 'a'){ e.preventDefault(); S.sel = new Set(S.pots.map(o=>o.id)); sync(); }
+    return;
+  }
+  const k = e.key.toLowerCase();
+  if(KEYMAP[k]){ setTool(KEYMAP[k]); return; }
+  if(e.key === 'Delete' || e.key === 'Backspace'){ e.preventDefault(); deleteSel(); return; }
+  if(e.key === '1'){ setView('plan'); return; }
+  if(e.key === '2'){ setView('front'); return; }
+  if(e.key === '3'){ setView('iso'); return; }
+  if(k === 'f'){ fitView(); say('Fit'); return; }
+  if(e.key === 'Escape'){ S.sel.clear(); sync(); return; }
+  if(e.key === '['){ S.k = Math.max(0, S.k-0.4); buildOpts(); return; }
+  if(e.key === ']'){ S.k = Math.min(12, S.k+0.4); buildOpts(); return; }
+});
+addEventListener('keyup', e => {
+  if(e.code === 'Space'){ spaceDown = false; viewEl.style.cursor = CURSOR[S.tool] || 'crosshair'; }
+});
+document.getElementById('drawer').onclick = () => panel.classList.toggle('open');
+
+/* ══════════════════════════════════════════════════════════════════
+   13 · BOOT
+   ══════════════════════════════════════════════════════════════════ */
+resize();
+document.documentElement.setAttribute('data-theme','light');
+setTool('select');
+setView('iso');
+preset('cluster');
+fitView();
+A.scale = S.scale; A.az = S.az; A.el = S.el; A.tx = S.tx; A.tz = S.tz; A.k = S.k;
+snap(); sync(); buildOpts();
+requestAnimationFrame(frame);
+
+})();
+</script>
+
+</body>
+</html>
