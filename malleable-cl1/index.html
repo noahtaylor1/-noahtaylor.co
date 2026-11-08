@@ -604,7 +604,7 @@ void main(){
         float ph = pos.y/uPitch;
         float crown = 0.5 + 0.5*cos(6.2831853*fract(ph));
         crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
-        f *= 0.74 + 0.40*crown;
+        f *= 0.82 + 0.26*crown;
       }
       // an ambient floor, so the deepest tone is shadow and not a void
       f = uAmb + (1.0 - uAmb)*f;
@@ -624,7 +624,9 @@ void main(){
       float cov = mix(sharp, 0.24, smoothstep(0.20, 0.55, w));
       cov *= 1.0 - uBeadVis*0.7;
       bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
-      if(!onCut) col = mix(col, uPaper, cov*0.85);
+      // the join between two beads sits in shadow; drawing it toward the
+      // paper lit every seam white, which is what made overhangs glare
+      if(!onCut) col = mix(col, uInk, cov*0.45);
     }
     // crease line where the surface folds — the rim, and where forms meet
     if(uEdges == 1){
@@ -745,7 +747,18 @@ function draw(){
 
   gl.uniform1i(uni.uCount, n);
   gl.uniform1i(uni.uKernel, S.kernel);
-  gl.uniform1i(uni.uSteps, dragging ? 56 : S.steps);
+  /* Ribbing finer than a few pixels only turns into moire, so the relief
+     fades out as the bead approaches the pixel and the drawn line takes
+     over instead. */
+  const pitchPx = (S.pitch*cvs.height)/Math.max(A.scale, 1e-4);
+  const beadFade = Math.max(0, Math.min(1, (pitchPx - 2.5)/4));
+  /* The stride shortens when beads or a press are live, so the same step
+     count no longer reaches as far and the model turns translucent. Scale
+     the budget by the stride instead of cutting it. */
+  const stride = Math.min(anyStamp() && S.press > 0.001 ? 0.52 : 1.0,
+                          S.relief > 0.01 && beadFade > 0 ? 0.45 : 1.0);
+  const budget = Math.round((dragging ? S.steps*0.8 : S.steps)/stride);
+  gl.uniform1i(uni.uSteps, Math.max(48, Math.min(256, budget)));
   gl.uniform1i(uni.uShade, S.shade);
   gl.uniform1i(uni.uSection, S.section ? 1 : 0);
   gl.uniform1i(uni.uHollow, S.hollow ? 1 : 0);
@@ -759,15 +772,9 @@ function draw(){
   gl.uniform1f(uni.uTone, S.tone);
   gl.uniform1f(uni.uAmb, S.ambient);
   gl.uniform1f(uni.uGap, S.gap);
-  /* Ribbing finer than a few pixels only turns into moire, so the relief
-     fades out as the bead approaches the pixel and the drawn line takes
-     over instead. */
-  const pitchPx = (S.pitch*cvs.height)/Math.max(A.scale, 1e-4);
-  const beadFade = Math.max(0, Math.min(1, (pitchPx - 2.5)/4));
   gl.uniform1f(uni.uBead, S.relief*S.beadH*MM*0.45*beadFade);
   gl.uniform1f(uni.uBeadVis, S.relief > 0.01 ? beadFade : 0);
-  gl.uniform1f(uni.uStepK, Math.min(anyStamp() && S.press > 0.001 ? 0.52 : 1.0,
-                                    S.relief > 0.01 && beadFade > 0 ? 0.45 : 1.0));
+  gl.uniform1f(uni.uStepK, stride);
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
@@ -1105,18 +1112,12 @@ function overlay(){
       }
       return d+'Z';
     };
-    for(const t of [0, 0.25, 0.5, 0.75, 1]){
-      const r = potR(t, k.R, o.tt, o.bt, o.belly)[0];
-      const d2 = ring(Math.max(r,0.3), t*o.h);
-      s += `<path d="${d2}" fill="none" stroke="var(--paper)" stroke-width="2.6" opacity=".8"/>`
-         + `<path d="${d2}" fill="none" stroke="var(--guide)" stroke-width="1" `
-         + `stroke-dasharray="3 3" opacity="${t === 0 ? .9 : .6}"/>`;
-    }
-    const b0 = P(o.x,o.z), b1 = worldToScreen(o.x, o.h, o.z);
-    const stick = `M${b0.x} ${b0.y}L${b1.x} ${b1.y}`;
-    s += `<path d="${stick}" stroke="var(--paper)" stroke-width="2.6" opacity=".8"/>`
-       + `<path d="${stick}" stroke="var(--guide)" stroke-width="1" opacity=".6" stroke-dasharray="2 3"/>`
-       + `<rect x="${b1.x-3}" y="${b1.y-3}" width="6" height="6" fill="var(--paper)" stroke="var(--sel)" stroke-width="1.2"/>`;
+    /* One footprint on the floor. Stacked sections and a centre axis drawn
+       through the pot read as a wireframe laid over the object rather than
+       as a selection. */
+    const foot = ring(Math.max(k.R, 0.3), 0.02);
+    s += `<path d="${foot}" fill="none" stroke="var(--paper)" stroke-width="2.6" opacity=".75"/>`
+       + `<path d="${foot}" fill="none" stroke="var(--guide)" stroke-width="1.1" stroke-dasharray="4 3" opacity=".9"/>`;
   }
 
   // section plane indicator
