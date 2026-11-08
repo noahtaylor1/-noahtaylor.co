@@ -222,7 +222,7 @@ const S = {
   persp:false, fov:0.61, ty:5,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
-  pitch:0.5, shade:3, tone:0.34, edges:false, hollow:true, wall:0.45,
+  pitch:0.5, shade:3, tone:0.34, air:true, edges:false, hollow:true, wall:0.45,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -294,14 +294,15 @@ function sdCavityJS(o, x, y, z, wall){
   const drdy = drdt/Math.max(o.h, 1e-4);
   return Math.max((q - r)/Math.sqrt(1 + drdy*drdy), wall - y);
 }
-function sdPotJS(o, x, y, z){
+function sdPotJS(o, x, y, z, sweep){
   const s = skel(o);
   const q = segDist2(x,z, s.ax,s.az, s.bx,s.bz);
   const t = Math.min(1, Math.max(0, y/o.h));
-  const [r, drdt] = potR(t, s.R, o.tt, o.bt, o.belly);
+  let [r, drdt] = potR(t, s.R, o.tt, o.bt, o.belly);
+  if(sweep && t >= o.belly){ r = s.R; drdt = 0; }
   const drdy = drdt/Math.max(o.h, 1e-4);
   const radial = (q - r)/Math.sqrt(1 + drdy*drdy);
-  const vert = Math.max(-y, y - o.h);
+  const vert = sweep ? -y : Math.max(-y, y - o.h);
   const ex = Math.max(radial, 0), ey = Math.max(vert, 0);
   return Math.min(Math.max(radial, vert), 0) + Math.hypot(ex, ey);
 }
@@ -318,7 +319,7 @@ function stampsJS(x,y,z, skip, mySeq){
   for(const o of S.pots){
     if(o === skip || !isStamp(o)) continue;
     if(mySeq > 0 && o.seq >= mySeq) continue;
-    d = Math.min(d, sdPotJS(o,x,y,z));
+    d = Math.min(d, sdPotJS(o,x,y,z,S.air));
   }
   return d;
 }
@@ -380,7 +381,7 @@ uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
 uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone;
-uniform int uPersp, uAnyPress;
+uniform int uPersp, uAnyPress, uAir;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
 uniform sampler2D uData;
@@ -402,25 +403,30 @@ float segDist2(vec2 p, vec2 a, vec2 b){
   float t = L2 < 1e-9 ? 0.0 : clamp(dot(w,v)/L2, 0.0, 1.0);
   return length(w - v*t);
 }
-void potR(float t, float R, float tt, float bt, float belly, out float r, out float drdt){
+void potR(float t, float R, float tt, float bt, float belly, bool sweep, out float r, out float drdt){
   if(t < belly){
     float b = max(belly, 1e-4), u = clamp(t/b, 0.0, 1.0);
     float r0 = R*(1.0-bt), s = u*u*(3.0-2.0*u);
     r = mix(r0, R, s); drdt = (R-r0)*6.0*u*(1.0-u)/b;
+  } else if(sweep){
+    r = R; drdt = 0.0;                           // widest section carries upward
   } else {
     float b = max(1.0-belly, 1e-4), u = clamp((t-belly)/b, 0.0, 1.0);
     float rT = R*(1.0-tt), s = u*u*(3.0-2.0*u);
     r = mix(R, rT, s); drdt = (rT-R)*6.0*u*(1.0-u)/b;
   }
 }
-float sdPot(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float belly, float inset){
+/* sweep = the stamp's air rights: its widest section carried straight up
+   with no top, so whatever it presses into cannot arch over it. The socket
+   opens to the sky and the part lifts out instead of locking in. */
+float sdPot(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float belly, float inset, bool sweep){
   float q = segDist2(p.xz, a, b);
   float t = clamp(p.y/h, 0.0, 1.0);
-  float r, drdt; potR(t, R, tt, bt, belly, r, drdt);
+  float r, drdt; potR(t, R, tt, bt, belly, sweep, r, drdt);
   r -= inset;
   float drdy = drdt/max(h, 1e-4);
   float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
-  float vert = max(-p.y, p.y - h);
+  float vert = sweep ? -p.y : max(-p.y, p.y - h);
   vec2 e = vec2(radial, vert);
   return min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
 }
@@ -429,7 +435,7 @@ float sdPot(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float 
 float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float belly, float wall){
   float q = segDist2(p.xz, a, b);
   float t = clamp(p.y/h, 0.0, 1.0);
-  float r, drdt; potR(t, R, tt, bt, belly, r, drdt);
+  float r, drdt; potR(t, R, tt, bt, belly, false, r, drdt);
   r = max(r - wall, 0.02);
   float drdy = drdt/max(h, 1e-4);
   float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
@@ -452,7 +458,7 @@ float stampsAt(vec3 p, int skip, float mySeq){
     vec4 B = texelFetch(uData, ivec2(j,1), 0);
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
     if(bd > d) continue;
-    d = min(d, sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0));
+    d = min(d, sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, uAir == 1));
   }
   return d;
 }
@@ -472,7 +478,7 @@ float scene(vec3 p){
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x, max(-p.y, p.y - B.y));
     float pad = uAnyPress == 1 ? 1.4 : 0.4;      // the lip can grow the shape
     if(op == 0 && bd - d > k*1.6 + pad) continue;
-    float sOut = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0);
+    float sOut = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, false);
     float cav = uHollow == 1
       ? sdCavity(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, uWall) : 1e9;
 
@@ -617,7 +623,7 @@ function initGL(){
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
                   'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone',
-                  'uPersp','uAnyPress','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
+                  'uPersp','uAnyPress','uAir','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
   tex = gl.createTexture();
@@ -689,6 +695,7 @@ function draw(){
   gl.uniform1f(uni.uScale, A.scale);
   gl.uniform1i(uni.uPersp, S.persp ? 1 : 0);
   gl.uniform1i(uni.uAnyPress, anyStamp() ? 1 : 0);
+  gl.uniform1i(uni.uAir, S.air ? 1 : 0);
   gl.uniform3fv(uni.uCamPos, ci.persp ? ci.cam : ci.tgt);
   gl.uniform1f(uni.uK, ci.k);
   gl.uniform1f(uni.uPix, A.scale/Math.max(1,cvs.height));
@@ -1379,6 +1386,7 @@ function buildPanel(){
   });
   sp.appendChild(pf);
   check(sp,'Press on select', ()=>S.pressMode, v=>{S.pressMode=v;});
+  check(sp,'Air rights', ()=>S.air, v=>{S.air=v;});
   slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
   slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
   slider(sp,'Swell',0,1,.02, ()=>S.swell, v=>{S.swell=v;}, v=> v<0.02 ? 'off' : v.toFixed(2));
