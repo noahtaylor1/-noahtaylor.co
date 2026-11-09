@@ -241,6 +241,10 @@ function say(t){
   msgTimer = setTimeout(() => { e.style.opacity = '0'; }, 2400);
 }
 const MM = 1/25.4;
+/* The fillet in scene units. Stated in millimetres and divided by the
+   circular kernel's 0.604 so the number on the slider is the radius
+   the corner actually has. */
+const FILLET = () => S.fillet*MM/0.604;
 const nearest = (v, list) => list.reduce((a,b) => Math.abs(b-v) < Math.abs(a-v) ? b : a);
 
 /* ══════════════════════════════════════════════════════════════════
@@ -429,9 +433,15 @@ function sdPotJS(o, x, y, z, sweep){
   if(sweep && t >= o.belly){ r = s.R; drdt = 0; }
   const drdy = drdt/Math.max(o.h, 1e-4);
   const radial = (q - r)/Math.sqrt(1 + drdy*drdy);
-  const vert = sweep ? -y : Math.max(-y, y - o.h);
-  const ex = Math.max(radial, 0), ey = Math.max(vert, 0);
-  return Math.min(Math.max(radial, vert), 0) + Math.hypot(ex, ey);
+  if(sweep){
+    const ex = Math.max(radial,0), ey = Math.max(-y,0);
+    return Math.min(Math.max(radial,-y),0) + Math.hypot(ex,ey);
+  }
+  const fr = Math.min(FILLET()*0.604, Math.min(S.wall*0.5, o.h*0.45));
+  const tx = radial + fr, ty = (y - o.h) + fr;
+  const dTop = Math.min(Math.max(tx,ty),0) + Math.hypot(Math.max(tx,0),Math.max(ty,0)) - fr;
+  const dBot = Math.min(Math.max(radial,-y),0) + Math.hypot(Math.max(radial,0),Math.max(-y,0));
+  return Math.max(dTop, dBot);
 }
 function sminK(a,b,k){
   if(k < 1e-4) return Math.min(a,b);
@@ -441,10 +451,6 @@ function sminK(a,b,k){
   return Math.max(kk, Math.min(a,b)) - Math.hypot(ua,ub);
 }
 const smaxK = (a,b,k) => -sminK(-a,-b,k);
-/* The fillet in scene units. Stated in millimetres and divided by the
-   circular kernel's 0.604 so the number on the slider is the radius
-   the corner actually has. */
-const FILLET = () => S.fillet*MM/0.604;
 function stampsJS(x,y,z, skip, mySeq){
   let d = 1e9;
   for(const o of S.pots){
@@ -482,7 +488,8 @@ function sceneJS(x,y,z){
         ke = k*t2*t2*(3-2*t2);
       }
     }
-    const s = S.hollow ? Math.max(sOut, -cav) : sOut;
+    const kRim = Math.min(FILLET(), (S.wall*0.5)/0.604);
+    const s = S.hollow ? smaxK(sOut, -cav, kRim) : sOut;
     const kf = Math.max(ke, FILLET());
     if(o.op === 0) d = sminK(d,s,kf);
     else if(o.op === 1) d = smaxK(d,-s,kf);
@@ -560,9 +567,20 @@ float sdPot(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, float 
   // sweep stays smooth so the clearance is not cut by the ribs
   if(!sweep && !gNoBead && uBead > 1e-5)
     radial -= uBead*sin(3.14159265*fract(p.y/max(uPitch, 1e-4)));
-  float vert = sweep ? -p.y : max(-p.y, p.y - h);
-  vec2 e = vec2(radial, vert);
-  return min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
+  if(sweep){                                     // air rights: no top at all
+    vec2 e = vec2(radial, -p.y);
+    return min(max(e.x, e.y), 0.0) + length(max(e, 0.0));
+  }
+  /* The rim is the last bead laid, so it is round: half a bead across,
+     which on an 8 mm wall is the 4 mm fillet exactly. The foot stays
+     square - a first layer is squashed flat onto the bed, not rolled
+     over - so only the top corner is eased. */
+  float fr = min(uFillet*0.604, min(uWall*0.5, h*0.45));
+  vec2 et = vec2(radial + fr, (p.y - h) + fr);
+  float dTop = min(max(et.x, et.y), 0.0) + length(max(et, 0.0)) - fr;
+  vec2 eb = vec2(radial, -p.y);
+  float dBot = min(max(eb.x, eb.y), 0.0) + length(max(eb, 0.0));
+  return max(dTop, dBot);
 }
 /* the cavity is the same profile stepped inward, floored at the wall
    thickness and left open at the rim */
@@ -660,7 +678,10 @@ float scene(vec3 p){
       float band = (1.3 + uPress*2.6) + k*1.2;
       if(!stamp) ke = k*smoothstep(0.0, band, max(o, 0.0));
     }
-    float s = uHollow == 1 ? max(sOut, -cav) : sOut;
+    /* and the inner lip with it, so the two radii meet in the middle of
+       the wall and the rim reads as one rolled bead rather than a tube */
+    float kRim = min(uFillet, (uWall*0.5)/0.604);
+    float s = uHollow == 1 ? smaxK(sOut, -cav, kRim) : sOut;
     /* The fillet is a floor under every join, the plain union included.
        Stamps carry ke = 0 so they used to meet their host on a hard min,
        and the silhouette came to a point where the two crossed - the cusp
