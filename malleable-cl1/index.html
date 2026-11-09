@@ -225,7 +225,7 @@ const S = {
   // the extruded bead is the real unit here: 8 mm wide by 4 mm tall, and
   // the layer pitch and wall thickness both follow from it
   beadW:8, beadH:4, relief:0.4, wallBeads:1,
-  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:4, air:true, stopSink:true, edges:false, hollow:true, wall:8/25.4,
+  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:4, air:true, stopSink:true, oneWall:true, edges:false, hollow:true, wall:8/25.4,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -456,7 +456,9 @@ function stampsJS(x,y,z, skip, mySeq){
   for(const o of S.pots){
     if(o === skip || !isStamp(o)) continue;
     if(mySeq > 0 && o.seq >= mySeq) continue;
-    d = sminK(d, sdPotJS(o,x,y,z,S.air), S.wall);   // stamps merge, as on the GPU
+    let sj = sdPotJS(o,x,y,z,S.air);
+    if(o.cutOn) sj = Math.max(sj, x*o.cutNx + z*o.cutNz - o.cutC);
+    d = sminK(d, sj, S.wall);                       // stamps merge, as on the GPU
   }
   return d;
 }
@@ -489,7 +491,8 @@ function sceneJS(x,y,z){
       }
     }
     const kRim = Math.min(FILLET(), (S.wall*0.5)/0.604);
-    const s = S.hollow ? smaxK(sOut, -cav, kRim) : sOut;
+    let s = S.hollow ? smaxK(sOut, -cav, kRim) : sOut;
+    if(o.cutOn) s = Math.max(s, x*o.cutNx + z*o.cutNz - o.cutC);
     const kf = Math.max(ke, FILLET());
     if(o.op === 0) d = sminK(d,s,kf);
     else if(o.op === 1) d = smaxK(d,-s,kf);
@@ -619,11 +622,15 @@ float stampsAt(vec3 p, int skip, float mySeq){
     float vcap = sweep ? -p.y : max(-p.y, p.y - B.y);
     float bd = max(segDist2(p.xz, A.xy, A.zw) - B.x - uBead, vcap);
     if(bd > d) continue;
+    vec4 Dj = texelFetch(uData, ivec2(j,3), 0);
     /* Stamps merge rather than meet. Two that almost touch would leave a
        membrane of nothing between their sockets - invisible to print and
        a flickering sheet on screen - so they join over a wall thickness
        and the socket becomes one. */
-    d = sminK(d, sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, sweep), uWall);
+    float sj = sdPot(p, A.xy, A.zw, B.x, B.y, B.z, B.w, C.x, 0.0, sweep);
+    // a half that has been cut away presses nothing
+    if(Dj.w > 0.5) sj = max(sj, dot(p.xz, Dj.xy) - Dj.z);
+    d = sminK(d, sj, uWall);
   }
   return d;
 }
@@ -682,6 +689,12 @@ float scene(vec3 p){
        the wall and the rim reads as one rolled bead rather than a tube */
     float kRim = min(uFillet, (uWall*0.5)/0.604);
     float s = uHollow == 1 ? smaxK(sOut, -cav, kRim) : sOut;
+    /* One wall per pot. Where the neighbours have cut a pot into more
+       than one piece, every piece but the biggest is taken off by a
+       vertical plane that runs to the ground, so each layer closes as a
+       single loop and the thing can be spiralled. */
+    vec4 Dv = texelFetch(uData, ivec2(i,3), 0);
+    if(Dv.w > 0.5) s = max(s, dot(p.xz, Dv.xy) - Dv.z);
     /* The fillet is a floor under every join, the plain union included.
        Stamps carry ke = 0 so they used to meet their host on a hard min,
        and the silhouette came to a point where the two crossed - the cusp
@@ -815,7 +828,7 @@ void main(){
   outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
 
-let prog, uni = {}, tex, texData = new Float32Array(96*3*4), ok = true;
+let prog, uni = {}, tex, texData = new Float32Array(96*4*4), ok = true;
 function compile(type, src){
   const sh = gl.createShader(type);
   gl.shaderSource(sh, src); gl.compileShader(sh);
@@ -842,7 +855,7 @@ function initGL(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 96, 3);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, 96, 4);
   gl.uniform1i(uni.uData, 0);
 }
 try { initGL(); } catch(e){ ok = false; console.error(e); }
@@ -855,8 +868,11 @@ function upload(){
     q = (96+i)*4;     texData[q]=s.R;  texData[q+1]=o.h;  texData[q+2]=o.tt;  texData[q+3]=o.bt;
     q = (192+i)*4;    texData[q]=o.belly; texData[q+1]=o.op; texData[q+2]=blendOf(o);
                       texData[q+3]=o.seq || 0;
+    // the vase cut: keep dot(p.xz, n) <= c
+    q = (288+i)*4;    texData[q]=o.cutNx||0; texData[q+1]=o.cutNz||0;
+                      texData[q+2]=o.cutC||0; texData[q+3]=o.cutOn ? 1 : 0;
   }
-  if(n) for(let r=0;r<3;r++) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r, n, 1, gl.RGBA, gl.FLOAT, texData, r*96*4);
+  if(n) for(let r=0;r<4;r++) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r, n, 1, gl.RGBA, gl.FLOAT, texData, r*96*4);
   return n;
 }
 function themeColors(){
@@ -1590,6 +1606,7 @@ function buildPanel(){
   check(sp,'Press on select', ()=>S.pressMode, v=>{S.pressMode=v;});
   check(sp,'Air rights', ()=>S.air, v=>{S.air=v;});
   check(sp,'Overlap stop', ()=>S.stopSink, v=>{S.stopSink=v;});
+  check(sp,'One wall', ()=>S.oneWall, v=>{S.oneWall=v; vaseCuts();});
   segment(sp,'Continuity',[[0,'G1'],[1,'G2'],[2,'ARC']], ()=>S.kernel,
     v => { S.kernel = v; say(['Polynomial G1','Cubic G2','Circular arc'][v]); });
   slider(sp,'Blend',0,12,.1, ()=>S.k, v=>{S.k=v;}, v=>v.toFixed(1));
@@ -1776,6 +1793,105 @@ function preset(name){
 /* ══════════════════════════════════════════════════════════════════
    11 · LOOP
    ══════════════════════════════════════════════════════════════════ */
+/* ── ONE WALL PER POT ───────────────────────────────────────────────
+   Spiral vase mode prints one closed loop per layer, so a pot that its
+   neighbours have cut into two pieces cannot be printed at all. The plan
+   section of each pot is rasterised at a few heights and its pieces
+   counted; if there is more than one, the biggest is kept and the rest
+   are taken off by a single vertical plane that runs all the way to the
+   ground, so nothing is left floating and every layer still closes.
+
+   Costly enough that it runs when a drag ends rather than on every frame.
+*/
+/* Plan radius of a pot at a height, and of a stamp - which with air
+   rights carries its widest section straight up and keeps cutting above
+   its own rim. */
+function radAt(o, y, asStamp){
+  const k = skel(o);
+  if(asStamp && !S.air && y > o.h) return -1;
+  const t = Math.min(1, Math.max(0, y/o.h));
+  let [r] = potR(t, k.R, o.tt, o.bt, o.belly);
+  if(asStamp && S.air && t >= o.belly) r = k.R;
+  return r;
+}
+/* Connectivity only needs the clean boolean - capsule in, capsules out -
+   not the softened field, and the plain version is some fifty times
+   quicker, which is what lets this run every time a drag ends. */
+function vaseCuts(){
+  const press = anyStamp();
+  for(const o of S.pots){
+    o.cutOn = false; o.cutNx = 0; o.cutNz = 0; o.cutC = 0;
+    if(!S.oneWall || o.op !== 0 || !press) continue;
+    const mySeq = o.seq || 0;
+    const cutters = S.pots.filter(f => f !== o && f.op === 0 && (f.seq||0) > 0.5
+                                    && (mySeq <= 0.5 || (f.seq||0) < mySeq));
+    if(!cutters.length) continue;
+    // one round stamp can only bite a crescent out of a convex pot
+    if(cutters.length === 1 && cutters[0].kind === 'circle' && o.kind === 'circle') continue;
+    const k = skel(o), ks = cutters.map(skel);
+    const N = 44, pad = k.R*0.1 + 0.15;
+    const x0 = Math.min(k.ax,k.bx)-k.R-pad, x1 = Math.max(k.ax,k.bx)+k.R+pad;
+    const z0 = Math.min(k.az,k.bz)-k.R-pad, z1 = Math.max(k.az,k.bz)+k.R+pad;
+    const sol = new Uint8Array(N*N), lab = new Int16Array(N*N), st = [];
+    let best = null;
+    for(const fy of [0.1, 0.3, 0.5, 0.7, 0.9]){
+      const y = o.h*fy;
+      const rP = radAt(o, y, false);
+      const rS = cutters.map(f => radAt(f, y, true) + S.tol);
+      for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+        const x = x0 + (x1-x0)*(i+0.5)/N, z = z0 + (z1-z0)*(j+0.5)/N;
+        let v = segDist2(x,z, k.ax,k.az, k.bx,k.bz) < rP ? 1 : 0;
+        if(v) for(let c=0;c<ks.length;c++){
+          if(rS[c] < 0) continue;
+          if(segDist2(x,z, ks[c].ax,ks[c].az, ks[c].bx,ks[c].bz) < rS[c]){ v = 0; break; }
+        }
+        sol[j*N+i] = v; lab[j*N+i] = -1;
+      }
+      let nc = 0; const areas = [];
+      for(let c0=0;c0<N*N;c0++){
+        if(!sol[c0] || lab[c0] >= 0) continue;
+        let a = 0; st.length = 0; st.push(c0); lab[c0] = nc;
+        while(st.length){
+          const c = st.pop(); a++; const ci = c%N, cj = (c/N)|0;
+          if(ci>0   && sol[c-1] && lab[c-1]<0){ lab[c-1]=nc; st.push(c-1); }
+          if(ci<N-1 && sol[c+1] && lab[c+1]<0){ lab[c+1]=nc; st.push(c+1); }
+          if(cj>0   && sol[c-N] && lab[c-N]<0){ lab[c-N]=nc; st.push(c-N); }
+          if(cj<N-1 && sol[c+N] && lab[c+N]<0){ lab[c+N]=nc; st.push(c+N); }
+        }
+        areas.push(a); nc++;
+      }
+      if(nc < 2) continue;
+      let keep = 0; for(let c=1;c<nc;c++) if(areas[c] > areas[keep]) keep = c;
+      const drop = areas.reduce((t,a,c)=> c===keep ? t : t+a, 0);
+      if(drop < 5) continue;                       // specks, not a split
+      if(best && drop <= best.drop) continue;
+      let kx=0,kz=0,kn=0, dx=0,dz=0,dn=0;
+      for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+        const c = j*N+i; if(lab[c] < 0 || !sol[c]) continue;
+        const x = x0 + (x1-x0)*(i+0.5)/N, z = z0 + (z1-z0)*(j+0.5)/N;
+        if(lab[c] === keep){ kx+=x; kz+=z; kn++; } else { dx+=x; dz+=z; dn++; }
+      }
+      if(!kn || !dn) continue;
+      kx/=kn; kz/=kn; dx/=dn; dz/=dn;
+      let nx = dx-kx, nz = dz-kz;
+      const L = Math.hypot(nx,nz); if(L < 1e-6) continue;
+      nx/=L; nz/=L;
+      /* Sit the plane in the clear gap between the piece kept and the
+         pieces dropped, so the cut face lands in the space a neighbour
+         has already taken rather than shaving the piece that stays. */
+      let kMax=-1e9, dMin=1e9;
+      for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+        const c = j*N+i; if(lab[c] < 0 || !sol[c]) continue;
+        const x = x0 + (x1-x0)*(i+0.5)/N, z = z0 + (z1-z0)*(j+0.5)/N;
+        const t = x*nx + z*nz;
+        if(lab[c] === keep){ if(t > kMax) kMax = t; } else if(t < dMin) dMin = t;
+      }
+      best = { drop, nx, nz, c: dMin > kMax ? (kMax+dMin)*0.5 : Math.max(kMax, dMin) };
+    }
+    if(best){ o.cutOn = true; o.cutNx = best.nx; o.cutNz = best.nz; o.cutC = best.c; }
+  }
+}
+
 function sync(){
   // selecting a pot makes it the stamp for good, so the press does not
   // evaporate (and the blend does not rush back in) the moment you click away
@@ -1794,6 +1910,7 @@ function sync(){
       S.stampN = picked.length + rest.length;
     }
   }
+  if(!dragging) vaseCuts();        // too costly per frame; a drag ends in sync()
   buildPanel();
   document.getElementById('st-n').textContent = S.pots.length;
 }
