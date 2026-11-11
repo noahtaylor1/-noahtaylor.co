@@ -198,6 +198,7 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
     <span>Z <b id="st-z">0</b></span>
     <span><b id="st-view">ISO</b></span>
     <span>POTS <b id="st-n">0</b></span>
+    <span id="st-fit"></span>
     <span id="st-msg"></span>
   </div>
 </div>
@@ -210,22 +211,28 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 /* ══════════════════════════════════════════════════════════════════
    1 · STATE  —  units are inches, matching the standard pot sizes
    ══════════════════════════════════════════════════════════════════ */
-const PLATE = { w:72, d:48 };          // ground plate, X by Z
-const DIA   = [6, 12];                 // standard circle diameters / pill widths
-const LEN   = [12, 18, 24, 36];        // standard pill lengths, overall
+/* One scene unit is a centimetre. The standards below are therefore
+   60 and 120 mm across and 120 to 240 mm long, which all fit the 250 mm
+   cube with room to spare. */
+const MM = 1/10;
+const BUILD = 250;                     // mm, the X1C's cube, all three axes
+const PLATE = { w:BUILD*0.1, d:BUILD*0.1 };   // the bed, in scene units
+const DIA   = [6, 12];                 // 60 and 120 mm across
+const LEN   = [12, 18, 24];            // 120, 180, 240 mm - 360 will not fit
 let uid = 1;
 
 const S = {
   pots:[], sel:new Set(), tool:'select',
   view:'sw', az:-0.62, el:0.52, tx:0, tz:0, scale:62,
-  k:3.2, kernel:2, tol:0.125, press:0.5, swell:0, pressMode:true, stampN:0,
+  k:3.2, kernel:2, tol:0.12, press:0.5, swell:0, pressMode:true, stampN:0,
   persp:false, fov:0.61, ty:5,
   dia:12, len:24, h:9,
   tt:0.12, bt:0.42, belly:0.62,        // slight top taper, heavier base taper
-  // the extruded bead is the real unit here: 8 mm wide by 4 mm tall, and
-  // the layer pitch and wall thickness both follow from it
-  beadW:8, beadH:4, relief:0.4, wallBeads:1,
-  pitch:4/25.4, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:4, air:true, stopSink:true, oneWall:true, edges:false, hollow:true, wall:8/25.4,
+  /* The modded X1C: a 3 mm wide bead laid 1.5 mm tall. The layer pitch,
+     the wall and the rim radius all follow from it, and the base is a
+     whole number of those layers so the spiral can start flat. */
+  beadW:3, beadH:1.5, relief:0.4, wallBeads:1, baseLayers:3,
+  pitch:1.5/10, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:1.5, air:true, stopSink:true, oneWall:true, edges:false, hollow:true, wall:3/10,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -240,11 +247,12 @@ function say(t){
   clearTimeout(msgTimer);
   msgTimer = setTimeout(() => { e.style.opacity = '0'; }, 2400);
 }
-const MM = 1/25.4;
 /* The fillet in scene units. Stated in millimetres and divided by the
    circular kernel's 0.604 so the number on the slider is the radius
    the corner actually has. */
 const FILLET = () => S.fillet*MM/0.604;
+/* Base thickness in scene units: a whole number of laid layers. */
+const baseH = () => Math.max(1, Math.round(S.baseLayers)) * S.beadH * MM;
 const nearest = (v, list) => list.reduce((a,b) => Math.abs(b-v) < Math.abs(a-v) ? b : a);
 
 /* ══════════════════════════════════════════════════════════════════
@@ -423,7 +431,7 @@ function sdCavityJS(o, x, y, z, wall){
   const [r0, drdt] = potR(t, s.R, o.tt, o.bt, o.belly);
   const r = Math.max(r0 - wall, 0.02);
   const drdy = drdt/Math.max(o.h, 1e-4);
-  return Math.max((q - r)/Math.sqrt(1 + drdy*drdy), wall - y);
+  return Math.max((q - r)/Math.sqrt(1 + drdy*drdy), baseH() - y);
 }
 function sdPotJS(o, x, y, z, sweep){
   const s = skel(o);
@@ -519,7 +527,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
-uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis, uAmb, uGap, uFillet;
+uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis, uAmb, uGap, uFillet, uBase;
 uniform int uPersp, uAnyPress, uAir;
 uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
@@ -596,7 +604,10 @@ float sdCavity(vec3 p, vec2 a, vec2 b, float R, float h, float tt, float bt, flo
   float radial = (q - r)*inversesqrt(1.0 + drdy*drdy);
   if(!gNoBead && uBead > 1e-5)                     // the bore is ribbed too
     radial -= uBead*sin(3.14159265*fract(p.y/max(uPitch, 1e-4)));
-  return max(radial, wall - p.y);
+  /* The floor of the bore sits on top of the base, so everything below
+     it is solid all the way to the middle - no bore reaching the bed,
+     and nothing for the spiral to have to jump across. */
+  return max(radial, uBase - p.y);
 }
 
 /* Solid outer envelope of the stamps, ignoring one pot. A receiving pot is
@@ -844,7 +855,7 @@ function initGL(){
   if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
-                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead','uAmb','uGap','uFillet',
+                  'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead','uAmb','uGap','uFillet','uBase',
                   'uPersp','uAnyPress','uAir','uBeadVis','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
@@ -947,6 +958,9 @@ function draw(){
   gl.uniform1f(uni.uPitch, A.pitch);
   gl.uniform1f(uni.uSecX, A.secX);
   gl.uniform1f(uni.uWall, S.wall);
+  /* The base is a whole number of layers so the spiral can run flat out
+     from the middle and then climb into the wall without a step. */
+  gl.uniform1f(uni.uBase, Math.max(1, Math.round(S.baseLayers)) * S.beadH * MM);
   gl.uniform1f(uni.uTol, S.tol);
   gl.uniform1f(uni.uPress, S.press);
   gl.uniform1f(uni.uSwell, S.swell);
@@ -1534,7 +1548,7 @@ function buildOpts(){
   oSeg(g3,'Proj',[[false,'ORTHO'],[true,'PERSP']], ()=>S.persp, v=>{ S.persp = v; say(v?'Perspective':'Orthographic'); }, 48);
 
   const g4 = oGroup();
-  oRange(g4,'Bead',1,10,.25, ()=>S.beadH, v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
+  oRange(g4,'Layer',0.2,6,.1, ()=>S.beadH, v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
   const sn = el('label','chk');
   const si = document.createElement('input');
   si.type = 'checkbox'; si.checked = S.snap;
@@ -1610,7 +1624,7 @@ function buildPanel(){
   segment(sp,'Continuity',[[0,'G1'],[1,'G2'],[2,'ARC']], ()=>S.kernel,
     v => { S.kernel = v; say(['Polynomial G1','Cubic G2','Circular arc'][v]); });
   slider(sp,'Blend',0,12,.1, ()=>S.k, v=>{S.k=v;}, v=>v.toFixed(1));
-  slider(sp,'Clearance',0,0.5,.005, ()=>S.tol, v=>{S.tol=v;}, v=>v.toFixed(3));
+  slider(sp,'Clearance',0,5,.1, ()=>S.tol/MM, v=>{S.tol=v*MM;}, v=>v.toFixed(1)+'mm');
   slider(sp,'Fillet',0,10,.25, ()=>S.fillet, v=>{S.fillet=v;}, v=> v<0.125 ? 'sharp' : v.toFixed(2)+'mm');
   slider(sp,'Press',0,1,.02, ()=>S.press, v=>{S.press=v;}, v=> v<0.02 ? 'cut' : v.toFixed(2));
   slider(sp,'Swell',0,1,.02, ()=>S.swell, v=>{S.swell=v;}, v=> v<0.02 ? 'off' : v.toFixed(2));
@@ -1652,14 +1666,16 @@ function buildPanel(){
   slider(s2,'Rim taper',0,0.6,.01, ()=>S.tt, v=>{S.tt=v;}, v=>v.toFixed(2));
   slider(s2,'Foot taper',0,0.85,.01, ()=>S.bt, v=>{S.bt=v;}, v=>v.toFixed(2));
   slider(s2,'Belly',0.15,0.9,.01, ()=>S.belly, v=>{S.belly=v;}, v=>v.toFixed(2));
-  s2.appendChild(el('p','hint','Standard plan sizes: circles ø 6 and 12; pills 6 or 12 wide by 12, 18, 24 or 36 long. Heights run 6 to 12.'));
+  s2.appendChild(el('p','hint','Standard plan sizes: circles ø 60 and 120mm; pills 60 or 120mm wide by 120, 180 or 240 long. Heights 60 to 120mm. Everything fits the 250mm cube.'));
   panel.appendChild(s2);
 
   const s3 = el('div','sect'); s3.appendChild(el('h2',null,'Drawing'));
-  slider(s3,'Bead wide',2,20,.5, ()=>S.beadW,
+  slider(s3,'Bead wide',0.4,12,.1, ()=>S.beadW,
     v=>{ S.beadW=v; S.wall=v*S.wallBeads*MM; }, v=>v.toFixed(1)+'mm');
-  slider(s3,'Bead tall',1,10,.25, ()=>S.beadH,
+  slider(s3,'Layer tall',0.2,6,.1, ()=>S.beadH,
     v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
+  slider(s3,'Base layers',1,8,1, ()=>S.baseLayers,
+    v=>{ S.baseLayers=Math.round(v); }, v=>Math.round(v)+' \u00D7 '+(S.beadH*Math.round(v)).toFixed(1)+'mm');
   slider(s3,'Relief',0,1,.05, ()=>S.relief, v=>{S.relief=v;}, v=> v<0.01 ? 'flat' : v.toFixed(2));
   slider(s3,'Shade',0,6,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v)+' steps');
   if(S.shade > 0){
@@ -1913,6 +1929,24 @@ function sync(){
   if(!dragging) vaseCuts();        // too costly per frame; a drag ends in sync()
   buildPanel();
   document.getElementById('st-n').textContent = S.pots.length;
+  /* Whether the whole group would go on the bed. The X1C is a 250 mm
+     cube, and a nest that overruns it is worth knowing about before the
+     slicer says so. */
+  const fit = document.getElementById('st-fit');
+  if(!S.pots.length){ fit.textContent = ''; }
+  else {
+    let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9,hi=0;
+    for(const o of S.pots){ const k = skel(o);
+      x0=Math.min(x0,Math.min(k.ax,k.bx)-k.R); x1=Math.max(x1,Math.max(k.ax,k.bx)+k.R);
+      z0=Math.min(z0,Math.min(k.az,k.bz)-k.R); z1=Math.max(z1,Math.max(k.az,k.bz)+k.R);
+      hi=Math.max(hi,o.h); }
+    const w=(x1-x0)/MM, d=(z1-z0)/MM, h=hi/MM;
+    const over = w>BUILD || d>BUILD || h>BUILD;
+    fit.textContent = `${Math.round(w)}\u00D7${Math.round(d)}\u00D7${Math.round(h)}mm`
+                    + (over ? ` \u00B7 over ${BUILD}` : '');
+    fit.style.color = over ? 'var(--ink)' : 'var(--t3)';
+    fit.style.fontWeight = over ? '600' : '400';
+  }
 }
 function fitView(){
   if(!S.pots.length){ S.tx = 0; S.tz = 0; S.scale = 62; return; }
