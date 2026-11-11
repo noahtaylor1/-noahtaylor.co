@@ -1540,6 +1540,26 @@ function startAt(loop, pt){
   out.push(bp.slice());
   return out;
 }
+/* Walk a closed loop at even steps, starting where it comes nearest pt.
+   Two loops resampled to the same count and started at the same place
+   can be blended point for point. */
+function resampleLoop(loop, n, startPt){
+  const l = startAt(loop, startPt);
+  const cum = [0];
+  for(let i=1;i<l.length;i++) cum.push(cum[i-1] + Math.hypot(l[i][0]-l[i-1][0], l[i][1]-l[i-1][1]));
+  const total = cum[cum.length-1];
+  if(!(total > 1e-9)) return null;
+  const out = [];
+  let j = 0;
+  for(let k=0;k<n;k++){
+    const target = total*k/n;
+    while(j < cum.length-2 && cum[j+1] < target) j++;
+    const seg = cum[j+1]-cum[j];
+    const t = seg > 1e-12 ? (target-cum[j])/seg : 0;
+    out.push([l[j][0] + (l[j+1][0]-l[j][0])*t, l[j][1] + (l[j+1][1]-l[j][1])*t]);
+  }
+  return out;
+}
 /* The path for one pot, in scene units: [x, z, y] with y the height. */
 function potToolpath(o){
   const layer = S.beadH*MM, half = S.beadW*0.5*MM, step = S.beadW*MM;
@@ -1575,13 +1595,39 @@ function potToolpath(o){
     if(!ls.length) break;
     rings.push(ls.slice().sort((a,b) => loopLen(b) - loopLen(a)));
   }
-  for(let r = rings.length-1; r >= 0; r--)          // innermost pass first
-    for(const raw of rings[r]){
+  /* The base is one spiral, not a stack of rings. Each turn is blended
+     from the pass it starts on to the pass outside it, so the radius
+     grows smoothly all the way round instead of closing a circle and
+     stepping out - which is what put a radial seam and a row of chevrons
+     across the bottom. Where an inset breaks a crescent into two the
+     blend has nothing to pair with, so those passes are laid on their
+     own and reached by a travel. */
+  const turnPts = (l) => Math.max(72, Math.min(900, Math.round(loopLen(l)/(0.5*MM))));
+  for(let r = rings.length-1; r >= 0; r--){
+    const here = rings[r], next = r > 0 ? rings[r-1] : null;
+    if(here.length === 1 && next && next.length === 1){
+      const n = turnPts(here[0]);
+      const A = resampleLoop(here[0], n, last);
+      const B = A && resampleLoop(next[0], n, A[0]);
+      if(A && B){
+        const gap = last ? Math.hypot(A[0][0]-last[0], A[0][1]-last[1]) : 0;
+        path.push({x:A[0][0], z:A[0][1], y:layer, travel: !last ? true : gap > step*1.6});
+        for(let i=1;i<n;i++){
+          const t = i/n;
+          path.push({x:A[i][0]+(B[i][0]-A[i][0])*t, z:A[i][1]+(B[i][1]-A[i][1])*t, y:layer, travel:false});
+        }
+        last = [B[0][0], B[0][1]];            // the turn lands on the next pass
+        path.push({x:B[0][0], z:B[0][1], y:layer, travel:false});
+        continue;
+      }
+    }
+    for(const raw of here){                   // odd pass: lay it as its own loop
       const l = link(raw);
       path[path.length-1].y = layer;
       for(let i=1;i<l.length;i++) path.push({x:l[i][0], z:l[i][1], y:layer, travel:false});
       last = l[l.length-1];
     }
+  }
   if(!path.length) return null;
   // ── the wall, one loop a layer, Z ramping across each loop ───────
   let top = base;
