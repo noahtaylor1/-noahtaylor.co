@@ -54,13 +54,13 @@ button,input,select{font:inherit;color:inherit}
 #opts::-webkit-scrollbar{display:none}
 #opts .tname{font-weight:500;letter-spacing:.18em;text-transform:uppercase;font-size:10px;
   white-space:nowrap;flex:none;padding-right:12px;margin-right:12px;border-right:1px solid var(--rule);min-width:104px}
-#opts .ogrp{display:flex;align-items:center;gap:7px;flex:none;padding-right:12px;margin-right:12px;
+#opts .ogrp{display:flex;align-items:center;gap:7px;flex:0 1 auto;min-width:0;padding-right:12px;margin-right:12px;
   border-right:1px solid var(--rule-soft);animation:fadein .18s var(--ease)}
 #opts .ogrp:last-child{border-right:0}
 @keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
 #opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
 #opts output{font-size:12px;font-variant-numeric:tabular-nums;min-width:32px;text-align:right}
-#opts input[type=range]{width:84px}
+#opts input[type=range]{flex:0 1 84px;width:84px;min-width:38px}
 
 #rail{grid-column:1;grid-row:2/4;background:var(--chrome);border-right:1px solid var(--rule);
   display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 0;overflow-y:auto;scrollbar-width:none}
@@ -1333,6 +1333,16 @@ function rulers(){
   rhEl.innerHTML = h; rvEl.innerHTML = v;
 }
 const pxPerUnit = () => vh/Math.max(A.scale, 1e-4);
+/* a run of wall-space points as one SVG polyline in screen pixels */
+function screenPath(pts){
+  if(!pts || !pts.length) return '';
+  let d = '';
+  for(let i = 0; i < pts.length; i++){
+    const q = worldToScreen(pts[i].x, pts[i].y, 0);
+    d += (i ? 'L' : 'M') + q.x.toFixed(1) + ' ' + q.y.toFixed(1);
+  }
+  return d;
+}
 function overlay(){
   let s = '';
   const k = pxPerUnit();
@@ -1887,12 +1897,19 @@ function buildOpts(){
   }
   const g2 = oGroup();
   oRange(g2,'Blend',0,16,0.5, ()=>S.blend, v=>{S.blend=v; markAll();}, v=>v.toFixed(1)+'mm');
-  const g3 = oGroup();
-  oRange(g3,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
-  oRange(g3,'Layer',0.4,3,0.05, ()=>S.layer, v=>{S.layer=v;}, v=>v.toFixed(2)+'mm');
-  g3.appendChild(el('label',null,'Stroke'));
-  g3.appendChild(el('output',null,strokeMM().toFixed(1)+'mm'));
+  if(innerWidth >= 1240){
+    const g3 = oGroup();
+    oRange(g3,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
+    oRange(g3,'Layer',0.4,3,0.05, ()=>S.layer, v=>{S.layer=v;}, v=>v.toFixed(2)+'mm');
+    g3.appendChild(el('label',null,'Stroke'));
+    g3.appendChild(el('output',null,strokeMM().toFixed(1)+'mm'));
+  }
 }
+let optsW = innerWidth;
+addEventListener('resize', () => {
+  if((optsW >= 1240) !== (innerWidth >= 1240)){ optsW = innerWidth; buildOpts(); }
+  optsW = innerWidth;
+});
 function slider(parent, label, min, max, st, get, set, fmt){
   const row = el('div','row');
   row.appendChild(el('label',null,label));
@@ -2100,9 +2117,8 @@ function frame(t){
   A.pitch = ease(A.pitch, S.layer*MM, dt, 0.09);
   const off = Math.hypot(A.az, A.el) > 0.012;
   document.getElementById('st-view').textContent = off ? 'OFF AXIS' : 'ELEVATION';
-  draw();
-  overlay();
-  rulers();
+  try{ draw(); overlay(); rulers(); }
+  catch(err){ if(!frame.cried){ frame.cried = true; console.error(err); say('Something went wrong drawing that frame'); } }
   requestAnimationFrame(frame);
 }
 
@@ -2110,9 +2126,19 @@ function frame(t){
    12 · KEYBOARD
    ══════════════════════════════════════════════════════════════════ */
 const KEYMAP = { v:'select', p:'pen', l:'line', r:'tilt', h:'hand', z:'zoom' };
+// keys a focused range / checkbox / button is entitled to keep for itself
+const WIDGET_KEYS = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',
+                             'Home','End','PageUp','PageDown','Enter',' ','Spacebar']);
 addEventListener('keydown', e => {
-  const tag = (e.target.tagName||'').toLowerCase();
-  if(tag === 'input' || tag === 'textarea') return;
+  const t    = e.target || document.body;
+  const tag  = (t.tagName||'').toLowerCase();
+  const type = (t.type||'').toLowerCase();
+  // a slider, a tickbox or a button holds focus after you click it - only a text
+  // field has any claim on a letter key, so only a text field stops a shortcut
+  const widget = tag === 'button' ||
+                 (tag === 'input' && (type === 'range' || type === 'checkbox' || type === 'radio'));
+  if(t.isContentEditable || tag === 'textarea' || (tag === 'input' && !widget)) return;
+  if(widget && WIDGET_KEYS.has(e.key)) return;
   if(e.code === 'Space'){ spaceDown = true; viewEl.style.cursor = 'grab'; e.preventDefault(); return; }
   if(e.metaKey || e.ctrlKey){
     const k = e.key.toLowerCase();
@@ -2134,6 +2160,10 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => {
   if(e.code === 'Space'){ spaceDown = false; viewEl.style.cursor = CURSOR[S.tool] || 'crosshair'; }
+});
+addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button, input[type=checkbox]');
+  if(b) b.blur();            // so Space and Enter go back to the drawing, not to the last thing clicked
 });
 document.getElementById('drawer').onclick = () => panel.classList.toggle('open');
 
