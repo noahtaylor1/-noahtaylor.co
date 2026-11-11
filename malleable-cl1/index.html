@@ -1440,10 +1440,10 @@ function planSVG(){
    as the volume of the bead laid, not a length of filament.
    ══════════════════════════════════════════════════════════════════ */
 const GC = {
-  bedTemp:60, nozzleTemp:220,          // as the X1C files use for the fat nozzle
+  bedTemp:80, nozzleTemp:220,          // as big jewl2 runs PLA through the fat nozzle
   travelF:30000, retractF:1800, retract:1.70,
-  flow:9.3,                            // mm^3/s, the rate those files actually ran at
-  park:[128,128]
+  flow:9.3,                            // mm^3/s; these files run 7.9 to 9.3
+  ams:1                                // AMS slot to claim and select; 0 feeds nothing
 };
 /* A laid bead is a rectangle with half-round ends. */
 const beadArea = () => S.beadW*S.beadH - S.beadH*S.beadH*(1 - Math.PI/4);
@@ -1634,16 +1634,41 @@ function potGcode(o, idx){
   L.push('M140 S'+GC.bedTemp+' ; set bed temp');
   L.push('M104 S'+GC.nozzleTemp+' ; set nozzle temp');
   L.push('M190 S'+GC.bedTemp+' ; wait for bed');
-  L.push('G28 ; home');
-  L.push('M975 S1 ; vibration suppression');
-  L.push('M109 S'+GC.nozzleTemp+' ; wait for nozzle');
+  L.push('G28 ; home all axes');
+  L.push('M975 S1 ; turn on vibration suppression');
+  const A = Math.round(GC.ams);
+  if(A > 0){
+    /* The AMS dance, in the order the machine's own start gcode does it:
+       approach the purge bay, claim the slot, select the tool so the feed
+       mechanism actually turns, then release. */
+    L.push('G1 X60 F12000 ; approach AMS purge bay');
+    L.push('G1 Y245');
+    L.push('G1 Y265 F3000');
+    L.push('M620 M');
+    L.push('M620 S'+A+'A ; claim AMS slot '+A);
+    L.push('M109 S'+GC.nozzleTemp);
+    L.push('G1 X120 F12000');
+    L.push('G1 X20 Y50 F12000');
+    L.push('G1 Y-3');
+    L.push('T'+A+' ; tool-select, which triggers the physical feed');
+    L.push('G1 X54 F12000');
+    L.push('G1 Y265');
+    L.push('M400');
+    L.push('M621 S'+A+'A ; release AMS claim');
+  }
+  L.push('; bed leveling skipped for this print (no G29 emitted)');
+  L.push('M109 S'+GC.nozzleTemp+' ; wait for nozzle temp');
   L.push('G92 E0');
-  L.push('G1 E-'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; retract before prime');
+  L.push('M975 S1 ; re-asserted before printing');
+  L.push('G1 E-'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; retract before prime move');
   L.push('G1 X18.000 Y1.000 Z'+(layerMM*0.6).toFixed(3)+' F'+GC.travelF+' ; prime line start');
   L.push('G1 E'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; un-retract');
   L.push('G1 Z'+(layerMM*0.5).toFixed(3)+' F'+GC.travelF);
-  L.push('G1 X118.000 E'+(area*100).toFixed(4)+' F'+Math.round(F*1.2)+' ; prime line');
-  L.push('G1 Y9.000 E'+(area*8).toFixed(4)+' F'+Math.round(F*0.5)+' ; wipe');
+  /* Same prime as the machine's own files - full width of the bed, then
+     a wipe across - at this bead's feed rather than their F300, which on
+     a 3 mm bead would be twenty cubic millimetres a second. */
+  L.push('G1 X239.000 E'+(area*221).toFixed(4)+' F'+F+' ; prime line leg 1');
+  L.push('G1 Y12.000 E'+(area*11).toFixed(4)+' F'+Math.round(F/4)+' ; prime line leg 2 (wipe)');
   L.push('G92 E0');
   L.push('M204 S500 ; first-layer acceleration');
   let fanOn = false, prev = null, total = 0, lastPct = -1, travels = 0;
@@ -1664,7 +1689,8 @@ function potGcode(o, idx){
     const seg = Math.hypot(dx,dy,dzm);
     if(seg < 1e-4){ prev = p; continue; }
     total += seg;
-    if(!fanOn && p.y > baseH()){ L.push('M106 S255 ; part cooling fan'); L.push('M204 S1000'); fanOn = true; }
+    // the acceleration stays where the first layer set it, as these files leave it
+    if(!fanOn && p.y > baseH()){ L.push('M106 S255 ; part cooling fan'); fanOn = true; }
     L.push('G1 X'+PX(p).toFixed(3)+' Y'+PY(p).toFixed(3)+' Z'+mm(p.y).toFixed(3)+' E'+(area*seg).toFixed(4)+' F'+F);
     const pct = Math.floor(i/n*100);
     if(pct !== lastPct && pct%5 === 0){ L.push('M73 P'+pct); lastPct = pct; }
@@ -1674,11 +1700,19 @@ function potGcode(o, idx){
   L.push('M73 P100 R0');
   L.push('M106 S0 ; fan off');
   L.push('G1 E-'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; final retract');
-  L.push('G1 Z'+(mm(tp.top)+10).toFixed(3)+' F'+GC.travelF+' ; lift clear');
-  L.push('G1 X'+GC.park[0].toFixed(1)+' Y'+GC.park[1].toFixed(1)+' F'+GC.travelF+' ; park');
+  const zTop = mm(tp.top);
+  L.push('G1 Z'+(zTop+10).toFixed(3)+' F'+GC.travelF+' ; park -- raise 10.0mm straight up in place (no XY move)');
   L.push('M104 S0 ; nozzle off');
   L.push('M140 S0 ; bed off');
-  L.push('M84 ; motors off');
+  L.push('M106 S0 ; fan off');
+  L.push('M17 S');
+  L.push('M17 Z0.4 ; lower Z motor current before the final clearing move');
+  const zClear = Math.min(zTop + 100, BUILD - 5);
+  L.push('G1 Z'+zClear.toFixed(3)+' F600 ; clear bed toward base of chamber');
+  L.push('G1 Z'+(zClear-2).toFixed(3)+' ; back off 2mm to relieve binding');
+  L.push('M400 P100');
+  L.push('M17 R ; restore normal Z motor current');
+  L.push('M84 ; disable motors');
   L.push('; path length '+total.toFixed(0)+'mm, '+(total*area/1000).toFixed(1)+'cm^3');
   return L.join('\n')+'\n';
 }
@@ -2011,6 +2045,10 @@ function buildPanel(){
   slider(s6,'Trace',180,1200,20, ()=>S.traceRes, v=>{S.traceRes=Math.round(v);}, v=>Math.round(v));
   slider(s6,'Flow',2,60,.5, ()=>GC.flow, v=>{GC.flow=v;},
     v=>v.toFixed(1)+'mm\u00B3/s \u00B7 F'+Math.max(60,Math.round(60*v/beadArea())));
+  slider(s6,'Nozzle',180,300,5, ()=>GC.nozzleTemp, v=>{GC.nozzleTemp=Math.round(v);}, v=>Math.round(v)+'\u00B0');
+  slider(s6,'Bed',0,110,5, ()=>GC.bedTemp, v=>{GC.bedTemp=Math.round(v);}, v=>Math.round(v)+'\u00B0');
+  slider(s6,'AMS slot',0,4,1, ()=>GC.ams, v=>{GC.ams=Math.round(v);},
+    v=> Math.round(v) < 1 ? 'preloaded' : 'slot '+Math.round(v));
   const eg = el('div','grid2'); eg.style.marginTop = '7px';
   button(eg,'SAVE PNG', exportPNG);
   button(eg,'GCODE', exportGcode);
