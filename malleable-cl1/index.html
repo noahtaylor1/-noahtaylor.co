@@ -1330,38 +1330,42 @@ function exportPNG(){
   draw();                                   // make sure the buffer holds the current frame
   cvs.toBlob(b => { if(b){ download('malleable-cl1.png', b); say('PNG saved'); } }, 'image/png');
 }
-/* plan outline: marching squares over a horizontal slice of the field */
-function planSVG(){
-  if(!S.pots.length) return null;
-  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
-  for(const o of S.pots){
-    const k = skel(o), pad = k.R + S.k + 2;
-    x0 = Math.min(x0, Math.min(k.ax,k.bx)-pad); x1 = Math.max(x1, Math.max(k.ax,k.bx)+pad);
-    z0 = Math.min(z0, Math.min(k.az,k.bz)-pad); z1 = Math.max(z1, Math.max(k.az,k.bz)+pad);
-  }
-  const res = S.traceRes;
-  const nx = res, nz = Math.max(16, Math.round(res*(z1-z0)/(x1-x0)));
+/* ── ISO TRACING ────────────────────────────────────────────────────
+   Marching squares over a horizontal slice, assembled into closed
+   loops. Any inward offset of a shape is just an isoline of its field,
+   so the same routine gives the outline, the bead centreline and every
+   concentric pass of a base fill. */
+function isoLoops(sample, x0, x1, z0, z1, res){
+  const nx = Math.max(8, res);
+  const nz = Math.max(8, Math.round(res*(z1-z0)/Math.max(x1-x0, 1e-6)));
   const dx = (x1-x0)/nx, dz = (z1-z0)/nz, W = nx+1;
-  const y = S.sliceY;
   const g = new Float32Array(W*(nz+1));
-  for(let j=0;j<=nz;j++){
-    const pz = z0+j*dz, row = j*W;
-    for(let i=0;i<=nx;i++) g[row+i] = sceneJS(x0+i*dx, y, pz);
-  }
+  for(let j=0;j<=nz;j++){ const row = j*W, pz = z0+j*dz;
+    for(let i=0;i<=nx;i++) g[row+i] = sample(x0+i*dx, pz); }
+  /* A crossing always sits on one grid edge, so the edge is its name.
+     Matching vertices by rounded coordinates instead let the same point,
+     reached from two neighbouring cells by two different float
+     expressions, read as two names, and every contour came apart into
+     dozens of open scraps. */
+  const HID = (i,j) => 2*(j*W+i), VID = (i,j) => 2*(j*W+i)+1;
+  const pos = new Map();
+  const at = (id) => pos.get(id);
   const ip = (a,b) => a/(a-b);
   const segs = [];
   for(let j=0;j<nz;j++) for(let i=0;i<nx;i++){
-    const o = j*W+i;
-    const v0=g[o], v1=g[o+1], v2=g[o+W+1], v3=g[o+W];
+    const o = j*W+i, v0=g[o], v1=g[o+1], v2=g[o+W+1], v3=g[o+W];
     let c = 0;
     if(v0<0) c|=8; if(v1<0) c|=4; if(v2<0) c|=2; if(v3<0) c|=1;
     if(c === 0 || c === 15) continue;
-    const X = x0+i*dx, Z = z0+j*dz;
-    const E0 = () => [X+dx*ip(v0,v1), Z];
-    const E1 = () => [X+dx, Z+dz*ip(v1,v2)];
-    const E2 = () => [X+dx*ip(v3,v2), Z+dz];
-    const E3 = () => [X, Z+dz*ip(v0,v3)];
-    const push = (p,q) => segs.push([p,q]);
+    const E0 = () => { const id = HID(i,j);
+      if(!pos.has(id)) pos.set(id, [x0+(i+ip(v0,v1))*dx, z0+j*dz]); return id; };
+    const E1 = () => { const id = VID(i+1,j);
+      if(!pos.has(id)) pos.set(id, [x0+(i+1)*dx, z0+(j+ip(v1,v2))*dz]); return id; };
+    const E2 = () => { const id = HID(i,j+1);
+      if(!pos.has(id)) pos.set(id, [x0+(i+ip(v3,v2))*dx, z0+(j+1)*dz]); return id; };
+    const E3 = () => { const id = VID(i,j);
+      if(!pos.has(id)) pos.set(id, [x0+i*dx, z0+(j+ip(v0,v3))*dz]); return id; };
+    const push = (a,b) => segs.push([a,b]);
     switch(c){
       case 1: push(E3(),E2()); break;   case 2: push(E2(),E1()); break;
       case 3: push(E3(),E1()); break;   case 4: push(E0(),E1()); break;
@@ -1375,30 +1379,45 @@ function planSVG(){
         if(m<0){ push(E0(),E1()); push(E3(),E2()); } else { push(E0(),E3()); push(E2(),E1()); } break; }
     }
   }
-  const key = p => p[0].toFixed(4)+','+p[1].toFixed(4);
   const map = new Map();
-  segs.forEach((sg,i) => { for(const end of [0,1]){
-    const k = key(sg[end]); if(!map.has(k)) map.set(k,[]); map.get(k).push({i,end});
-  }});
+  segs.forEach((sg,i) => { for(const e of [0,1]){
+    const k = sg[e]; if(!map.has(k)) map.set(k,[]); map.get(k).push({i,e}); }});
   const used = new Uint8Array(segs.length), loops = [];
   for(let i=0;i<segs.length;i++){
     if(used[i]) continue;
     used[i] = 1;
-    const line = [segs[i][0], segs[i][1]];
+    const ids = [segs[i][0], segs[i][1]];
     for(const grow of [1,0]){
       while(true){
-        const tip = grow ? line[line.length-1] : line[0];
-        const cands = map.get(key(tip)) || [];
-        let nx2 = null;
-        for(const c of cands) if(!used[c.i]){ nx2 = c; break; }
-        if(!nx2) break;
-        used[nx2.i] = 1;
-        const other = segs[nx2.i][1-nx2.end];
-        if(grow) line.push(other); else line.unshift(other);
+        const tip = grow ? ids[ids.length-1] : ids[0];
+        const cands = map.get(tip) || [];
+        let nxt = null;
+        for(const c of cands) if(!used[c.i]){ nxt = c; break; }
+        if(!nxt) break;
+        used[nxt.i] = 1;
+        const other = segs[nxt.i][1-nxt.e];
+        if(grow) ids.push(other); else ids.unshift(other);
       }
     }
-    if(line.length > 3) loops.push(line);
+    if(ids.length < 4) continue;
+    const line = ids.map(at);
+    // close it when the walk came back to where it started
+    if(ids[0] !== ids[ids.length-1]) line.push(line[0].slice());
+    loops.push(line);
   }
+  return loops;
+}
+/* plan outline: the whole field at the chosen height */
+function planSVG(){
+  if(!S.pots.length) return null;
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(const o of S.pots){
+    const k = skel(o), pad = k.R + S.k + 2;
+    x0 = Math.min(x0, Math.min(k.ax,k.bx)-pad); x1 = Math.max(x1, Math.max(k.ax,k.bx)+pad);
+    z0 = Math.min(z0, Math.min(k.az,k.bz)-pad); z1 = Math.max(z1, Math.max(k.az,k.bz)+pad);
+  }
+  const y = S.sliceY;
+  const loops = isoLoops((x,z) => sceneJS(x, y, z), x0, x1, z0, z1, S.traceRes);
   const f = v => Math.round(v*1000)/1000;
   const ds = loops.map(l => {
     let d = `M${f(l[0][0])} ${f(l[0][1])}`;
@@ -1411,6 +1430,250 @@ function planSVG(){
        + `width="${f(x1-x0)}" height="${f(z1-z0)}">`
        + `<rect x="${f(x0)}" y="${f(z0)}" width="${f(x1-x0)}" height="${f(z1-z0)}" fill="${paper}"/>`
        + `<path d="${ds.join('')}" fill="${ink}" fill-rule="evenodd"/></svg>`;
+}
+/* ══════════════════════════════════════════════════════════════════
+   GCODE  —  one file per pot, spiral vase
+   The base spirals out flat from the middle, then the wall climbs in a
+   single unbroken helix: one loop a layer, Z ramped across the loop so
+   there is never a seam or a travel move. Written in the dialect of the
+   X1C files on this machine - absolute XYZ, M83 relative E, and E given
+   as the volume of the bead laid, not a length of filament.
+   ══════════════════════════════════════════════════════════════════ */
+const GC = {
+  bedTemp:60, nozzleTemp:220,          // as the X1C files use for the fat nozzle
+  travelF:30000, retractF:1800, retract:1.70,
+  flow:9.3,                            // mm^3/s, the rate those files actually ran at
+  park:[128,128]
+};
+/* A laid bead is a rectangle with half-round ends. */
+const beadArea = () => S.beadW*S.beadH - S.beadH*S.beadH*(1 - Math.PI/4);
+const printFeed = () => Math.max(60, Math.round(60*GC.flow/beadArea()));
+
+/* The pot's cross-section at one height, as a distance measured IN THE
+   PLANE. The 3D field will not do: a point a layer above the bed is a
+   layer away from the bed, so insetting it by a bead erases the base
+   instead of stepping in from the rim. This measures outward from the
+   skeleton only, which is what an offset pass actually follows. */
+function planField(o, y){
+  if(y > o.h) return null;
+  const k = skel(o);
+  const rP = radAt(o, y, false);
+  if(!(rP > 0)) return null;
+  const mySeq = o.seq || 0;
+  const cs = [];
+  if(anyStamp() && o.op === 0)
+    for(const f of S.pots){
+      if(f === o || f.op !== 0 || (f.seq||0) <= 0.5) continue;
+      if(mySeq > 0.5 && (f.seq||0) >= mySeq) continue;
+      const r = radAt(f, y, true);
+      if(r > 0) cs.push({ k:skel(f), r:r + S.tol });
+    }
+  const soft = Math.max(S.press*0.9, FILLET());
+  return (x,z) => {
+    let d = segDist2(x,z, k.ax,k.az, k.bx,k.bz) - rP;
+    for(const c of cs)
+      d = smaxK(d, -(segDist2(x,z, c.k.ax,c.k.az, c.k.bx,c.k.bz) - c.r), soft);
+    if(o.cutOn) d = Math.max(d, x*o.cutNx + z*o.cutNz - o.cutC);
+    return d;
+  };
+}
+/* Ramer-Douglas-Peucker. The tracer returns a point every grid cell,
+   which is ten times finer than a 3 mm bead needs; thinning to a few
+   hundredths of a millimetre of deviation keeps the curve and loses the
+   file size. */
+function simplify(line, tol){
+  if(line.length < 4) return line;
+  const keep = new Uint8Array(line.length);
+  keep[0] = keep[line.length-1] = 1;
+  const stack = [[0, line.length-1]];
+  while(stack.length){
+    const [a,b] = stack.pop();
+    if(b <= a+1) continue;
+    const ax=line[a][0], az=line[a][1], bx=line[b][0], bz=line[b][1];
+    const vx=bx-ax, vz=bz-az, L2=vx*vx+vz*vz;
+    let far=-1, fd=tol;
+    for(let i=a+1;i<b;i++){
+      const px=line[i][0]-ax, pz=line[i][1]-az;
+      const t = L2 > 1e-18 ? Math.max(0, Math.min(1, (px*vx+pz*vz)/L2)) : 0;
+      const d = Math.hypot(px - vx*t, pz - vz*t);
+      if(d > fd){ fd = d; far = i; }
+    }
+    if(far < 0) continue;
+    keep[far] = 1; stack.push([a,far], [far,b]);
+  }
+  const out = [];
+  for(let i=0;i<line.length;i++) if(keep[i]) out.push(line[i]);
+  return out;
+}
+const loopLen = l => { let t=0; for(let i=1;i<l.length;i++) t += Math.hypot(l[i][0]-l[i-1][0], l[i][1]-l[i-1][1]); return t; };
+function rotateTo(loop, pt){            // start a loop at its point nearest pt
+  if(!pt) return loop;
+  let bi=0, bd=1e9;
+  for(let i=0;i<loop.length;i++){ const d=Math.hypot(loop[i][0]-pt[0], loop[i][1]-pt[1]); if(d<bd){bd=d;bi=i;} }
+  const closed = Math.hypot(loop[0][0]-loop[loop.length-1][0], loop[0][1]-loop[loop.length-1][1]) < 1e-6;
+  const body = closed ? loop.slice(0,-1) : loop.slice();
+  const out = body.slice(bi).concat(body.slice(0,bi));
+  out.push(out[0].slice());
+  return out;
+}
+/* The path for one pot, in scene units: [x, z, y] with y the height. */
+function potToolpath(o){
+  const layer = S.beadH*MM, half = S.beadW*0.5*MM, step = S.beadW*MM;
+  const base = baseH();
+  const k = skel(o), pad = k.R*0.2 + step*2;
+  const bx0 = Math.min(k.ax,k.bx)-k.R-pad, bx1 = Math.max(k.ax,k.bx)+k.R+pad;
+  const bz0 = Math.min(k.az,k.bz)-k.R-pad, bz1 = Math.max(k.az,k.bz)+k.R+pad;
+  const res = Math.max(160, Math.min(900, Math.round(S.traceRes*0.8)));
+  const iso = (y, inset) => {
+    const f = planField(o, y);
+    if(!f) return [];
+    const tol = 0.02*MM;                      // 0.02 mm off the true curve
+    return isoLoops((x,z) => f(x,z) + inset, bx0, bx1, bz0, bz1, res)
+             .map(l => simplify(l, tol));
+  };
+
+  const path = [];                      // {x,z,y,travel}
+  let last = null;
+  /* Two contours only get joined by a drawn line when they are close
+     enough to be neighbouring passes. Anything further apart is a
+     different island, and gets a real travel - retract, hop, rapid -
+     rather than a line dragged across the pot. */
+  const link = (l) => {
+    const l2 = rotateTo(l, last);
+    const gap = last ? Math.hypot(l2[0][0]-last[0], l2[0][1]-last[1]) : 0;
+    path.push({x:l2[0][0], z:l2[0][1], y:null, travel: !last ? true : gap > step*1.6});
+    return l2;
+  };
+  // ── the base, flat, from the middle outward ──────────────────────
+  const rings = [];
+  for(let d = half; d < (k.R + 1); d += step){
+    const ls = iso(layer*0.5, d);
+    if(!ls.length) break;
+    rings.push(ls.slice().sort((a,b) => loopLen(b) - loopLen(a)));
+  }
+  for(let r = rings.length-1; r >= 0; r--)          // innermost pass first
+    for(const raw of rings[r]){
+      const l = link(raw);
+      path[path.length-1].y = layer;
+      for(let i=1;i<l.length;i++) path.push({x:l[i][0], z:l[i][1], y:layer, travel:false});
+      last = l[l.length-1];
+    }
+  if(!path.length) return null;
+  // ── the wall, one loop a layer, Z ramping across each loop ───────
+  let top = base;
+  for(let n = 0; n < 4000; n++){
+    const yMid = base + (n+0.5)*layer;
+    const ls = iso(yMid, half);
+    if(!ls.length) break;
+    ls.sort((a,b) => loopLen(b) - loopLen(a));
+    const total = loopLen(ls[0]);
+    if(total < step) break;
+    const zA = base + n*layer, zB = zA + layer;
+    const l = link(ls[0]);
+    path[path.length-1].y = zA;
+    let run = 0;
+    for(let i=1;i<l.length;i++){
+      run += Math.hypot(l[i][0]-l[i-1][0], l[i][1]-l[i-1][1]);
+      path.push({x:l[i][0], z:l[i][1], y:zA + (zB-zA)*(run/total), travel:false});
+    }
+    last = l[l.length-1]; top = zB;
+    if(top > o.h + layer) break;
+  }
+  return {path, top};
+}
+function potGcode(o, idx){
+  const tp = potToolpath(o);
+  if(!tp || tp.path.length < 8) return null;
+  const mm = u => u/MM;
+  // centre this pot on the bed, since each one prints on its own
+  let x0=1e9,x1=-1e9,z0=1e9,z1=-1e9;
+  for(const p of tp.path){ x0=Math.min(x0,p.x); x1=Math.max(x1,p.x); z0=Math.min(z0,p.z); z1=Math.max(z1,p.z); }
+  const cx = (x0+x1)/2, cz = (z0+z1)/2;
+  const BX = BUILD/2, BY = BUILD/2;
+  const PX = p => BX + mm(p.x - cx), PY = p => BY + mm(p.z - cz);
+  const area = beadArea(), F = printFeed(), layerMM = S.beadH;
+  const w = mm(x1-x0), d = mm(z1-z0), h = mm(tp.top);
+  const L = [];
+  L.push('; Malleable CL1 - pot '+(idx+1)+' of '+S.pots.length);
+  L.push('; Mode: SPIRAL VASE | Nozzle mod: '+S.beadW.toFixed(1)+'mm bead | Bambu Lab X1 Carbon');
+  L.push('; bead '+S.beadW.toFixed(1)+' x '+layerMM.toFixed(2)+'mm = '+area.toFixed(3)+'mm^2, flow capped at '+GC.flow+'mm^3/s -> F'+F);
+  L.push('; base '+Math.max(1,Math.round(S.baseLayers))+' layer, wall 1 bead, size '+w.toFixed(1)+' x '+d.toFixed(1)+' x '+h.toFixed(1)+'mm');
+  if(w > BUILD || d > BUILD || h > BUILD) L.push('; WARNING: this pot does not fit the '+BUILD+'mm cube');
+  L.push('G90 ; absolute positioning');
+  L.push('G21 ; mm units');
+  L.push('M83 ; relative extrusion');
+  L.push('M201 X20000 Y20000 Z500 E5000');
+  L.push('M203 X500 Y500 Z20 E30');
+  L.push('M204 P20000 R5000 T20000');
+  L.push('M205 X9.00 Y9.00 Z3.00 E2.50');
+  L.push('M106 S0 ; fan off for the first layer');
+  L.push('M140 S'+GC.bedTemp+' ; set bed temp');
+  L.push('M104 S'+GC.nozzleTemp+' ; set nozzle temp');
+  L.push('M190 S'+GC.bedTemp+' ; wait for bed');
+  L.push('G28 ; home');
+  L.push('M975 S1 ; vibration suppression');
+  L.push('M109 S'+GC.nozzleTemp+' ; wait for nozzle');
+  L.push('G92 E0');
+  L.push('G1 E-'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; retract before prime');
+  L.push('G1 X18.000 Y1.000 Z'+(layerMM*0.6).toFixed(3)+' F'+GC.travelF+' ; prime line start');
+  L.push('G1 E'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; un-retract');
+  L.push('G1 Z'+(layerMM*0.5).toFixed(3)+' F'+GC.travelF);
+  L.push('G1 X118.000 E'+(area*100).toFixed(4)+' F'+Math.round(F*1.2)+' ; prime line');
+  L.push('G1 Y9.000 E'+(area*8).toFixed(4)+' F'+Math.round(F*0.5)+' ; wipe');
+  L.push('G92 E0');
+  L.push('M204 S500 ; first-layer acceleration');
+  let fanOn = false, prev = null, total = 0, lastPct = -1, travels = 0;
+  const n = tp.path.length;
+  for(let i=0;i<n;i++){
+    const p = tp.path[i];
+    if(p.travel){
+      travels++;
+      L.push('G1 E-'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; retract');
+      L.push('G1 Z'+(mm(p.y)+layerMM*2).toFixed(3)+' F'+GC.travelF+' ; hop');
+      L.push('G1 X'+PX(p).toFixed(3)+' Y'+PY(p).toFixed(3)+' F'+GC.travelF+' ; travel');
+      L.push('G1 Z'+mm(p.y).toFixed(3)+' F'+GC.travelF);
+      L.push('G1 E'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; un-retract');
+      prev = p; continue;
+    }
+    if(!prev){ prev = p; continue; }
+    const dx = mm(p.x-prev.x), dy = mm(p.z-prev.z), dzm = mm(p.y-prev.y);
+    const seg = Math.hypot(dx,dy,dzm);
+    if(seg < 1e-4){ prev = p; continue; }
+    total += seg;
+    if(!fanOn && p.y > baseH()){ L.push('M106 S255 ; part cooling fan'); L.push('M204 S1000'); fanOn = true; }
+    L.push('G1 X'+PX(p).toFixed(3)+' Y'+PY(p).toFixed(3)+' Z'+mm(p.y).toFixed(3)+' E'+(area*seg).toFixed(4)+' F'+F);
+    const pct = Math.floor(i/n*100);
+    if(pct !== lastPct && pct%5 === 0){ L.push('M73 P'+pct); lastPct = pct; }
+    prev = p;
+  }
+  L.push('; travels: '+travels);
+  L.push('M73 P100 R0');
+  L.push('M106 S0 ; fan off');
+  L.push('G1 E-'+GC.retract.toFixed(2)+' F'+GC.retractF+' ; final retract');
+  L.push('G1 Z'+(mm(tp.top)+10).toFixed(3)+' F'+GC.travelF+' ; lift clear');
+  L.push('G1 X'+GC.park[0].toFixed(1)+' Y'+GC.park[1].toFixed(1)+' F'+GC.travelF+' ; park');
+  L.push('M104 S0 ; nozzle off');
+  L.push('M140 S0 ; bed off');
+  L.push('M84 ; motors off');
+  L.push('; path length '+total.toFixed(0)+'mm, '+(total*area/1000).toFixed(1)+'cm^3');
+  return L.join('\n')+'\n';
+}
+function exportGcode(){
+  if(!S.pots.length){ say('Nothing to slice'); return; }
+  say('Slicing '+S.pots.length+' pot'+(S.pots.length>1?'s':'')+'...');
+  setTimeout(() => {
+    let made = 0;
+    S.pots.forEach((o, i) => {
+      setTimeout(() => {
+        const g = potGcode(o, i);
+        if(g){ made++;
+          download('malleable-cl1-pot'+(i+1)+'.gcode', new Blob([g], {type:'text/plain'}));
+        }
+        if(i === S.pots.length-1)
+          say(made ? made+' gcode file'+(made>1?'s':'')+' saved' : 'Nothing to slice');
+      }, i*350);                        // staggered, or the browser blocks the batch
+    });
+  }, 16);
 }
 function exportPlan(){
   say('Slicing plan...');
@@ -1722,15 +1985,18 @@ function buildPanel(){
   const s6 = el('div','sect'); s6.appendChild(el('h2',null,'Export'));
   slider(s6,'Slice at Z',0,12,.5, ()=>S.sliceY, v=>{S.sliceY=v;}, v=>v.toFixed(1));
   slider(s6,'Trace',180,1200,20, ()=>S.traceRes, v=>{S.traceRes=Math.round(v);}, v=>Math.round(v));
+  slider(s6,'Flow',2,60,.5, ()=>GC.flow, v=>{GC.flow=v;},
+    v=>v.toFixed(1)+'mm\u00B3/s \u00B7 F'+Math.max(60,Math.round(60*v/beadArea())));
   const eg = el('div','grid2'); eg.style.marginTop = '7px';
   button(eg,'SAVE PNG', exportPNG);
+  button(eg,'GCODE', exportGcode);
   button(eg,'PLAN SVG', exportPlan);
   button(eg,'SAVE JSON', ()=>download('malleable-cl1.json',
     new Blob([JSON.stringify({pots:S.pots, k:S.k}, null, 2)], {type:'application/json'})));
   button(eg,'COPY JSON', ()=>navigator.clipboard?.writeText(JSON.stringify({pots:S.pots,k:S.k}))
     .then(()=>say('Scene copied')).catch(()=>say('Copy blocked')));
   s6.appendChild(eg);
-  s6.appendChild(el('p','hint','Plan SVG cuts the blended field at the chosen height and traces the outline, so it matches what the pots actually make in plan.'));
+  s6.appendChild(el('p','hint','Gcode writes one spiral-vase file per pot, each centred on the bed: the base spirals out flat from the middle, then the wall climbs in one unbroken helix. Plan SVG cuts the field at the chosen height and traces the outline.'));
   panel.appendChild(s6);
 
   const s7 = el('div','sect'); s7.appendChild(el('h2',null,'Keys'));
