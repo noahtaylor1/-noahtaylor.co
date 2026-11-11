@@ -237,9 +237,9 @@ const S = {
   bead:3, layer:1.5, lap:0.5,      // mm - the mod's fat nozzle
   depth:110,                       // mm off the wall, which is the print height
   blend:7, corner:16,              // mm
-  ortho:true, orthoTol:12, runMin:22, smooth:5,
-  wall:true, figs:true, wallBox:[-20,-20,20,20],
-  shade:5, tone:0.66, ambient:0.18, seam:0.6, edges:false, relief:0.55,
+  ortho:true, orthoTol:12, runMin:22, smooth:7,
+  wall:true, wallBox:[-20,-20,20,20],
+  shade:0, tone:0.80, ambient:0.10, seam:0.45, edges:false, relief:0.30,
   roll:1.1, crown:0.22,
   steps:132, plate:true, invert:false,
   flow:9.3,
@@ -338,10 +338,65 @@ function fairCurve(v, maxDev, passes){
    Smoothing by L shifts a curve of radius R by about L squared over 2R,
    so the leash is a fraction of L and the drawn shape survives. */
 const fairPasses = () => Math.max(0, Math.min(360, Math.round(S.smooth*S.smooth/0.42)));
-const fairDev    = () => Math.max(0.6, S.smooth*0.35)*MM;
+const fairDev    = () => Math.max(0.6, S.smooth*0.28)*MM;
 function fairPen(v){
-  if(S.smooth <= 0.05 || v.length < 5) return v.map(q => ({x:q.x, y:q.y}));
-  return fairCurve(densify(relax(v, 2), 0.06), fairDev(), fairPasses());
+  const d = densify(relax(v, 2), 0.06);
+  if(S.smooth <= 0.05 || d.length < 5) return d;
+  return fairCurve(d, fairDev(), fairPasses());
+}
+/* Carry the faired curve onto the snapped knots. The knots move, and
+   the curve between any two of them moves with them, so the line keeps
+   every bit of its fairing and only the straight runs change
+   character. The alternative - thinning to knots and splining back
+   through them - throws the faired curve away and splines a new one,
+   which is where the ripple kept coming from. */
+function warpToKnots(dense, keep, knots, lock){
+  const out = dense.map(q => ({x:q.x, y:q.y}));
+  for(let k=0;k<keep.length-1;k++){
+    const i0 = keep[k], i1 = keep[k+1], span = i1-i0;
+    const d0x = knots[k].x-dense[i0].x,   d0y = knots[k].y-dense[i0].y;
+    const d1x = knots[k+1].x-dense[i1].x, d1y = knots[k+1].y-dense[i1].y;
+    for(let i=i0;i<=i1;i++){
+      const t = span > 0 ? (i-i0)/span : 0;
+      out[i].x = dense[i].x + d0x + (d1x-d0x)*t;
+      out[i].y = dense[i].y + d0y + (d1y-d0y)*t;
+    }
+  }
+  for(let k=0;k<lock.length;k++){          // a locked run is dead straight, not merely moved
+    if(!lock[k]) continue;
+    for(let i=keep[k];i<=keep[k+1];i++){
+      if(lock[k] === 1) out[i].y = knots[k].y; else out[i].x = knots[k].x;
+    }
+  }
+  return out;
+}
+/* Which samples must not move: the inside of every straight run, with
+   its last few millimetres released so the turn off it can round. On a
+   dense line a tangent fillet has nothing to bite on - it can only
+   round within half a segment, which here is half a millimetre - so
+   the corner is faired instead, with the straights held. */
+function pinMask(keep, lock, n, release){
+  const pin = new Uint8Array(n);
+  for(let k=0;k<lock.length;k++){
+    if(!lock[k]) continue;
+    const a = Math.min(keep[k]+release, keep[k+1]), b = Math.max(keep[k+1]-release, keep[k]);
+    for(let i=a;i<=b;i++) pin[i] = 1;
+  }
+  return pin;
+}
+function fairPinned(v, pin, passes){
+  const n = v.length;
+  if(n < 5 || passes < 1) return v;
+  const p = v.map(q => ({x:q.x, y:q.y}));
+  for(let s=0;s<passes;s++) for(const lam of [0.58, -0.62]){
+    const q = p.map(r => ({x:r.x, y:r.y}));
+    for(let i=1;i<n-1;i++){
+      if(pin[i]) continue;
+      p[i].x += lam*((q[i-1].x + q[i+1].x)*0.5 - q[i].x);
+      p[i].y += lam*((q[i-1].y + q[i+1].y)*0.5 - q[i].y);
+    }
+  }
+  return p;
 }
 const devFrom = (p, a, b) => {
   const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy;
@@ -387,28 +442,6 @@ function rdpKeep(v, eps){
   return out;
 }
 const rdp = (v, eps) => rdpKeep(v, eps).map(i => ({x:v[i].x, y:v[i].y}));
-/* Catmull-Rom through the points, walked at an even spacing. This is
-   what makes a freehand stretch organic: the hand's facets go and a
-   curve comes back. */
-function catmull(v, step){
-  const n = v.length;
-  if(n < 3) return v.map(q => ({x:q.x, y:q.y}));
-  const at = i => v[Math.max(0, Math.min(n-1, i))];
-  const out = [];
-  for(let i=0;i<n-1;i++){
-    const p0=at(i-1), p1=at(i), p2=at(i+1), p3=at(i+2);
-    const steps = Math.max(1, Math.round(Math.hypot(p2.x-p1.x, p2.y-p1.y)/step));
-    for(let j=0;j<steps;j++){
-      const t=j/steps, t2=t*t, t3=t2*t;
-      out.push({
-        x: 0.5*(2*p1.x + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
-        y: 0.5*(2*p1.y + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
-      });
-    }
-  }
-  out.push({x:v[n-1].x, y:v[n-1].y});
-  return out;
-}
 /* Round every interior corner with a tangent arc. The radius is clamped
    so two fillets on a short segment cannot overrun one another - which
    is also why a dense curve passes through this untouched. */
@@ -494,28 +527,6 @@ function orthoSnap(v, tolDeg, runMinMM, straight, devMax){
   }
   return { p, lock };
 }
-/* Spline the stretches that were not locked, leave the locked ones dead
-   straight. A snapped bracket keeps its flats; everything else stays a
-   drawn curve. */
-function smoothRuns(p, lock, step){
-  const n = p.length;
-  if(n < 2) return p.map(q=>({x:q.x,y:q.y}));
-  const out = [];
-  const push = q => {
-    const l = out[out.length-1];
-    if(!l || Math.hypot(q.x-l.x, q.y-l.y) > 1e-7) out.push({x:q.x, y:q.y});
-  };
-  let i = 0;
-  while(i < n-1){
-    const locked = !!lock[i];
-    let j = i;
-    while(j < n-1 && !!lock[j] === locked) j++;
-    const run = p.slice(i, j+1);
-    (locked ? run : catmull(run, step)).forEach(push);
-    i = j;
-  }
-  return out;
-}
 
 /* ══════════════════════════════════════════════════════════════════
    2 · RIBBONS
@@ -528,30 +539,32 @@ function mkRib(raw, mode){
 }
 function build(o){
   let v = o.raw.map(q=>({x:q.x, y:q.y}));
-  let straight = null;
   if(v.length >= 2){
     if(o.mode === 'pen'){
-      /* Walked out evenly, faired, and only then simplified. Doing it
-         the other way round leaves the hand's wobble sitting on the
-         knots, and a spline through wobbly knots wobbles. Simplify to
-         within a fraction of a bead, not to within a bead: on a 5.5mm
-         stroke a couple of millimetres of licence is a visibly
-         different curve from the one that was drawn. */
-      const sm = fairPen(v);
-      const keep = rdpKeep(sm, 0.03);
-      straight = runDev(sm, keep);
-      v = keep.map(i => ({x:sm[i].x, y:sm[i].y}));
+      /* The faired line IS the geometry from here on. Thinning it to
+         knots is only ever a way of asking which stretches the hand
+         meant to be straight. */
+      const dense = fairPen(v);
+      v = dense;
+      if(S.ortho && dense.length > 5){
+        const keep = rdpKeep(dense, 0.03);
+        const knots = keep.map(i => ({x:dense[i].x, y:dense[i].y}));
+        const r = orthoSnap(knots, S.orthoTol, S.runMin, runDev(dense, keep), 0.04);
+        if(r.lock.some(Boolean)){
+          v = warpToKnots(dense, keep, r.p, r.lock);
+          const rel = Math.max(2, Math.round(S.corner*MM/0.06));
+          v = fairPinned(v, pinMask(keep, r.lock, v.length, rel),
+                         Math.max(6, Math.min(260, Math.round(S.corner*S.corner/1.3))));
+        }
+      }
+    } else {
+      /* Clicked vertices are straight by intent, so these are coarse
+         enough for a tangent fillet to do the rounding. */
+      let lock = new Array(Math.max(0,v.length-1)).fill(1);
+      if(S.ortho){ const r = orthoSnap(v, S.orthoTol, 6, null, 0); v = r.p; lock = r.lock.map(()=>1); }
+      v = filletPoly(v, S.corner*MM);
     }
-    let lock;
-    if(S.ortho){
-      const r = orthoSnap(v, S.orthoTol, o.mode === 'pen' ? S.runMin : 6, straight, 0.04);
-      v = r.p; lock = r.lock;
-    } else lock = new Array(Math.max(0,v.length-1)).fill(0);
-    if(o.mode === 'line') lock = lock.map(() => 1);     // a clicked run is straight by intent
-    v = smoothRuns(v, lock, 0.11);
-    v = filletPoly(v, S.corner*MM);
-    v = densify(v, 0.10);
-    v = rdp(v, 0.012);
+    v = rdp(densify(v, 0.08), 0.012);
     let guard = 0;
     while(v.length > MAXSEG && guard++ < 6) v = rdp(v, 0.012*Math.pow(2.4, guard));
     if(v.length > MAXSEG) v = v.filter((_,i) => i%2 === 0 || i === v.length-1);
@@ -743,11 +756,7 @@ uniform int uHasWall;
 uniform vec4 uWallBox;
 uniform float uWallT;
 const vec3 LDIR = vec3(-0.4575, 0.5968, 0.6565);
-/* The shadow is thrown by a steeper light than the one that models the
-   parts. A key light raking at forty-five degrees gives good tone on a
-   bead but throws a shadow longer than the shelf is wide, which buries
-   the drawing. */
-const vec2 LSUN = vec2(-0.3576, 0.4916);
+const vec3 LFILL = vec3(0.5121, -0.2561, 0.8201);   // a weak one from the other side
 uniform vec3 uInk, uPaper;
 out vec4 outColor;
 bool gSmooth;
@@ -790,48 +799,25 @@ float sceneR(vec3 p){
   for(int i=0;i<8;i++){ if(i >= uCount) break; d = min(d, sdOne(p,i)); }
   return d;
 }
-/* The wall itself: a slab behind z = 0, which is where every shelf
-   sits. It is not blended with anything - it is what they hang on. */
-float sdWall(vec3 p){
-  vec2 c = (uWallBox.xy + uWallBox.zw)*0.5, h = (uWallBox.zw - uWallBox.xy)*0.5;
-  vec3 q = abs(vec3(p.xy - c, p.z + uWallT*0.5)) - vec3(h, uWallT*0.5);
-  return min(max(q.x, max(q.y, q.z)), 0.0) + length(max(q, 0.0));
+/* The wall is a slab behind z = 0, which is where every shelf sits. It
+   is solved for, not marched: a sphere trace crawls along a thin slab
+   seen edge on and leaves its silhouette as a row of steps, and a
+   box has an exact answer for the price of a few divides. */
+float wallHit(vec3 ro, vec3 rd){
+  if(uHasWall == 0) return -1.0;
+  vec3 c = vec3((uWallBox.xy + uWallBox.zw)*0.5, -uWallT*0.5);
+  vec3 h = vec3((uWallBox.zw - uWallBox.xy)*0.5, uWallT*0.5);
+  vec3 d = vec3(abs(rd.x) < 1e-6 ? 1e-6 : rd.x,
+                abs(rd.y) < 1e-6 ? 1e-6 : rd.y,
+                abs(rd.z) < 1e-6 ? 1e-6 : rd.z);
+  vec3 m = 1.0/d, n = m*(ro - c), k = abs(m)*h;
+  vec3 t1 = -n - k, t2 = -n + k;
+  float tN = max(max(t1.x, t1.y), t1.z);
+  float tF = min(min(t2.x, t2.y), t2.z);
+  if(tN > tF || tF < 0.0) return -1.0;
+  return tN > 0.0 ? tN : tF;
 }
-float scene(vec3 p){
-  float d = sceneR(p);
-  if(uHasWall == 1) d = min(d, sdWall(p));
-  return d;
-}
-/* What the shelves throw onto the wall. A shelf is its drawn profile
-   carried straight off the wall, so its shadow is simply that profile
-   swept along the light's own projection - no ray to march, and so
-   none of the striping a march leaves when it skims a thin wall. The
-   penumbra opens with distance, which is what tells you how far off
-   the wall a shelf stands. */
-float wallShadow(vec2 p){
-  float reach = length(LSUN);                 // of wall crossed per unit of depth
-  vec2 dir = LSUN/reach;
-  float occ = 0.0;
-  for(int i=0;i<8;i++){
-    if(i >= uCount) break;
-    float far = uDep[i]*reach;
-    float t = 0.0;
-    /* Walked by the field's own value rather than in fixed steps: far
-       from the shelf it strides, close to it it creeps, so the swept
-       shadow comes out solid instead of as a row of ghosts. The last
-       step lands exactly on the far end for every pixel, or the end of
-       the shadow comes out as a comb. */
-    for(int k=0;k<48;k++){
-      float d = fieldAt(i, p + dir*t);
-      float w = 0.045 + 0.075*(t/reach);
-      occ = max(occ, smoothstep(w, -w, d));
-      if(occ > 0.995) return 0.0;
-      if(t >= far) break;
-      t = min(t + max(d*0.8, 0.07), far);
-    }
-  }
-  return 1.0 - occ;
-}
+float scene(vec3 p){ return sceneR(p); }
 float occlusion(vec3 p, vec3 n){
   gSmooth = true;
   float occ = 0.0, sca = 1.0;
@@ -871,28 +857,34 @@ void main(){
     t += max(d*uStepK, px*0.3);
     if(t > 700.0) break;
   }
+  float tw = wallHit(ro, rd);
+  bool onWall = tw >= 0.0 && (!hit || tw < t);
+  if(onWall) hit = true;
   vec3 col = uPaper;
-  bool onWall = hit && uHasWall == 1 && sdWall(pos) <= sceneR(pos);
   if(onWall){
-    /* The wall stays near the paper it is drawn on: it is a ground,
-       not a part. All it carries is the shadow, stepped like every
-       other tone here so it reads as drawn rather than rendered. */
-    float sh = wallShadow(pos.xy);
-    float q = clamp(floor(sh*3.0 + 0.5)/3.0, 0.0, 1.0);   // three steps, like everything else here
-    col = mix(uPaper, uInk, (1.0 - q)*0.26 + 0.045);
+    /* The wall is a ground, not a part: one even tone just off the
+       paper, so the shelves have something to sit against and nothing
+       competes with them. */
+    col = mix(uPaper, uInk, 0.05);
   } else if(hit){
     col = uInk;
     vec3 n = normalAt(pos, max(px*1.2, uTexel*1.15));
     float face = abs(n.z);                    // 1 on the cut faces, 0 on the walls
-    if(uShade > 0 && uTone > 0.001){
-      float f = clamp(dot(n, normalize(vec3(-0.46, 0.60, 0.65))), 0.0, 1.0);
-      f *= mix(1.0, occlusion(pos, n), 0.5);
+    if(uTone > 0.001){
+      /* Wrapped rather than clipped, so the turn from lit to unlit is a
+         gradient the whole way round instead of a terminator, and a
+         weak fill from the other side keeps the back of a form off the
+         floor. Nothing here has a hard edge in it. */
+      float key  = clamp(dot(n, LDIR)*0.60 + 0.40, 0.0, 1.0);
+      float fill = clamp(dot(n, LFILL)*0.5 + 0.5, 0.0, 1.0);
+      float f = key*0.84 + fill*0.16;
+      f *= mix(1.0, occlusion(pos, n), 0.40);
       // layer lines, lit analytically so they stay clean at any zoom
       if(uPitch > 0.001){
         float ph = pos.z/uPitch;
         float crown = 0.5 + 0.5*cos(6.2831853*fract(ph));
         crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
-        f *= mix(0.82 + 0.26*crown, 1.0, face);
+        f *= mix(0.88 + 0.16*crown, 1.0, face);
       }
       /* Across the stroke the two beads crown and meet. Looking at the
          wall head on this is the whole of what you see: a bright pass
@@ -902,10 +894,13 @@ void main(){
       float dc = abs(dm + uHalf);
       float cx = crownOf(dm);
       cx = mix(cx, 0.55, smoothstep(0.25, 0.85, fwidth(dc)/max(uHW,1e-4)));
-      f *= mix(1.0, 0.78 + 0.32*cx, face);
+      f *= mix(1.0, 0.84 + 0.22*cx, face);
       f = uAmb + (1.0 - uAmb)*f;
-      float st = float(uShade);
-      float q = clamp(floor(f*st + 0.5)/st, 0.0, 1.0);
+      /* Smooth by default. Stepping it into bands is a choice now, not
+         the only way this can look. */
+      float q = uShade > 0
+        ? clamp(floor(f*float(uShade) + 0.5)/float(uShade), 0.0, 1.0)
+        : clamp(f, 0.0, 1.0);
       col = mix(uInk, uPaper, q*uTone);
     }
     // the seam the two passes leave between them
@@ -1338,63 +1333,8 @@ function rulers(){
   rhEl.innerHTML = h; rvEl.innerHTML = v;
 }
 const pxPerUnit = () => vh/Math.max(A.scale, 1e-4);
-/* Things you already know the size of, drawn at the same scale as the
-   drawing, along the bottom. Silhouettes only - they are there to say
-   how big a shelf is, not to be looked at. Local coordinates are
-   millimetres, origin top left of each one. */
-const FIGS = [
-  /* A beaker that tapers, with a ring for a handle. */
-  { n:'cup', w:95, h:95, d:
-      '<path d="M0 3h62l-6 80c-.6 8-6 12-25 12s-24.4-4-25-12z"/>'
-    + '<path d="M62 17c20.5 0 32.5 11.5 32.5 27S82 71 61 71l-1-11.5c14 0 23-6.5 23-15.5s-9-15.5-21.4-15.5z"/>' },
-  { n:'phone', w:72, h:147, d:'<rect x="0" y="0" width="72" height="147" rx="11"/>' },
-  /* A coupe: wide shallow bowl, slim stem, a disc for a foot. */
-  { n:'glass', w:88, h:210, d:
-      '<path d="M2 3h84c0 40-17 70-42 70S2 43 2 3z"/>'
-    + '<path d="M40 70h8v122h-8z"/>'
-    + '<path d="M6 210c0-12 17-19 38-19s38 7 38 19z"/>' },
-  /* Heavy body, narrow neck, hairline stems carrying three discs. */
-  { n:'flowers', w:140, h:300, d:
-      '<circle cx="70" cy="30" r="28"/><circle cx="22" cy="58" r="21"/><circle cx="120" cy="72" r="18"/>'
-    + '<path d="M67 192h6V58h-6z"/>'
-    + '<path d="M65 192C65 130 51 94 22 70l-5 6c27 22 42 62 42 116z"/>'
-    + '<path d="M75 192c0-56 14-92 44-112l5 6c-27 19-43 53-43 106z"/>'
-    + '<path d="M55 176H85V197C107 213 121 240 121 264 121 286 103 300 70 300 37 300 19 286 19 264 19 240 33 213 55 197Z"/>' }
-];
-function scaleFigs(){
-  if(!S.figs) return '';
-  /* They belong to the elevation: they stand on the bottom of the
-     frame, not in the scene, so they go as the view comes off axis. */
-  const fade = 1 - Math.min(1, Math.hypot(A.az, A.el)/0.45);
-  if(fade < 0.02) return '';
-  const k = pxPerUnit()*MM;                 // screen pixels per millimetre
-  const base = vh - 4;
-  let x = 16, out = '';
-  for(const f of FIGS){
-    const w = f.w*k, h = f.h*k;
-    if(w < 3) continue;
-    if(x + w*0.55 > vw - 8) break;    // mostly there is there; the row may run off
-    out += '<g transform="translate(' + x.toFixed(1) + ' ' + (base-h).toFixed(1)
-         + ') scale(' + k.toFixed(5) + ')" fill="var(--ink)" fill-opacity=".10" '
-         + 'stroke="var(--ink)" stroke-opacity=".34" stroke-linejoin="round" '
-         + 'stroke-width="' + (1.1/Math.max(k,1e-4)).toFixed(2) + '">'
-         + f.d + '</g>';
-    if(h > 26) out += '<text x="' + (x + w/2).toFixed(1) + '" y="' + (base-h-4).toFixed(1)
-         + '" text-anchor="middle" font-size="8" letter-spacing="1" fill="var(--t3)">' + f.h + '</text>';
-    x += w + Math.max(9, 16*k);
-  }
-  return out ? '<g opacity="' + fade.toFixed(3) + '">' + out + '</g>' : '';
-}
-function screenPath(pts){
-  let d = '';
-  for(let i=0;i<pts.length;i++){
-    const p = worldToScreen(pts[i].x, pts[i].y, 0);
-    d += (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
-  }
-  return d;
-}
 function overlay(){
-  let s = scaleFigs();
+  let s = '';
   const k = pxPerUnit();
 
   /* The stroke under the hand is drawn, not modelled: it is the width
@@ -2024,7 +1964,7 @@ function buildPanel(){
     + (passOff()/MM).toFixed(2) + 'mm · ' + passArea().toFixed(2) + 'mm² each · F' + printFeed()));
 
   const d = sect('View');
-  slider(d,'Shade',0,8,1, ()=>S.shade, v=>{S.shade=v;});
+  slider(d,'Bands',0,8,1, ()=>S.shade, v=>{S.shade=v;}, v=>v ? String(v) : 'off');
   slider(d,'Tone',0,1,0.02, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
   slider(d,'Ambient',0,0.6,0.02, ()=>S.ambient, v=>{S.ambient=v;}, v=>v.toFixed(2));
   slider(d,'Seam',0,1,0.05, ()=>S.seam, v=>{S.seam=v;}, v=>v.toFixed(2));
@@ -2032,7 +1972,6 @@ function buildPanel(){
   slider(d,'Roll',0,2.4,0.05, ()=>S.roll, v=>{S.roll=v;}, v=>v.toFixed(2)+'mm');
   slider(d,'Crown',0,0.6,0.02, ()=>S.crown, v=>{S.crown=v;}, v=>v.toFixed(2)+'mm');
   check(d,'Wall plane', ()=>S.wall, v=>{S.wall=v;});
-  check(d,'Scale figures', ()=>S.figs, v=>{S.figs=v;});
   check(d,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
   check(d,'Build volume', ()=>S.plate, v=>{S.plate=v;});
   check(d,'Dark', ()=>S.invert, setInvert);
