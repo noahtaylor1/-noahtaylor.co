@@ -1,0 +1,1947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Malleable RB1 — Noah Taylor</title>
+<style>
+/* Same plate-and-chrome identity as Malleable: strictly achromatic, Helvetica,
+   options bar over [rail | ruled viewport | inspector], status strip beneath. */
+:root{
+  --paper:#ffffff;
+  --ink:#000000;
+  --chrome:#ffffff;
+  --chrome-2:#f4f4f4;
+  --chrome-3:#e9e9e9;
+  --rule:rgba(0,0,0,.16);
+  --rule-soft:rgba(0,0,0,.08);
+  --t1:rgba(0,0,0,.92);
+  --t2:rgba(0,0,0,.56);
+  --t3:rgba(0,0,0,.34);
+  --guide:rgba(0,0,0,.78);
+  --sel:#000000;
+  --font:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --nav-h:56px;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --paper:#000000;--ink:#ffffff;--chrome:#0b0b0b;--chrome-2:#161616;--chrome-3:#232323;
+  --rule:rgba(255,255,255,.18);--rule-soft:rgba(255,255,255,.09);
+  --t1:rgba(255,255,255,.94);--t2:rgba(255,255,255,.58);--t3:rgba(255,255,255,.34);
+  --guide:rgba(255,255,255,.82);--sel:#ffffff;color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;padding-top:var(--nav-h);background:var(--chrome);color:var(--t1);
+  font:13px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+
+.site-nav{position:fixed;top:0;left:0;right:0;height:var(--nav-h);z-index:30;
+  display:flex;align-items:center;justify-content:space-between;padding:0 48px;
+  background:var(--chrome);border-bottom:1px solid var(--rule);font-family:var(--font)}
+.site-nav a{color:var(--t1);text-decoration:none;transition:color .15s var(--ease)}
+.site-nav a:hover{color:var(--t3)}
+.nav-logo{font-size:14px;font-weight:500;letter-spacing:.03em}
+.nav-links{display:flex;gap:32px;list-style:none;margin:0;padding:0;font-size:13px;letter-spacing:.02em}
+@media (max-width:900px) and (min-width:701px){.site-nav{padding:0 24px}.nav-links{gap:22px}}
+@media (max-width:700px){.site-nav{padding:0 20px}.nav-links li:not(.keep){display:none}}
+
+#app{display:grid;grid-template-columns:40px 1fr 264px;grid-template-rows:34px 1fr 24px;height:100%}
+
+#opts{grid-column:1/4;grid-row:1;background:var(--chrome);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;padding:0 10px 0 12px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+#opts::-webkit-scrollbar{display:none}
+#opts .tname{font-weight:500;letter-spacing:.18em;text-transform:uppercase;font-size:10px;
+  white-space:nowrap;flex:none;padding-right:12px;margin-right:12px;border-right:1px solid var(--rule);min-width:104px}
+#opts .ogrp{display:flex;align-items:center;gap:7px;flex:none;padding-right:12px;margin-right:12px;
+  border-right:1px solid var(--rule-soft);animation:fadein .18s var(--ease)}
+#opts .ogrp:last-child{border-right:0}
+@keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+#opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
+#opts output{font-size:12px;font-variant-numeric:tabular-nums;min-width:32px;text-align:right}
+#opts input[type=range]{width:84px}
+
+#rail{grid-column:1;grid-row:2/4;background:var(--chrome);border-right:1px solid var(--rule);
+  display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 0;overflow-y:auto;scrollbar-width:none}
+#rail::-webkit-scrollbar{display:none}
+.tool{width:30px;height:30px;display:grid;place-items:center;border:1px solid transparent;flex:none;
+  background:none;border-radius:2px;cursor:pointer;color:var(--t1);position:relative;
+  transition:background .14s var(--ease),color .14s var(--ease)}
+.tool svg{width:17px;height:17px;display:block;transition:transform .16s var(--ease)}
+.tool:hover{background:var(--chrome-3)}
+.tool:hover svg{transform:scale(1.08)}
+.tool[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.tool[aria-pressed="true"] svg{transform:none}
+.tool:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
+.rail-sep{width:18px;height:1px;background:var(--rule);margin:5px 0;flex:none}
+
+#stage{grid-column:2;grid-row:2;display:grid;grid-template-columns:18px 1fr;grid-template-rows:18px 1fr;
+  background:var(--chrome);min-width:0;min-height:0}
+#corner{background:var(--chrome-2);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+#rulerH{border-bottom:1px solid var(--rule);background:var(--chrome-2);display:block;width:100%;height:100%}
+#rulerV{border-right:1px solid var(--rule);background:var(--chrome-2);display:block;width:100%;height:100%}
+#view{position:relative;overflow:hidden;touch-action:none;background:var(--paper);min-width:0;min-height:0}
+#gl,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
+#ov{pointer-events:none}
+#hint{position:absolute;left:12px;bottom:9px;font-size:11.5px;color:var(--t3);pointer-events:none;user-select:none}
+#perf{position:absolute;right:12px;bottom:9px;font-size:11px;color:var(--t3);pointer-events:none;
+  font-variant-numeric:tabular-nums}
+
+#panel{grid-column:3;grid-row:2/4;background:var(--chrome);border-left:1px solid var(--rule);
+  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.sect{border-bottom:1px solid var(--rule);padding:9px 11px}
+.sect h2{margin:0 0 9px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);font-weight:400}
+.row{display:flex;align-items:center;gap:7px;margin-bottom:5px;min-width:0}
+.row:last-child{margin-bottom:0}
+.row label{flex:0 0 72px;font-size:12px;color:var(--t2);min-width:0}
+.row output{flex:0 0 34px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}
+input[type=range]{flex:1;min-width:0;height:14px;-webkit-appearance:none;appearance:none;background:none;margin:0}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--rule)}
+input[type=range]::-moz-range-track{height:1px;background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:8px;border-radius:50%;
+  background:var(--ink);margin-top:-3.5px;cursor:pointer;transition:transform .12s var(--ease)}
+input[type=range]::-moz-range-thumb{width:8px;height:8px;border:0;border-radius:50%;background:var(--ink);cursor:pointer}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.35)}
+input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
+.seg{display:flex;flex:1;border:1px solid var(--rule);border-radius:2px;overflow:hidden;min-width:0}
+.seg button{flex:1;min-width:0;padding:4px 2px;background:none;border:0;border-right:1px solid var(--rule);
+  cursor:pointer;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--t2);white-space:nowrap;
+  transition:background .14s var(--ease),color .14s var(--ease)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.seg button:hover:not([aria-pressed="true"]){background:var(--chrome-3);color:var(--t1)}
+.btn{padding:5px 7px;background:none;border:1px solid var(--rule);border-radius:2px;cursor:pointer;
+  font-size:12px;font-weight:500;letter-spacing:.02em;flex:1;min-width:0;white-space:nowrap;
+  transition:background .14s var(--ease),color .14s var(--ease),border-color .14s var(--ease)}
+.btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn:focus-visible,.seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
+.pf{display:flex;gap:4px}
+.pf button{flex:1;height:26px;display:grid;place-items:center;border:1px solid var(--rule);
+  border-radius:2px;background:none;cursor:pointer;transition:background .14s var(--ease)}
+.pf button svg{width:17px;height:17px}
+.pf button:hover{background:var(--chrome-3)}
+.chk{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--t2);cursor:pointer;padding:3px 0;user-select:none}
+.chk input{appearance:none;-webkit-appearance:none;width:10px;height:10px;border:1px solid var(--rule);
+  border-radius:1px;margin:0;flex:none;cursor:pointer;transition:background .14s var(--ease)}
+.chk input:checked{background:var(--ink);border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--chrome)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.txt{width:100%;background:none;border:0;border-bottom:1px solid var(--rule-soft);padding:4px 0;
+  font-size:12px;letter-spacing:.06em;min-width:0;transition:border-color .14s var(--ease)}
+.txt:focus{outline:none;border-bottom-color:var(--ink)}
+.hint{font-size:11.5px;line-height:1.6;color:var(--t3);margin:7px 0 0}
+#selnone{font-size:12px;color:var(--t3);line-height:1.6}
+
+#status{grid-column:2;grid-row:3;border-top:1px solid var(--rule);background:var(--chrome);
+  display:flex;align-items:center;gap:15px;padding:0 12px;font-size:11px;color:var(--t2);
+  letter-spacing:.02em;overflow:hidden;white-space:nowrap}
+#status b{font-weight:500;color:var(--t1)}
+#status span{font-variant-numeric:tabular-nums}
+#st-msg{color:var(--t1);transition:opacity .3s var(--ease)}
+#drawer{display:none}
+
+@media (max-width:880px){
+  #app{grid-template-columns:1fr;grid-template-rows:34px 36px 1fr 24px}
+  #opts{grid-column:1;grid-row:1;padding-left:max(12px,env(safe-area-inset-left,0px));
+    padding-right:max(12px,env(safe-area-inset-right,0px))}
+  #rail{grid-column:1;grid-row:2;flex-direction:row;border-right:0;border-bottom:1px solid var(--rule);
+    padding:0 max(6px,env(safe-area-inset-left,0px));overflow-x:auto;overflow-y:hidden}
+  .rail-sep{width:1px;height:18px;margin:0 4px}
+  #stage{grid-column:1;grid-row:3}
+  #status{grid-column:1;grid-row:4;padding-left:max(11px,env(safe-area-inset-left,0px));
+    padding-right:max(11px,env(safe-area-inset-right,0px))}
+  #panel{position:fixed;right:0;bottom:24px;top:calc(70px + var(--nav-h));width:min(248px,86vw);z-index:5;
+    transform:translateX(102%);transition:transform .22s var(--ease);box-shadow:-8px 0 26px rgba(0,0,0,.18)}
+  #panel.open{transform:none}
+  #drawer{display:grid;place-items:center;position:fixed;right:10px;bottom:34px;z-index:6;
+    width:36px;height:36px;border-radius:50%;background:var(--ink);color:var(--paper);border:0;cursor:pointer;
+    box-shadow:0 2px 10px rgba(0,0,0,.3)}
+  #drawer svg{width:17px;height:17px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="/index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li class="keep"><a href="/work.html">Work</a></li>
+    <li><a href="/shop.html">Shop</a></li>
+    <li><a href="/index.html">Concepts</a></li>
+    <li><a href="/resume.html">Resume</a></li>
+    <li><a href="/lattice/">Lattice</a></li>
+    <li><a href="/malleable/">Malleable</a></li>
+    <li><a href="/malleable-cl1/">CL1</a></li>
+  </ul>
+</nav>
+
+<div id="app">
+  <div id="opts"></div>
+  <nav id="rail" aria-label="Tools"></nav>
+
+  <div id="stage">
+    <div id="corner"></div>
+    <svg id="rulerH" aria-hidden="true"></svg>
+    <svg id="rulerV" aria-hidden="true"></svg>
+    <div id="view">
+      <canvas id="gl"></canvas>
+      <svg id="ov" aria-hidden="true"></svg>
+      <div id="hint"></div>
+      <div id="perf"></div>
+    </div>
+  </div>
+
+  <aside id="panel" aria-label="Inspector"></aside>
+
+  <div id="status">
+    <span>X <b id="st-x">0</b></span>
+    <span>Y <b id="st-y">0</b></span>
+    <span><b id="st-view">ELEVATION</b></span>
+    <span>RIBBONS <b id="st-n">0</b></span>
+    <span id="st-fit"></span>
+    <span id="st-msg"></span>
+  </div>
+</div>
+<button id="drawer" aria-label="Toggle inspector"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 5h12M3 9h12M3 13h12"/></svg></button>
+
+<script>
+"use strict";
+(() => {
+
+/* ══════════════════════════════════════════════════════════════════
+   MALLEABLE RB1 — ribbon shelves
+   ------------------------------------------------------------------
+   You draw a toolpath on the wall in elevation. The stroke is the real
+   width of the material: two 3 mm beads laid side by side with a
+   half-millimetre of overlap, so 5.5 mm across. The shelf is that
+   path given depth off the wall, and the depth is the print height -
+   it lies on the bed and climbs in one unbroken spiral, exactly the
+   way the squiggle on the wall was made.
+
+   One scene unit is one centimetre.
+   ══════════════════════════════════════════════════════════════════ */
+const MM = 1/10;
+const BUILD = 250;                 // the X1C's cube, all three axes, in mm
+const FIELD_N = 768;               // baked field, texels a side
+const MAXRIB = 8;                  // ribbons the shader carries
+const MAXSEG = 1400;               // segments one ribbon's path may hold
+const PAD = 1.2;                   // units of empty field around a ribbon
+let uid = 1;
+
+const S = {
+  ribs:[], sel:new Set(), tool:'pen',
+  tx:0, ty:0, tz:5, scale:52,
+  az:0, el:0,                      // the elevation is home; a tilt springs back to it
+  bead:3, layer:1.5, lap:0.5,      // mm - the mod's fat nozzle
+  depth:110,                       // mm off the wall, which is the print height
+  blend:7, corner:16,              // mm
+  ortho:true, orthoTol:12, runMin:22,
+  shade:5, tone:0.66, ambient:0.18, seam:0.6, edges:false, relief:0.55,
+  roll:1.1, crown:0.22,
+  steps:132, plate:true, invert:false,
+  flow:9.3,
+  cap1:'MALLEABLE', cap2:'ribbon.rb1', cap3:'nr.001'
+};
+const A = { scale:52, az:0, el:0, tx:0, ty:0, tz:5, pitch:0.15 };
+
+let msgTimer = 0;
+function say(t){
+  const e = document.getElementById('st-msg');
+  e.textContent = t; e.style.opacity = '1';
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { e.style.opacity = '0'; }, 2400);
+}
+
+/* ── the numbers the stroke is made of ─────────────────────────────
+   Two beads, overlapped, is the wall. Everything else follows from it:
+   the stroke you draw with, where the two passes run, and how far the
+   toolpath sits inside the edge you see.                            */
+const strokeMM = () => Math.max(S.bead, 2*S.bead - S.lap);   // 5.5 at the defaults
+const halfW    = () => strokeMM()*MM/2;                      // units
+const passOff  = () => (S.bead - S.lap)*MM/2;                // +-1.25 mm
+const insetU   = () => S.bead*MM/2;                          // half a bead in from the edge
+const blendR   = () => Math.min(S.blend, 16)*MM;             // the arc kernel's radius IS r
+/* Far enough along the path that a neighbouring stretch is not just
+   'the line itself' a moment earlier. Below this the blend would eat
+   its own tail and fatten every straight. */
+const gapS     = () => 2*(blendR() + halfW()) + 1.0;
+
+/* ══════════════════════════════════════════════════════════════════
+   1 · CURVE WORK
+   ══════════════════════════════════════════════════════════════════ */
+/* A hand wobbles. Averaging the samples a couple of times takes the
+   wobble out before anything else measures the curve, so what is
+   simplified is the line that was meant, not the tremor in it. */
+function relax(v, passes){
+  const p = v.map(q => ({x:q.x, y:q.y}));
+  for(let s=0;s<passes;s++){
+    const q = p.map(r => ({x:r.x, y:r.y}));
+    for(let i=1;i<p.length-1;i++){
+      p[i].x = (q[i-1].x + 2*q[i].x + q[i+1].x)/4;
+      p[i].y = (q[i-1].y + 2*q[i].y + q[i+1].y)/4;
+    }
+  }
+  return p;
+}
+const devFrom = (p, a, b) => {
+  const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy;
+  const t = L2 > 1e-18 ? Math.max(0, Math.min(1, ((p.x-a.x)*vx + (p.y-a.y)*vy)/L2)) : 0;
+  return Math.hypot(p.x-a.x-vx*t, p.y-a.y-vy*t);
+};
+/* How far the drawn samples under each simplified segment stray from
+   its chord. A segment is only a straight RUN - something that can be
+   snapped to an axis - if the hand really did go straight along it;
+   a long chord across a gentle curve is not one. */
+function runDev(v, keep){
+  const out = [];
+  for(let k=0;k<keep.length-1;k++){
+    const a = v[keep[k]], b = v[keep[k+1]];
+    let d = 0;
+    for(let i=keep[k]+1;i<keep[k+1];i++) d = Math.max(d, devFrom(v[i], a, b));
+    out.push(d);
+  }
+  return out;
+}
+function rdpKeep(v, eps){
+  const n = v.length;
+  if(n < 3) return v.map((_,i)=>i);
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n-1] = 1;
+  const st = [[0,n-1]];
+  while(st.length){
+    const [a,b] = st.pop();
+    if(b <= a+1) continue;
+    const ax=v[a].x, ay=v[a].y, ex=v[b].x-ax, ey=v[b].y-ay, L2=ex*ex+ey*ey;
+    let far=-1, fd=eps;
+    for(let i=a+1;i<b;i++){
+      const px=v[i].x-ax, py=v[i].y-ay;
+      const t = L2 > 1e-18 ? Math.max(0, Math.min(1, (px*ex+py*ey)/L2)) : 0;
+      const d = Math.hypot(px-ex*t, py-ey*t);
+      if(d > fd){ fd = d; far = i; }
+    }
+    if(far < 0) continue;
+    keep[far] = 1; st.push([a,far],[far,b]);
+  }
+  const out = [];
+  for(let i=0;i<n;i++) if(keep[i]) out.push(i);
+  return out;
+}
+const rdp = (v, eps) => rdpKeep(v, eps).map(i => ({x:v[i].x, y:v[i].y}));
+/* Catmull-Rom through the points, walked at an even spacing. This is
+   what makes a freehand stretch organic: the hand's facets go and a
+   curve comes back. */
+function catmull(v, step){
+  const n = v.length;
+  if(n < 3) return v.map(q => ({x:q.x, y:q.y}));
+  const at = i => v[Math.max(0, Math.min(n-1, i))];
+  const out = [];
+  for(let i=0;i<n-1;i++){
+    const p0=at(i-1), p1=at(i), p2=at(i+1), p3=at(i+2);
+    const steps = Math.max(1, Math.round(Math.hypot(p2.x-p1.x, p2.y-p1.y)/step));
+    for(let j=0;j<steps;j++){
+      const t=j/steps, t2=t*t, t3=t2*t;
+      out.push({
+        x: 0.5*(2*p1.x + (-p0.x+p2.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+        y: 0.5*(2*p1.y + (-p0.y+p2.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
+      });
+    }
+  }
+  out.push({x:v[n-1].x, y:v[n-1].y});
+  return out;
+}
+/* Round every interior corner with a tangent arc. The radius is clamped
+   so two fillets on a short segment cannot overrun one another - which
+   is also why a dense curve passes through this untouched. */
+function filletPoly(v, r){
+  const n = v.length;
+  if(n < 3 || r <= 1e-4) return v.map(q => ({x:q.x, y:q.y}));
+  const out = [{x:v[0].x, y:v[0].y}];
+  for(let i=1;i<n-1;i++){
+    const a=v[i-1], b=v[i], c=v[i+1];
+    let v1x=a.x-b.x, v1y=a.y-b.y, v2x=c.x-b.x, v2y=c.y-b.y;
+    const l1=Math.hypot(v1x,v1y)||1e-6, l2=Math.hypot(v2x,v2y)||1e-6;
+    v1x/=l1; v1y/=l1; v2x/=l2; v2y/=l2;
+    const ang = Math.acos(Math.max(-1, Math.min(1, v1x*v2x + v1y*v2y)));
+    if(ang < 0.02 || ang > Math.PI-0.035){ out.push({x:b.x, y:b.y}); continue; }
+    const half = Math.tan(ang/2);
+    const t = Math.min(r/half, l1*0.5, l2*0.5);
+    const rr = t*half;
+    let bx=v1x+v2x, by=v1y+v2y;
+    const bl=Math.hypot(bx,by)||1e-6; bx/=bl; by/=bl;
+    const dc = rr/Math.sin(ang/2);
+    const cx = b.x+bx*dc, cy = b.y+by*dc;
+    const p1x=b.x+v1x*t, p1y=b.y+v1y*t, p2x=b.x+v2x*t, p2y=b.y+v2y*t;
+    let a1 = Math.atan2(p1y-cy, p1x-cx), a2 = Math.atan2(p2y-cy, p2x-cx);
+    let d = a2-a1;
+    while(d >  Math.PI) d -= 2*Math.PI;
+    while(d < -Math.PI) d += 2*Math.PI;
+    const steps = Math.max(2, Math.ceil(Math.abs(d)/0.17));
+    for(let j=0;j<=steps;j++){
+      const th = a1 + d*j/steps;
+      out.push({x:cx+Math.cos(th)*rr, y:cy+Math.sin(th)*rr});
+    }
+  }
+  out.push({x:v[n-1].x, y:v[n-1].y});
+  return out;
+}
+function densify(v, step){
+  if(v.length < 2) return v.map(q => ({x:q.x,y:q.y}));
+  const out = [{x:v[0].x, y:v[0].y}];
+  for(let i=1;i<v.length;i++){
+    const a=v[i-1], b=v[i];
+    const L = Math.hypot(b.x-a.x, b.y-a.y);
+    const k = Math.max(1, Math.round(L/step));
+    for(let j=1;j<=k;j++) out.push({x:a.x+(b.x-a.x)*j/k, y:a.y+(b.y-a.y)*j/k});
+  }
+  return out;
+}
+
+/* ── orthogonal snap ───────────────────────────────────────────────
+   A run long enough to have been meant - not a wobble - that falls
+   within a few degrees of flat or plumb is pulled onto the axis. The
+   chain has to stay joined while that happens, so the constraint and a
+   weak spring back to where the hand actually went are relaxed against
+   each other, and the last passes are constraint only, which is what
+   makes the straights exactly straight.
+   Corners are never squared off here: they are rounded afterwards.  */
+function orthoSnap(v, tolDeg, runMinMM, straight, devMax){
+  const n = v.length;
+  const lock = new Array(Math.max(0,n-1)).fill(0);
+  if(n < 2) return { p:v.map(q=>({x:q.x,y:q.y})), lock };
+  const tol = tolDeg*Math.PI/180, runMin = runMinMM*MM;
+  for(let i=0;i<n-1;i++){
+    const dx=v[i+1].x-v[i].x, dy=v[i+1].y-v[i].y;
+    if(Math.hypot(dx,dy) < runMin) continue;
+    if(straight && straight[i] > devMax) continue;
+    const a = Math.atan2(Math.abs(dy), Math.abs(dx));
+    if(a < tol) lock[i] = 1;
+    else if(a > Math.PI/2 - tol) lock[i] = 2;
+  }
+  if(!lock.some(Boolean)) return { p:v.map(q=>({x:q.x,y:q.y})), lock };
+  const p = v.map(q=>({x:q.x,y:q.y})), home = v.map(q=>({x:q.x,y:q.y}));
+  for(let it=0; it<90; it++){
+    const pull = it < 55 ? 0.07 : 0;
+    for(let i=0;i<n-1;i++){
+      if(!lock[i]) continue;
+      const a=p[i], b=p[i+1];
+      if(lock[i] === 1){ const m=(a.y+b.y)/2; a.y=m; b.y=m; }
+      else             { const m=(a.x+b.x)/2; a.x=m; b.x=m; }
+    }
+    if(pull) for(let i=0;i<n;i++){
+      p[i].x += (home[i].x-p[i].x)*pull;
+      p[i].y += (home[i].y-p[i].y)*pull;
+    }
+  }
+  return { p, lock };
+}
+/* Spline the stretches that were not locked, leave the locked ones dead
+   straight. A snapped bracket keeps its flats; everything else stays a
+   drawn curve. */
+function smoothRuns(p, lock, step){
+  const n = p.length;
+  if(n < 2) return p.map(q=>({x:q.x,y:q.y}));
+  const out = [];
+  const push = q => {
+    const l = out[out.length-1];
+    if(!l || Math.hypot(q.x-l.x, q.y-l.y) > 1e-7) out.push({x:q.x, y:q.y});
+  };
+  let i = 0;
+  while(i < n-1){
+    const locked = !!lock[i];
+    let j = i;
+    while(j < n-1 && !!lock[j] === locked) j++;
+    const run = p.slice(i, j+1);
+    (locked ? run : catmull(run, step)).forEach(push);
+    i = j;
+  }
+  return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   2 · RIBBONS
+   ══════════════════════════════════════════════════════════════════ */
+function mkRib(raw, mode){
+  const o = { id:uid++, raw:raw.map(q=>({x:q.x, y:q.y})), mode:mode||'pen',
+              depth:S.depth, pts:[], segs:[], cum:[], box:[0,0,0,0], len:0, dirty:true };
+  build(o);
+  return o;
+}
+function build(o){
+  let v = o.raw.map(q=>({x:q.x, y:q.y}));
+  let straight = null;
+  if(v.length >= 2){
+    if(o.mode === 'pen'){
+      /* Simplify to within a fraction of a bead, not to within a bead:
+         on a 5.5mm stroke a couple of millimetres of licence is a
+         visibly different curve from the one that was drawn. */
+      const sm = relax(v, 2);
+      const keep = rdpKeep(sm, 0.03);
+      straight = runDev(sm, keep);
+      v = keep.map(i => ({x:sm[i].x, y:sm[i].y}));
+    }
+    let lock;
+    if(S.ortho){
+      const r = orthoSnap(v, S.orthoTol, o.mode === 'pen' ? S.runMin : 6, straight, 0.04);
+      v = r.p; lock = r.lock;
+    } else lock = new Array(Math.max(0,v.length-1)).fill(0);
+    if(o.mode === 'line') lock = lock.map(() => 1);     // a clicked run is straight by intent
+    v = smoothRuns(v, lock, 0.11);
+    v = filletPoly(v, S.corner*MM);
+    v = densify(v, 0.10);
+    v = rdp(v, 0.012);
+    let guard = 0;
+    while(v.length > MAXSEG && guard++ < 6) v = rdp(v, 0.012*Math.pow(2.4, guard));
+    if(v.length > MAXSEG) v = v.filter((_,i) => i%2 === 0 || i === v.length-1);
+  }
+  o.pts = v;
+  const segs = [], cum = [0];
+  for(let i=1;i<v.length;i++) cum.push(cum[i-1] + Math.hypot(v[i].x-v[i-1].x, v[i].y-v[i-1].y));
+  for(let i=0;i<v.length-1;i++)
+    segs.push({ ax:v[i].x, ay:v[i].y, bx:v[i+1].x, by:v[i+1].y, s0:cum[i], s1:cum[i+1] });
+  o.segs = segs; o.cum = cum; o.len = cum[cum.length-1] || 0;
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const q of v){ x0=Math.min(x0,q.x); x1=Math.max(x1,q.x); y0=Math.min(y0,q.y); y1=Math.max(y1,q.y); }
+  if(!v.length){ x0=y0=x1=y1=0; }
+  const m = halfW() + blendR() + PAD;
+  /* The baked square has to be square, or the two axes would resolve at
+     different scales and a horizontal edge would read coarser than a
+     vertical one. */
+  const cx=(x0+x1)/2, cy=(y0+y1)/2;
+  const hs = Math.max(x1-x0, y1-y0)/2 + m;
+  o.box = [cx-hs, cy-hs, cx+hs, cy+hs];
+  o.inner = [x0,y0,x1,y1];
+  o.dirty = true;
+  o.field = null;
+}
+function ribSize(o){
+  const h = halfW()/MM;
+  return { w:(o.inner[2]-o.inner[0])/MM + 2*h, h:(o.inner[3]-o.inner[1])/MM + 2*h, d:o.depth };
+}
+function translate(o, dx, dy){
+  for(const q of o.raw){ q.x += dx; q.y += dy; }
+  for(const q of o.pts){ q.x += dx; q.y += dy; }
+  for(const s of o.segs){ s.ax+=dx; s.ay+=dy; s.bx+=dx; s.by+=dy; }
+  o.box[0]+=dx; o.box[2]+=dx; o.box[1]+=dy; o.box[3]+=dy;
+  o.inner[0]+=dx; o.inner[2]+=dx; o.inner[1]+=dy; o.inner[3]+=dy;
+  o.field = null;
+  /* A move is a move: the field is the same field, carried along with
+     its box, so nothing has to be baked again. */
+}
+
+/* ── the field, on the CPU ─────────────────────────────────────────
+   The same two-pass distance the GPU bakes, point by point, for the
+   slicer. A uniform grid of segment buckets keeps it quick, and the
+   search is capped: past thirty millimetres the answer is only ever
+   'outside', and the contour never goes looking there.              */
+function fieldFn(o){
+  const segs = o.segs, box = o.box;
+  const cell = 1.0, CAP = 3;
+  const nx = Math.max(1, Math.ceil((box[2]-box[0])/cell));
+  const ny = Math.max(1, Math.ceil((box[3]-box[1])/cell));
+  const bins = new Array(nx*ny);
+  for(let i=0;i<nx*ny;i++) bins[i] = [];
+  const ci = x => Math.max(0, Math.min(nx-1, Math.floor((x-box[0])/cell)));
+  const cj = y => Math.max(0, Math.min(ny-1, Math.floor((y-box[1])/cell)));
+  segs.forEach((s,i) => {
+    const j0=cj(Math.min(s.ay,s.by)), j1=cj(Math.max(s.ay,s.by));
+    const q0=ci(Math.min(s.ax,s.bx)), q1=ci(Math.max(s.ax,s.bx));
+    for(let j=j0;j<=j1;j++) for(let q=q0;q<=q1;q++) bins[j*nx+q].push(i);
+  });
+  const half = halfW(), kr = blendR(), gap = gapS();
+  const sd = (s, x, y) => {
+    const vx=s.bx-s.ax, vy=s.by-s.ay, wx=x-s.ax, wy=y-s.ay;
+    const L2=vx*vx+vy*vy;
+    const t = L2 > 1e-14 ? Math.max(0, Math.min(1, (wx*vx+wy*vy)/L2)) : 0;
+    return { d:Math.hypot(wx-vx*t, wy-vy*t), s:s.s0+(s.s1-s.s0)*t };
+  };
+  return (x,y) => {
+    const i0=ci(x), j0=cj(y);
+    let d1=1e9, s1=0;
+    for(let R=0; R<=CAP; R++){
+      if(d1 < 1e8 && (R-1)*cell > d1) break;
+      for(let j=j0-R;j<=j0+R;j++){
+        if(j<0||j>=ny) continue;
+        for(let q=i0-R;q<=i0+R;q++){
+          if(q<0||q>=nx) continue;
+          if(R>0 && Math.abs(j-j0)!==R && Math.abs(q-i0)!==R) continue;
+          const bin = bins[j*nx+q];
+          for(let b=0;b<bin.length;b++){
+            const r = sd(segs[bin[b]], x, y);
+            if(r.d < d1){ d1 = r.d; s1 = r.s; }
+          }
+        }
+      }
+    }
+    if(d1 > 1e8) return CAP*cell;
+    const a = d1 - half;
+    if(!(kr > 1e-5) || a >= kr) return a;
+    const reach = d1 + kr + cell;
+    const qa=ci(x-reach), qb=ci(x+reach), ja=cj(y-reach), jb=cj(y+reach);
+    let d2 = 1e9;
+    for(let j=ja;j<=jb;j++) for(let q=qa;q<=qb;q++){
+      const bin = bins[j*nx+q];
+      for(let b=0;b<bin.length;b++){
+        const r = sd(segs[bin[b]], x, y);
+        if(r.d < d2 && Math.abs(r.s - s1) >= gap) d2 = r.d;
+      }
+    }
+    const bb = d2 - half;
+    const ua = Math.max(kr-a, 0), ub = Math.max(kr-bb, 0);
+    return Math.max(kr, Math.min(a, bb)) - Math.hypot(ua, ub);
+  };
+}
+const ribField = o => (o.field || (o.field = fieldFn(o)));
+function ribAt(x, y){
+  for(let i=S.ribs.length-1;i>=0;i--){
+    const o = S.ribs[i];
+    if(x < o.inner[0]-0.4 || x > o.inner[2]+0.4 || y < o.inner[1]-0.4 || y > o.inner[3]+0.4) continue;
+    if(ribField(o)(x,y) < 0.06) return o;
+  }
+  return null;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   3 · GL — a baked field per ribbon, then one sphere trace
+   The path can run to a thousand segments, which no ray march can
+   afford to walk at every step. So the two-dimensional field is baked
+   once per ribbon into a square of texels and read back as a smooth
+   surface; the third dimension is only the depth off the wall, which
+   is a slab, and costs nothing.
+   ══════════════════════════════════════════════════════════════════ */
+const cvs = document.getElementById('gl');
+const gl = cvs.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+
+const VS = `#version 300 es
+void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); gl_Position = vec4(p*2.0-1.0,0.0,1.0); }`;
+
+/* ── the bake ──────────────────────────────────────────────────────
+   Pass one is the plain distance to the drawn path. Pass two looks for
+   the nearest stretch of the SAME path that is far enough along it to
+   count as a different stretch, and the two are joined with a circular
+   arc. That is what blends a curve that loops back on itself: where a
+   scroll comes round beside its own tail the two surfaces grow a
+   fillet into each other instead of crossing.
+   The arc kernel returns min() exactly once the two are more than its
+   radius apart, so a straight run never fattens - and pass two is only
+   run at all where it could change the answer.                      */
+const BAKE_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uSeg;
+uniform int uSegN;
+uniform vec4 uBox;
+uniform float uN, uHalf, uKR, uGap;
+out vec4 outColor;
+void main(){
+  vec2 uv = gl_FragCoord.xy/uN;
+  vec2 p = mix(uBox.xy, uBox.zw, uv);
+  float d1 = 1e9, s1 = 0.0;
+  for(int i=0;i<uSegN;i++){
+    vec4 G = texelFetch(uSeg, ivec2(i,0), 0);
+    vec2 v = G.zw - G.xy, w = p - G.xy;
+    float L2 = dot(v,v);
+    float t = L2 < 1e-12 ? 0.0 : clamp(dot(w,v)/L2, 0.0, 1.0);
+    float d = length(w - v*t);
+    if(d < d1){ d1 = d; vec4 L = texelFetch(uSeg, ivec2(i,1), 0); s1 = mix(L.x, L.y, t); }
+  }
+  float a = d1 - uHalf;
+  float o = a;
+  if(uKR > 1e-5 && a < uKR){
+    float d2 = 1e9;
+    for(int i=0;i<uSegN;i++){
+      vec4 G = texelFetch(uSeg, ivec2(i,0), 0);
+      vec2 v = G.zw - G.xy, w = p - G.xy;
+      float L2 = dot(v,v);
+      float t = L2 < 1e-12 ? 0.0 : clamp(dot(w,v)/L2, 0.0, 1.0);
+      float d = length(w - v*t);
+      if(d >= d2) continue;
+      vec4 L = texelFetch(uSeg, ivec2(i,1), 0);
+      if(abs(mix(L.x,L.y,t) - s1) < uGap) continue;
+      d2 = d;
+    }
+    float b = d2 - uHalf;
+    vec2 u = max(vec2(uKR-a, uKR-b), 0.0);
+    o = max(uKR, min(a,b)) - length(u);
+  }
+  outColor = vec4(o, 0.0, 0.0, 1.0);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+precision highp sampler2DArray;
+uniform vec2 uRes;
+uniform vec3 uRight, uUp, uFwd, uTarget;
+uniform float uScale, uPix, uStepK, uTexel;
+uniform int uCount, uShade, uEdges, uSteps;
+uniform vec4 uBox[8];
+uniform float uDep[8];
+uniform sampler2DArray uField;
+uniform float uPad, uRound, uPitch, uTone, uAmb, uSeam, uHalf, uOff, uHW, uRelief, uCrown;
+uniform vec3 uInk, uPaper;
+out vec4 outColor;
+bool gSmooth;
+
+float fieldAt(int i, vec2 p){
+  vec4 b = uBox[i];
+  vec2 q = max(b.xy - p, p - b.zw);
+  float o = length(max(q,0.0)) + min(max(q.x,q.y), 0.0);
+  /* Outside the baked square the field is unknown but bounded: the box
+     was padded, so nothing can be nearer than the way out plus that
+     padding. An under-estimate is all a sphere trace ever needs. */
+  if(o > 0.0) return o + uPad;
+  return texture(uField, vec3((p - b.xy)/(b.zw - b.xy), float(i))).r;
+}
+float fieldMin(vec2 p){
+  float d = 1e9;
+  for(int i=0;i<8;i++){ if(i >= uCount) break; d = min(d, fieldAt(i,p)); }
+  return d;
+}
+/* How far across the stroke you are, measured from its centreline:
+   0 at the seam, 1 at a pass centre, 2 at the outside edge. */
+float crownOf(float d2){
+  float tb = clamp((abs(d2 + uHalf) - uOff)/max(uHW, 1e-4), -1.0, 1.0);
+  return cos(tb*1.5707963);
+}
+float sdOne(vec3 p, int i){
+  float d2 = fieldAt(i, p.xy);
+  // every layer stands a little proud, as a laid bead does
+  if(!gSmooth && uRelief > 1e-5)
+    d2 -= uRelief*sin(3.14159265*fract(p.z/max(uPitch,1e-4)));
+  float h = uDep[i];
+  /* The cut face is not flat. Two beads crown there and meet in a dip,
+     which is the whole of what you see looking at the wall head on. */
+  float w = abs(p.z - h*0.5) - (h*0.5 + (uCrown > 1e-5 ? uCrown*crownOf(d2) : 0.0));
+  vec2 e = vec2(d2 + uRound, w + uRound);
+  return min(max(e.x,e.y), 0.0) + length(max(e,0.0)) - uRound;
+}
+float scene(vec3 p){
+  float d = 1e9;
+  for(int i=0;i<8;i++){ if(i >= uCount) break; d = min(d, sdOne(p,i)); }
+  return d;
+}
+float occlusion(vec3 p, vec3 n){
+  gSmooth = true;
+  float occ = 0.0, sca = 1.0;
+  for(int i=0;i<3;i++){
+    float h = 0.10 + 0.9*float(i)/2.0;
+    occ += (h - scene(p + n*h))*sca;
+    sca *= 0.7;
+  }
+  gSmooth = false;
+  return clamp(1.0 - 1.15*occ, 0.0, 1.0);
+}
+vec3 normalAt(vec3 p, float e){
+  /* The field is read back through a bilinear filter, so its gradient
+     steps from texel to texel. Reaching across more than one texel is
+     what keeps the posterised bands from breaking up into flecks. */
+  gSmooth = true;
+  vec2 h = vec2(1.0,-1.0)*0.5773*e;
+  vec3 n = normalize(h.xyy*scene(p+h.xyy) + h.yyx*scene(p+h.yyx)
+                   + h.yxy*scene(p+h.yxy) + h.xxx*scene(p+h.xxx));
+  gSmooth = false;
+  return n;
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  vec3 ro = uTarget + uRight*(uv.x*uScale) + uUp*(uv.y*uScale) - uFwd*160.0;
+  vec3 rd = uFwd;
+  float px = uPix;
+  float t = 0.0, minR = 1e9;
+  bool hit = false;
+  vec3 pos = ro;
+  for(int i=0;i<256;i++){
+    if(i >= uSteps) break;
+    pos = ro + rd*t;
+    float d = scene(pos);
+    minR = min(minR, d/px);
+    if(d < px*0.4){ hit = true; break; }
+    t += max(d*uStepK, px*0.3);
+    if(t > 700.0) break;
+  }
+  vec3 col = uPaper;
+  if(hit){
+    col = uInk;
+    vec3 n = normalAt(pos, max(px*1.2, uTexel*1.15));
+    float face = abs(n.z);                    // 1 on the cut faces, 0 on the walls
+    if(uShade > 0 && uTone > 0.001){
+      float f = clamp(dot(n, normalize(vec3(-0.46, 0.60, 0.65))), 0.0, 1.0);
+      f *= mix(1.0, occlusion(pos, n), 0.5);
+      // layer lines, lit analytically so they stay clean at any zoom
+      if(uPitch > 0.001){
+        float ph = pos.z/uPitch;
+        float crown = 0.5 + 0.5*cos(6.2831853*fract(ph));
+        crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
+        f *= mix(0.82 + 0.26*crown, 1.0, face);
+      }
+      /* Across the stroke the two beads crown and meet. Looking at the
+         wall head on this is the whole of what you see: a bright pass
+         either side of the seam where they overlap, falling away at
+         the outside edges. */
+      float dm = fieldMin(pos.xy);
+      float dc = abs(dm + uHalf);
+      float cx = crownOf(dm);
+      cx = mix(cx, 0.55, smoothstep(0.25, 0.85, fwidth(dc)/max(uHW,1e-4)));
+      f *= mix(1.0, 0.78 + 0.32*cx, face);
+      f = uAmb + (1.0 - uAmb)*f;
+      float st = float(uShade);
+      float q = clamp(floor(f*st + 0.5)/st, 0.0, 1.0);
+      col = mix(uInk, uPaper, q*uTone);
+    }
+    // the seam the two passes leave between them
+    if(uSeam > 0.001 && face > 0.05){
+      float dc = abs(fieldMin(pos.xy) + uHalf);
+      float g = dc/max(fwidth(dc), 1e-5);
+      col = mix(col, uInk, (1.0 - smoothstep(0.35, 1.5, g))*uSeam*face);
+    }
+    // and the layer seams, on the walls
+    if(uPitch > 0.001 && face < 0.96){
+      float ly = pos.z/uPitch;
+      float w = fwidth(ly);
+      float g = abs(fract(ly) - 0.5)/max(w, 1e-5);
+      float sharp = 1.0 - smoothstep(0.18, 0.78, g);
+      float cov = mix(sharp, 0.24, smoothstep(0.20, 0.55, w));
+      col = mix(col, uInk, cov*0.42*(1.0 - face));
+    }
+    if(uEdges == 1){
+      float cr = length(fwidth(n));
+      float facing = abs(dot(n, rd));
+      col = mix(col, uPaper, smoothstep(0.45,1.25,cr)*smoothstep(0.06,0.28,facing)*0.9);
+    }
+  } else {
+    col = mix(uInk, uPaper, clamp(minR/0.8, 0.0, 1.0));
+  }
+  outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+let prog, bakeProg, uni = {}, bun = {}, fieldTex, segTex, fbo, ok = true;
+const segData = new Float32Array(MAXSEG*2*4);
+const boxData = new Float32Array(MAXRIB*4);
+const depData = new Float32Array(MAXRIB);
+function compile(type, src){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+function link(vs, fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+function initGL(){
+  if(!gl){ ok = false; return; }
+  if(!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float'))
+    throw new Error('no float render target');
+  prog = link(VS, FS);
+  bakeProg = link(VS, BAKE_FS);
+  for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uStepK','uTexel',
+                  'uCount','uShade','uEdges','uSteps','uBox','uDep','uField','uPad','uRound',
+                  'uPitch','uTone','uAmb','uSeam','uHalf','uOff','uHW','uRelief','uCrown','uInk','uPaper'])
+    uni[n] = gl.getUniformLocation(prog, n);
+  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap'])
+    bun[n] = gl.getUniformLocation(bakeProg, n);
+  gl.bindVertexArray(gl.createVertexArray());
+
+  fieldTex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, fieldTex);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA16F, FIELD_N, FIELD_N, MAXRIB);
+
+  segTex = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, segTex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, MAXSEG, 2);
+
+  fbo = gl.createFramebuffer();
+  gl.useProgram(prog);
+  gl.uniform1i(uni.uField, 0);
+  gl.useProgram(bakeProg);
+  gl.uniform1i(bun.uSeg, 1);
+}
+try { initGL(); } catch(e){ ok = false; console.error(e); }
+
+function bake(o, layer){
+  const n = Math.min(o.segs.length, MAXSEG);
+  if(!n) return;
+  for(let i=0;i<n;i++){
+    const s = o.segs[i];
+    segData[i*4]   = s.ax; segData[i*4+1] = s.ay;
+    segData[i*4+2] = s.bx; segData[i*4+3] = s.by;
+    const q = (MAXSEG+i)*4;
+    segData[q] = s.s0; segData[q+1] = s.s1; segData[q+2] = 0; segData[q+3] = 0;
+  }
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, segTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, 1, gl.RGBA, gl.FLOAT, segData, 0);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 1, n, 1, gl.RGBA, gl.FLOAT, segData, MAXSEG*4);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, fieldTex, 0, layer);
+  gl.viewport(0, 0, FIELD_N, FIELD_N);
+  gl.useProgram(bakeProg);
+  gl.uniform1i(bun.uSegN, n);
+  gl.uniform4f(bun.uBox, o.box[0], o.box[1], o.box[2], o.box[3]);
+  gl.uniform1f(bun.uN, FIELD_N);
+  gl.uniform1f(bun.uHalf, halfW());
+  gl.uniform1f(bun.uKR, blendR());
+  gl.uniform1f(bun.uGap, gapS());
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  o.dirty = false;
+}
+function bakeDirty(){
+  const live = S.ribs.slice(0, MAXRIB);
+  live.forEach((o,i) => { if(o.dirty || o.layer !== i){ o.layer = i; bake(o, i); } });
+  return live.length;
+}
+const markAll = () => S.ribs.forEach(o => { o.dirty = true; o.field = null; });
+function rebuildAll(){ S.ribs.forEach(build); }
+
+function themeColors(){
+  const cs = getComputedStyle(document.documentElement);
+  const toRGB = v => { v = v.trim();
+    return v.startsWith('#') ? [parseInt(v.slice(1,3),16)/255, parseInt(v.slice(3,5),16)/255, parseInt(v.slice(5,7),16)/255] : [0,0,0]; };
+  return { ink: toRGB(cs.getPropertyValue('--ink')), paper: toRGB(cs.getPropertyValue('--paper')) };
+}
+function basis(){
+  const ce = Math.cos(A.el), se = Math.sin(A.el);
+  const eye = [ce*Math.sin(A.az), se, ce*Math.cos(A.az)];     // target -> camera
+  let rx = 1*eye[2] - 0*eye[1], ry = 0*eye[0] - 0*eye[2], rz = 0*eye[1] - 1*eye[0];
+  const L = Math.hypot(rx,ry,rz) || 1; rx/=L; ry/=L; rz/=L;
+  const ux = eye[1]*rz - eye[2]*ry, uy = eye[2]*rx - eye[0]*rz, uz = eye[0]*ry - eye[1]*rx;
+  return { right:[rx,ry,rz], up:[ux,uy,uz], fwd:[-eye[0],-eye[1],-eye[2]], eye };
+}
+const viewEl = document.getElementById('view');
+const ovEl = document.getElementById('ov');
+let vw = 0, vh = 0;
+function resize(){
+  const r = viewEl.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 1.75);
+  vw = r.width; vh = r.height;
+  const w = Math.max(1, Math.round(r.width*dpr)), h = Math.max(1, Math.round(r.height*dpr));
+  if(cvs.width !== w || cvs.height !== h){ cvs.width = w; cvs.height = h; }
+  ovEl.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh);
+}
+function draw(){
+  if(!ok) return;
+  const n = bakeDirty();
+  const b = basis(), c = themeColors();
+  for(let i=0;i<n;i++){
+    const o = S.ribs[i];
+    boxData[i*4]=o.box[0]; boxData[i*4+1]=o.box[1]; boxData[i*4+2]=o.box[2]; boxData[i*4+3]=o.box[3];
+    depData[i] = o.depth*MM;
+  }
+  gl.viewport(0,0,cvs.width,cvs.height);
+  gl.useProgram(prog);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, fieldTex);
+  gl.uniform2f(uni.uRes, cvs.width, cvs.height);
+  gl.uniform3fv(uni.uRight, b.right);
+  gl.uniform3fv(uni.uUp, b.up);
+  gl.uniform3fv(uni.uFwd, b.fwd);
+  gl.uniform3f(uni.uTarget, A.tx, A.ty, A.tz);
+  gl.uniform1f(uni.uScale, A.scale);
+  gl.uniform1f(uni.uPix, A.scale/Math.max(1,cvs.height));
+  gl.uniform1i(uni.uCount, n);
+  gl.uniform4fv(uni.uBox, boxData);
+  gl.uniform1fv(uni.uDep, depData);
+  gl.uniform1f(uni.uPad, PAD);
+  gl.uniform1f(uni.uRound, Math.max(0.02, Math.min(S.roll, strokeMM()*0.42))*MM);
+  gl.uniform1f(uni.uCrown, S.crown*MM);
+  /* Ribbing finer than a few pixels is only moire, so the relief fades
+     out as the layer approaches the pixel and the drawn seam carries it
+     instead. */
+  const pitchPx = (S.layer*MM*cvs.height)/Math.max(A.scale, 1e-4);
+  const fade = Math.max(0, Math.min(1, (pitchPx - 2.5)/4));
+  const relief = S.relief*S.layer*MM*0.42*fade;
+  gl.uniform1f(uni.uPitch, A.pitch);
+  gl.uniform1f(uni.uRelief, relief);
+  const stride = relief > 1e-5 ? 0.55 : 0.95;
+  gl.uniform1f(uni.uStepK, stride);
+  gl.uniform1i(uni.uSteps, Math.max(48, Math.min(256, Math.round((dragging ? S.steps*0.8 : S.steps)/stride))));
+  let texel = 0.05;
+  for(let i=0;i<n;i++) texel = Math.max(i ? texel : 0, (S.ribs[i].box[2]-S.ribs[i].box[0])/FIELD_N);
+  gl.uniform1f(uni.uTexel, texel);
+  gl.uniform1i(uni.uShade, S.shade);
+  gl.uniform1i(uni.uEdges, S.edges ? 1 : 0);
+  gl.uniform1f(uni.uTone, S.tone);
+  gl.uniform1f(uni.uAmb, S.ambient);
+  gl.uniform1f(uni.uSeam, S.seam);
+  gl.uniform1f(uni.uHalf, halfW());
+  gl.uniform1f(uni.uOff, passOff());
+  gl.uniform1f(uni.uHW, S.bead*MM*0.5);
+  gl.uniform3fv(uni.uInk, c.ink);
+  gl.uniform3fv(uni.uPaper, c.paper);
+  gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+function rayFor(sx, sy){
+  const b = basis();
+  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
+  return { o:[ A.tx + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*160,
+               A.ty + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*160,
+               A.tz + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*160 ],
+           d: b.fwd };
+}
+/* The wall is z = 0, and the drawing happens on it however the view is
+   tilted at that moment. */
+function screenToWall(sx, sy){
+  const r = rayFor(sx, sy);
+  if(Math.abs(r.d[2]) < 1e-4) return null;
+  const t = -r.o[2]/r.d[2];
+  return { x: r.o[0] + r.d[0]*t, y: r.o[1] + r.d[1]*t };
+}
+function worldToScreen(x, y, z){
+  const b = basis();
+  const rx = x-A.tx, ry = y-A.ty, rz = z-A.tz;
+  const u = rx*b.right[0] + ry*b.right[1] + rz*b.right[2];
+  const v = rx*b.up[0] + ry*b.up[1] + rz*b.up[2];
+  return { x: u/A.scale*vh + vw/2, y: -v/A.scale*vh + vh/2 };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   4 · HISTORY + EDIT OPS
+   ══════════════════════════════════════════════════════════════════ */
+const hist = []; let histAt = -1;
+const snapshot = () => S.ribs.map(o => ({ raw:o.raw.map(q=>({x:q.x,y:q.y})), mode:o.mode, depth:o.depth, id:o.id }));
+function snap(){
+  hist.length = Math.min(hist.length, histAt+1);
+  hist.push(snapshot());
+  if(hist.length > 60) hist.shift();
+  histAt = hist.length-1;
+}
+function restore(i){
+  if(i < 0 || i >= hist.length) return;
+  histAt = i;
+  S.ribs = hist[i].map(d => { const o = mkRib(d.raw, d.mode); o.depth = d.depth; o.id = d.id; return o; });
+  S.sel = new Set([...S.sel].filter(id => S.ribs.some(o => o.id === id)));
+  sync();
+}
+const undo = () => { restore(histAt-1); say('Undo'); };
+const redo = () => { restore(histAt+1); say('Redo'); };
+const selRibs = () => S.ribs.filter(o => S.sel.has(o.id));
+function deleteSel(){
+  if(!S.sel.size) return;
+  snap();
+  S.ribs = S.ribs.filter(o => !S.sel.has(o.id));
+  S.sel.clear(); markAll(); sync();
+}
+function duplicateSel(){
+  const src = selRibs();
+  if(!src.length) return;
+  snap();
+  const made = src.map(o => { const c = mkRib(o.raw, o.mode); c.depth = o.depth; translate(c, 1.2, -1.2); return c; });
+  S.ribs = S.ribs.concat(made).slice(0, MAXRIB);
+  S.sel = new Set(made.map(o => o.id));
+  sync();
+}
+function clearAll(){ snap(); S.ribs = []; S.sel.clear(); sync(); }
+
+/* ══════════════════════════════════════════════════════════════════
+   5 · POINTER
+   ══════════════════════════════════════════════════════════════════ */
+let drag = null, dragging = false, spaceDown = false, poly = null, hoverW = null;
+const TILT_MAX_AZ = 0.95, TILT_MAX_EL = 0.72;
+
+function startTilt(e){ drag = { kind:'tilt', sx:e.clientX, sy:e.clientY, az:S.az, el:S.el }; }
+function orthoCursor(from, to){
+  if(!S.ortho || !from) return to;
+  const dx = to.x-from.x, dy = to.y-from.y;
+  const L = Math.hypot(dx,dy);
+  if(L < S.runMin*MM) return to;
+  const a = Math.atan2(Math.abs(dy), Math.abs(dx)), tol = S.orthoTol*Math.PI/180;
+  if(a < tol) return { x:to.x, y:from.y };
+  if(a > Math.PI/2 - tol) return { x:from.x, y:to.y };
+  return to;
+}
+function polyFinish(){
+  if(poly && poly.pts.length > 1){ snap(); addRib(poly.pts, 'line'); }
+  poly = null;
+  sync();
+}
+function addRib(raw, mode){
+  if(S.ribs.length >= MAXRIB){ say('Eight ribbons is the limit'); return null; }
+  const o = mkRib(raw, mode);
+  if(o.segs.length < 2) return null;
+  S.ribs.push(o);
+  S.sel = new Set([o.id]);
+  sync();
+  return o;
+}
+
+viewEl.addEventListener('contextmenu', e => e.preventDefault());
+viewEl.addEventListener('pointerdown', e => {
+  if(e.button === 1) return;
+  viewEl.setPointerCapture(e.pointerId);
+  const r = viewEl.getBoundingClientRect();
+  const sx = e.clientX-r.left, sy = e.clientY-r.top;
+  const w = screenToWall(sx, sy);
+  dragging = true;
+
+  if(e.button === 2 || S.tool === 'tilt'){ startTilt(e); return; }
+  if(spaceDown || S.tool === 'hand'){ drag = { kind:'pan', sx:e.clientX, sy:e.clientY, tx:S.tx, ty:S.ty }; return; }
+  if(S.tool === 'zoom'){
+    S.scale = Math.max(6, Math.min(260, S.scale*(e.altKey ? 1.5 : 1/1.5)));
+    dragging = false; drag = null; return;
+  }
+  if(S.tool === 'pen'){
+    if(!w) return;
+    drag = { kind:'pen', pts:[w] };
+    return;
+  }
+  if(S.tool === 'line'){
+    if(!w) return;
+    const last = poly && poly.pts.length ? poly.pts[poly.pts.length-1] : null;
+    const p = orthoCursor(last, w);
+    if(!poly) poly = { pts:[p] };
+    else {
+      // clicking the first point again closes the run
+      const f = poly.pts[0];
+      if(poly.pts.length > 2 && Math.hypot(p.x-f.x, p.y-f.y) < A.scale*0.018){
+        poly.pts.push({x:f.x, y:f.y}); polyFinish(); dragging = false; drag = null; return;
+      }
+      poly.pts.push(p);
+    }
+    drag = { kind:'poly' };
+    return;
+  }
+  // select
+  const hit = w ? ribAt(w.x, w.y) : null;
+  if(hit){
+    if(e.shiftKey) S.sel.has(hit.id) ? S.sel.delete(hit.id) : S.sel.add(hit.id);
+    else if(!S.sel.has(hit.id)) S.sel = new Set([hit.id]);
+    drag = { kind:'move', w, moved:false, ribs:selRibs() };
+    sync();
+    return;
+  }
+  if(!e.shiftKey && S.sel.size){ S.sel.clear(); sync(); }
+  startTilt(e);                        // empty space pulls the elevation off axis
+});
+addEventListener('pointermove', e => {
+  const r = viewEl.getBoundingClientRect();
+  const sx = e.clientX-r.left, sy = e.clientY-r.top;
+  const w = screenToWall(sx, sy);
+  if(w){
+    hoverW = w;
+    document.getElementById('st-x').textContent = Math.round(w.x/MM);
+    document.getElementById('st-y').textContent = Math.round(w.y/MM);
+  }
+  if(!drag){ if(poly) overlay(); return; }
+  if(drag.kind === 'tilt'){
+    S.az = Math.max(-TILT_MAX_AZ, Math.min(TILT_MAX_AZ, drag.az + (e.clientX-drag.sx)*0.0055));
+    S.el = Math.max(-TILT_MAX_EL, Math.min(TILT_MAX_EL, drag.el + (e.clientY-drag.sy)*0.0050));
+    return;
+  }
+  if(drag.kind === 'pan'){
+    const k = A.scale/Math.max(1,vh);
+    S.tx = drag.tx - (e.clientX-drag.sx)*k;
+    S.ty = drag.ty + (e.clientY-drag.sy)*k;
+    return;
+  }
+  if(drag.kind === 'pen'){
+    if(!w) return;
+    const last = drag.pts[drag.pts.length-1];
+    if(Math.hypot(w.x-last.x, w.y-last.y) > A.scale*0.004) drag.pts.push(w);
+    return;
+  }
+  if(drag.kind === 'move'){
+    if(!w) return;
+    const dx = w.x-drag.w.x, dy = w.y-drag.w.y;
+    if(!drag.moved && Math.hypot(dx,dy) < 0.05) return;
+    if(!drag.moved){ snap(); drag.moved = true; }
+    drag.ribs.forEach(o => translate(o, dx, dy));
+    drag.w = w;
+    return;
+  }
+});
+addEventListener('pointerup', () => {
+  if(drag && drag.kind === 'tilt'){ S.az = 0; S.el = 0; }   // and it glides home
+  if(drag && drag.kind === 'pen'){
+    if(drag.pts.length > 3){ snap(); addRib(drag.pts, 'pen'); }
+    else say('Too short to be a path');
+  }
+  if(drag && drag.kind === 'move' && drag.moved) sync();
+  drag = null; dragging = false;
+});
+viewEl.addEventListener('dblclick', () => { if(poly) polyFinish(); });
+viewEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.scale = Math.max(6, Math.min(260, S.scale*Math.exp(e.deltaY*0.0014)));
+}, { passive:false });
+
+/* ══════════════════════════════════════════════════════════════════
+   6 · RULERS + OVERLAY
+   ══════════════════════════════════════════════════════════════════ */
+const rhEl = document.getElementById('rulerH');
+const rvEl = document.getElementById('rulerV');
+const esc = t => String(t).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+function rulers(){
+  const rh = rhEl.getBoundingClientRect(), rv = rvEl.getBoundingClientRect();
+  if(!rh.width || !rv.height) return;
+  rhEl.setAttribute('viewBox', '0 0 ' + rh.width + ' ' + rh.height);
+  rvEl.setAttribute('viewBox', '0 0 ' + rv.width + ' ' + rv.height);
+  rhEl.style.color = 'var(--t1)'; rvEl.style.color = 'var(--t1)';
+  const H = rh.height, V = rv.width;
+  const step = A.scale > 120 ? 10 : A.scale > 55 ? 5 : 2.5;
+  const span = Math.ceil(A.scale*1.4/step)*step;
+  let h = '', v = '';
+  for(let x=Math.round((A.tx-span)/step)*step; x<=A.tx+span; x+=step){
+    const p = worldToScreen(x, A.ty, 0);
+    if(p.x < -24 || p.x > rh.width+24) continue;
+    h += '<path d="M' + p.x.toFixed(1) + ' ' + (H*0.3) + 'V' + H + '" stroke="currentColor" stroke-width="1" opacity=".5"/>'
+       + '<text x="' + (p.x+3) + '" y="' + (H*0.62) + '" font-size="8.5" fill="currentColor" opacity=".55">' + Math.round(x/MM) + '</text>';
+  }
+  for(let y=Math.round((A.ty-span)/step)*step; y<=A.ty+span; y+=step){
+    const p = worldToScreen(A.tx, y, 0);
+    if(p.y < -24 || p.y > rv.height+24) continue;
+    v += '<path d="M' + (V*0.3) + ' ' + p.y.toFixed(1) + 'H' + V + '" stroke="currentColor" stroke-width="1" opacity=".5"/>'
+       + '<text x="' + (V*0.54) + '" y="' + (p.y-3) + '" font-size="8.5" fill="currentColor" opacity=".55" transform="rotate(-90 ' + (V*0.54) + ' ' + (p.y-3) + ')">' + Math.round(y/MM) + '</text>';
+  }
+  rhEl.innerHTML = h; rvEl.innerHTML = v;
+}
+const pxPerUnit = () => vh/Math.max(A.scale, 1e-4);
+function screenPath(pts){
+  let d = '';
+  for(let i=0;i<pts.length;i++){
+    const p = worldToScreen(pts[i].x, pts[i].y, 0);
+    d += (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1);
+  }
+  return d;
+}
+function overlay(){
+  let s = '';
+  const k = pxPerUnit();
+
+  /* The stroke under the hand is drawn, not modelled: it is the width
+     of the real material, so what you are dragging out is already the
+     wall you will print. The field is baked once you let go. */
+  if(drag && drag.kind === 'pen' && drag.pts.length > 1){
+    s += '<path d="' + screenPath(drag.pts) + '" fill="none" stroke="var(--ink)" stroke-opacity=".30" stroke-linecap="round" stroke-linejoin="round" stroke-width="' + (strokeMM()*MM*k).toFixed(2) + '"/>'
+       + '<path d="' + screenPath(drag.pts) + '" fill="none" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1"/>';
+  }
+  if(poly && poly.pts.length){
+    const pts = poly.pts.slice();
+    if(hoverW) pts.push(orthoCursor(pts[pts.length-1], hoverW));
+    const f = pts.length > 2 ? filletPoly(pts, S.corner*MM) : pts;
+    s += '<path d="' + screenPath(f) + '" fill="none" stroke="var(--ink)" stroke-opacity=".30" stroke-linecap="round" stroke-linejoin="round" stroke-width="' + (strokeMM()*MM*k).toFixed(2) + '"/>'
+       + '<path d="' + screenPath(f) + '" fill="none" stroke="var(--ink)" stroke-opacity=".55" stroke-width="1"/>';
+    for(const p of poly.pts){
+      const q = worldToScreen(p.x, p.y, 0);
+      s += '<rect x="' + (q.x-2.5) + '" y="' + (q.y-2.5) + '" width="5" height="5" fill="var(--paper)" stroke="var(--sel)" stroke-width="1.2"/>';
+    }
+  }
+
+  for(const o of S.ribs){
+    if(!S.sel.has(o.id)) continue;
+    const d = screenPath(o.pts);
+    s += '<path d="' + d + '" fill="none" stroke="var(--paper)" stroke-width="2.4" opacity=".7"/>'
+       + '<path d="' + d + '" fill="none" stroke="var(--guide)" stroke-width="1.1" stroke-dasharray="4 3" opacity=".9"/>';
+    if(S.plate){
+      /* The cube the printer actually has, squared on this ribbon. If a
+         corner of it is inside the drawing, the shelf is not one part. */
+      const sz = ribSize(o), B = BUILD*MM;
+      const cx = (o.inner[0]+o.inner[2])/2, cy = (o.inner[1]+o.inner[3])/2;
+      const c = [[cx-B/2,cy-B/2],[cx+B/2,cy-B/2],[cx+B/2,cy+B/2],[cx-B/2,cy+B/2]]
+        .map(p => worldToScreen(p[0], p[1], 0));
+      const fits = sz.w <= BUILD && sz.h <= BUILD && sz.d <= BUILD;
+      s += '<path d="M' + c.map(p => p.x.toFixed(1)+' '+p.y.toFixed(1)).join('L') + 'Z" fill="none" stroke="var(--guide)" stroke-width="1" stroke-dasharray="7 4" opacity="' + (fits ? '.26' : '.85') + '"/>';
+      const lab = worldToScreen(cx - B/2, cy + B/2, 0);
+      s += '<text x="' + (lab.x+5) + '" y="' + (lab.y+12) + '" font-size="9" letter-spacing="1.2" fill="var(--t3)">'
+         + Math.round(sz.w) + ' × ' + Math.round(sz.h) + ' × ' + Math.round(sz.d) + (fits ? '' : '  OVER ' + BUILD) + '</text>';
+    }
+  }
+
+  s += '<g fill="var(--t3)" font-family="var(--font)" font-size="9" letter-spacing="1.4">'
+     + '<text x="14" y="20">' + esc(S.cap1) + '</text>'
+     + '<text x="14" y="32">' + esc(S.cap2) + ' · ' + esc(S.cap3) + '</text></g>';
+  ovEl.innerHTML = s;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   7 · EXPORT
+   ══════════════════════════════════════════════════════════════════ */
+function download(name, blob){
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 4000);
+}
+function exportPNG(){
+  draw();
+  cvs.toBlob(b => { if(b){ download('malleable-rb1.png', b); say('PNG saved'); } }, 'image/png');
+}
+/* Marching squares, with the crossing named by the grid edge it sits
+   on. Matching vertices by rounded coordinates lets one point reached
+   from two neighbouring cells read as two names, and every contour
+   comes apart into open scraps. */
+function isoLoops(sample, x0, x1, y0, y1, res){
+  const nx = Math.max(8, res);
+  const ny = Math.max(8, Math.round(res*(y1-y0)/Math.max(x1-x0, 1e-6)));
+  const dx = (x1-x0)/nx, dy = (y1-y0)/ny, W = nx+1;
+  const g = new Float32Array(W*(ny+1));
+  for(let j=0;j<=ny;j++){ const row=j*W, py=y0+j*dy;
+    for(let i=0;i<=nx;i++) g[row+i] = sample(x0+i*dx, py); }
+  const HID = (i,j) => 2*(j*W+i), VID = (i,j) => 2*(j*W+i)+1;
+  const pos = new Map();
+  const ip = (a,b) => a/(a-b);
+  const segs = [];
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    const o=j*W+i, v0=g[o], v1=g[o+1], v2=g[o+W+1], v3=g[o+W];
+    let c = 0;
+    if(v0<0) c|=8; if(v1<0) c|=4; if(v2<0) c|=2; if(v3<0) c|=1;
+    if(c === 0 || c === 15) continue;
+    const E0 = () => { const id=HID(i,j); if(!pos.has(id)) pos.set(id,[x0+(i+ip(v0,v1))*dx, y0+j*dy]); return id; };
+    const E1 = () => { const id=VID(i+1,j); if(!pos.has(id)) pos.set(id,[x0+(i+1)*dx, y0+(j+ip(v1,v2))*dy]); return id; };
+    const E2 = () => { const id=HID(i,j+1); if(!pos.has(id)) pos.set(id,[x0+(i+ip(v3,v2))*dx, y0+(j+1)*dy]); return id; };
+    const E3 = () => { const id=VID(i,j); if(!pos.has(id)) pos.set(id,[x0+i*dx, y0+(j+ip(v0,v3))*dy]); return id; };
+    const push = (a,b) => segs.push([a,b]);
+    switch(c){
+      case 1: push(E3(),E2()); break;   case 2: push(E2(),E1()); break;
+      case 3: push(E3(),E1()); break;   case 4: push(E0(),E1()); break;
+      case 6: push(E0(),E2()); break;   case 7: push(E3(),E0()); break;
+      case 8: push(E0(),E3()); break;   case 9: push(E0(),E2()); break;
+      case 11: push(E0(),E1()); break;  case 12: push(E3(),E1()); break;
+      case 13: push(E1(),E2()); break;  case 14: push(E3(),E2()); break;
+      case 5: { const m=(v0+v1+v2+v3)/4;
+        if(m<0){ push(E0(),E3()); push(E2(),E1()); } else { push(E0(),E1()); push(E3(),E2()); } break; }
+      case 10: { const m=(v0+v1+v2+v3)/4;
+        if(m<0){ push(E0(),E1()); push(E3(),E2()); } else { push(E0(),E3()); push(E2(),E1()); } break; }
+    }
+  }
+  const map = new Map();
+  segs.forEach((sg,i) => { for(const e of [0,1]){
+    const k = sg[e]; if(!map.has(k)) map.set(k,[]); map.get(k).push({i,e}); }});
+  const used = new Uint8Array(segs.length), loops = [];
+  for(let i=0;i<segs.length;i++){
+    if(used[i]) continue;
+    used[i] = 1;
+    const ids = [segs[i][0], segs[i][1]];
+    for(const grow of [1,0]){
+      while(true){
+        const tip = grow ? ids[ids.length-1] : ids[0];
+        const cands = map.get(tip) || [];
+        let nxt = null;
+        for(const c of cands) if(!used[c.i]){ nxt = c; break; }
+        if(!nxt) break;
+        used[nxt.i] = 1;
+        const other = segs[nxt.i][1-nxt.e];
+        if(grow) ids.push(other); else ids.unshift(other);
+      }
+    }
+    if(ids.length < 4) continue;
+    const line = ids.map(id => pos.get(id));
+    if(ids[0] !== ids[ids.length-1]) line.push(line[0].slice());
+    loops.push(line);
+  }
+  return loops;
+}
+function simplifyLoop(line, tol){
+  if(line.length < 4) return line;
+  const keep = new Uint8Array(line.length);
+  keep[0] = keep[line.length-1] = 1;
+  const st = [[0, line.length-1]];
+  while(st.length){
+    const [a,b] = st.pop();
+    if(b <= a+1) continue;
+    const ax=line[a][0], ay=line[a][1], vx=line[b][0]-ax, vy=line[b][1]-ay, L2=vx*vx+vy*vy;
+    let far=-1, fd=tol;
+    for(let i=a+1;i<b;i++){
+      const px=line[i][0]-ax, py=line[i][1]-ay;
+      const t = L2 > 1e-18 ? Math.max(0, Math.min(1, (px*vx+py*vy)/L2)) : 0;
+      const d = Math.hypot(px-vx*t, py-vy*t);
+      if(d > fd){ fd = d; far = i; }
+    }
+    if(far < 0) continue;
+    keep[far] = 1; st.push([a,far],[far,b]);
+  }
+  const out = [];
+  for(let i=0;i<line.length;i++) if(keep[i]) out.push(line[i]);
+  return out;
+}
+/* Marching squares puts a point on a grid edge, which on a cell of
+   eight tenths of a millimetre cuts a tenth off the inside of a cap.
+   Two Newton steps down the gradient put every point back on the true
+   contour, and cost nothing once the loop has been thinned. */
+function refineLoop(loop, f, iso){
+  const h = 0.004;
+  return loop.map(p => {
+    let x=p[0], y=p[1];
+    for(let k=0;k<3;k++){
+      const d = f(x,y) + iso;
+      if(Math.abs(d) < 2e-5) break;
+      const gx = (f(x+h,y)-f(x-h,y))/(2*h), gy = (f(x,y+h)-f(x,y-h))/(2*h);
+      const g2 = gx*gx + gy*gy;
+      if(g2 < 1e-9) break;
+      x -= d*gx/g2; y -= d*gy/g2;
+    }
+    return [x,y];
+  });
+}
+const loopLen = l => { let t=0; for(let i=1;i<l.length;i++) t += Math.hypot(l[i][0]-l[i-1][0], l[i][1]-l[i-1][1]); return t; };
+function orient(loop){
+  let a = 0;
+  for(let i=0;i<loop.length-1;i++) a += loop[i][0]*loop[i+1][1] - loop[i+1][0]*loop[i][1];
+  return a < 0 ? loop.slice().reverse() : loop;
+}
+/* Restart a loop at the point ON it nearest pt, cut into the edge where
+   it falls. Snapping to a vertex it already had leaves a chord the
+   length of one simplified segment at the start of every lap, and that
+   chord stacks up the wall as a seam. */
+function startAt(loop, pt){
+  const l = orient(loop);
+  if(!pt) return l;
+  const closed = Math.hypot(l[0][0]-l[l.length-1][0], l[0][1]-l[l.length-1][1]) < 1e-9;
+  const body = closed ? l.slice(0,-1) : l.slice();
+  const n = body.length;
+  if(n < 3) return l;
+  let bi=0, bd=1e9, bp=null;
+  for(let i=0;i<n;i++){
+    const a=body[i], b=body[(i+1)%n];
+    const vx=b[0]-a[0], vy=b[1]-a[1], L2=vx*vx+vy*vy;
+    const t = L2 > 1e-18 ? Math.max(0, Math.min(1, ((pt[0]-a[0])*vx + (pt[1]-a[1])*vy)/L2)) : 0;
+    const px=a[0]+vx*t, py=a[1]+vy*t;
+    const d = Math.hypot(px-pt[0], py-pt[1]);
+    if(d < bd){ bd=d; bi=i; bp=[px,py]; }
+  }
+  const out = [bp.slice()];
+  for(let k=1;k<=n;k++) out.push(body[(bi+k)%n].slice());
+  out.push(bp.slice());
+  return out;
+}
+
+/* ── the toolpath ──────────────────────────────────────────────────
+   The stroke is 5.5 mm across because it is two 3 mm beads overlapped
+   by half a millimetre. Step half a bead in from the edge you drew and
+   the two pass centres fall at +-1.25 mm - and they are not two paths
+   at all, they are one closed loop that runs out along one side, round
+   the cap and back along the other. Which is a vase.                */
+const lineArea = (w) => w*S.layer - S.layer*S.layer*(1 - Math.PI/4);
+/* Both passes are pressed against each other, so what the pair lays is
+   the finished 5.5 mm stroke, halved - not two free beads. */
+const passArea = () => lineArea(strokeMM())/2;
+const printFeed = () => Math.max(60, Math.round(60*S.flow/passArea()));
+
+function ribbonToolpath(o){
+  if(o.segs.length < 2) return null;
+  const f = ribField(o), inset = insetU(), box = o.box;
+  const res = Math.max(96, Math.min(1600, Math.round((box[2]-box[0])/0.08)));
+  let loops = isoLoops((x,y) => f(x,y) + inset, box[0], box[2], box[1], box[3], res)
+                .filter(l => l.length > 6);
+  if(!loops.length) return null;
+  loops.sort((a,b) => loopLen(b) - loopLen(a));
+  const extra = loops.length - 1;
+  let loop = refineLoop(simplifyLoop(loops[0], 0.005), f, inset);
+  loop = startAt(loop, [o.pts[0].x, o.pts[0].y]);
+  const layerU = S.layer*MM;
+  const laps = Math.max(2, Math.round(o.depth/S.layer));
+  const L = loopLen(loop) || 1;
+  const path = [];
+  for(const p of loop) path.push({ x:p[0], y:p[1], z:layerU });     // one flat lap down
+  for(let k=1;k<laps;k++){
+    const z0 = k*layerU;
+    let acc = 0;
+    for(let i=1;i<loop.length;i++){
+      acc += Math.hypot(loop[i][0]-loop[i-1][0], loop[i][1]-loop[i-1][1]);
+      path.push({ x:loop[i][0], y:loop[i][1], z:z0 + layerU*(acc/L) });
+    }
+  }
+  return { path, loop, top:laps*layerU, laps, extra, len:L };
+}
+const GC = { bedTemp:80, nozzleTemp:220, travelF:30000, retractF:1800, retract:1.70, ams:1 };
+
+function ribbonGcode(o, idx){
+  const tp = ribbonToolpath(o);
+  if(!tp) return null;
+  const mm = u => u/MM;
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  for(const p of tp.loop){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); }
+  const cx=(x0+x1)/2, cy=(y0+y1)/2, B=BUILD/2;
+  const half = S.bead/2;
+  const PX = p => B + mm(p.x - cx), PY = p => B + mm(p.y - cy);
+  const area = passArea(), F = printFeed();
+  const w = mm(x1-x0)+S.bead, d = mm(y1-y0)+S.bead, h = mm(tp.top);
+  const L = [];
+  L.push('; Malleable RB1 - ribbon shelf ' + (idx+1) + ' of ' + S.ribs.length);
+  L.push('; Mode: SPIRAL VASE | Nozzle mod: ' + S.bead.toFixed(1) + 'mm bead | Bambu Lab X1 Carbon');
+  L.push('; The drawn stroke is ' + strokeMM().toFixed(1) + 'mm across: two ' + S.bead.toFixed(1)
+       + 'mm beads overlapped by ' + S.lap.toFixed(1) + 'mm.');
+  L.push('; One closed loop a lap carries both of them - out along one side at +'
+       + (passOff()/MM).toFixed(2) + 'mm, round the cap, back at -' + (passOff()/MM).toFixed(2) + 'mm.');
+  L.push('; bead ' + S.bead.toFixed(1) + ' x ' + S.layer.toFixed(2) + 'mm, pair lays '
+       + lineArea(strokeMM()).toFixed(3) + 'mm^2 so each pass is ' + area.toFixed(3)
+       + 'mm^2, flow capped at ' + S.flow + 'mm^3/s -> F' + F);
+  L.push('; ' + tp.laps + ' laps, lap length ' + mm(tp.len).toFixed(0) + 'mm, footprint '
+       + w.toFixed(1) + ' x ' + d.toFixed(1) + 'mm, shelf projects ' + h.toFixed(1) + 'mm off the wall');
+  if(tp.extra) L.push('; WARNING: the path encloses ' + tp.extra + ' further loop'
+       + (tp.extra>1?'s':'') + ' - only the longest is printed. Open the scroll or raise the blend.');
+  if(w > BUILD || d > BUILD || h > BUILD) L.push('; WARNING: this shelf does not fit the ' + BUILD + 'mm cube');
+  L.push('G90 ; absolute positioning');
+  L.push('G21 ; mm units');
+  L.push('M83 ; relative extrusion');
+  L.push('M201 X20000 Y20000 Z500 E5000');
+  L.push('M203 X500 Y500 Z20 E30');
+  L.push('M204 P20000 R5000 T20000');
+  L.push('M205 X9.00 Y9.00 Z3.00 E2.50');
+  L.push('M106 S0 ; fan off for the first layer');
+  L.push('M140 S' + GC.bedTemp + ' ; set bed temp');
+  L.push('M104 S' + GC.nozzleTemp + ' ; set nozzle temp');
+  L.push('M190 S' + GC.bedTemp + ' ; wait for bed');
+  L.push('G28 ; home all axes');
+  L.push('M975 S1 ; turn on vibration suppression');
+  const AM = Math.round(GC.ams);
+  if(AM > 0){
+    L.push('G1 X60 F12000 ; approach AMS purge bay');
+    L.push('G1 Y245');
+    L.push('G1 Y265 F3000');
+    L.push('M620 M');
+    L.push('M620 S' + AM + 'A ; claim AMS slot ' + AM);
+    L.push('M109 S' + GC.nozzleTemp);
+    L.push('G1 X120 F12000');
+    L.push('G1 X20 Y50 F12000');
+    L.push('G1 Y-3');
+    L.push('T' + AM + ' ; tool-select, which triggers the physical feed');
+    L.push('G1 X54 F12000');
+    L.push('G1 Y265');
+    L.push('M400');
+    L.push('M621 S' + AM + 'A ; release AMS claim');
+  }
+  L.push('; bed leveling skipped for this print (no G29 emitted)');
+  L.push('M109 S' + GC.nozzleTemp + ' ; wait for nozzle temp');
+  L.push('G92 E0');
+  L.push('M975 S1 ; re-asserted before printing');
+  L.push('G1 E-' + GC.retract.toFixed(2) + ' F' + GC.retractF + ' ; retract before prime move');
+  L.push('G1 X18.000 Y1.000 Z' + (S.layer*0.6).toFixed(3) + ' F' + GC.travelF + ' ; prime line start');
+  L.push('G1 E' + GC.retract.toFixed(2) + ' F' + GC.retractF + ' ; un-retract');
+  L.push('G1 Z' + (S.layer*0.5).toFixed(3) + ' F' + GC.travelF);
+  L.push('G1 X239.000 E' + (lineArea(S.bead)*221).toFixed(4) + ' F' + F + ' ; prime line leg 1');
+  L.push('G1 Y12.000 E' + (lineArea(S.bead)*11).toFixed(4) + ' F' + Math.round(F/4) + ' ; prime line leg 2 (wipe)');
+  L.push('G92 E0');
+  L.push('M204 S500 ; first-layer acceleration');
+  const first = tp.path[0];
+  L.push('G1 X' + PX(first).toFixed(3) + ' Y' + PY(first).toFixed(3) + ' Z' + (S.layer*3).toFixed(3) + ' F' + GC.travelF + ' ; to the start of the loop');
+  L.push('G1 Z' + mm(first.z).toFixed(3) + ' F' + GC.travelF);
+  let fanOn = false, prev = first, total = 0, lastPct = -1;
+  const n = tp.path.length;
+  for(let i=1;i<n;i++){
+    const p = tp.path[i];
+    const ddx = mm(p.x-prev.x), ddy = mm(p.y-prev.y), ddz = mm(p.z-prev.z);
+    const seg = Math.hypot(ddx, ddy, ddz);
+    if(seg < 1e-4){ prev = p; continue; }
+    total += seg;
+    if(!fanOn && p.z > S.layer*1.5*MM){ L.push('M106 S255 ; part cooling fan'); fanOn = true; }
+    L.push('G1 X' + PX(p).toFixed(3) + ' Y' + PY(p).toFixed(3) + ' Z' + mm(p.z).toFixed(3)
+         + ' E' + (area*seg).toFixed(4) + ' F' + F);
+    const pct = Math.floor(i/n*100);
+    if(pct !== lastPct && pct%5 === 0){ L.push('M73 P' + pct); lastPct = pct; }
+    prev = p;
+  }
+  L.push('; travels: 0');
+  L.push('M73 P100 R0');
+  L.push('M106 S0 ; fan off');
+  L.push('G1 E-' + GC.retract.toFixed(2) + ' F' + GC.retractF + ' ; final retract');
+  const zTop = mm(tp.top);
+  L.push('G1 Z' + (zTop+10).toFixed(3) + ' F' + GC.travelF + ' ; park -- raise 10.0mm straight up in place (no XY move)');
+  L.push('M104 S0 ; nozzle off');
+  L.push('M140 S0 ; bed off');
+  L.push('M106 S0 ; fan off');
+  L.push('M17 S');
+  L.push('M17 Z0.4 ; lower Z motor current before the final clearing move');
+  const zClear = Math.min(zTop + 100, BUILD - 5);
+  L.push('G1 Z' + zClear.toFixed(3) + ' F600 ; clear bed toward base of chamber');
+  L.push('G1 Z' + (zClear-2).toFixed(3) + ' ; back off 2mm to relieve binding');
+  L.push('M400 P100');
+  L.push('M17 R ; restore normal Z motor current');
+  L.push('M84 ; disable motors');
+  L.push('; path length ' + total.toFixed(0) + 'mm, ' + (total*area/1000).toFixed(1) + 'cm^3');
+  return L.join('\n') + '\n';
+}
+function exportGcode(){
+  if(!S.ribs.length){ say('Nothing to slice'); return; }
+  say('Slicing ' + S.ribs.length + ' shelf' + (S.ribs.length>1?'s':'') + '...');
+  setTimeout(() => {
+    let made = 0;
+    S.ribs.forEach((o, i) => {
+      setTimeout(() => {
+        const g = ribbonGcode(o, i);
+        if(g){ made++; download('malleable-rb1-shelf' + (i+1) + '.gcode', new Blob([g], {type:'text/plain'})); }
+        if(i === S.ribs.length-1) say(made ? made + ' gcode file' + (made>1?'s':'') + ' saved' : 'Nothing to slice');
+      }, i*350);
+    });
+  }, 16);
+}
+/* The elevation as drawn, at full size: the outline of every stroke,
+   which is the thing you would trace on the wall. */
+function exportSVG(){
+  if(!S.ribs.length){ say('Nothing to draw'); return; }
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9, body='';
+  for(const o of S.ribs){
+    const f = ribField(o), b = o.box;
+    const res = Math.max(96, Math.min(1200, Math.round((b[2]-b[0])/0.1)));
+    for(const l of isoLoops(f, b[0], b[2], b[1], b[3], res)){
+      if(l.length < 6) continue;
+      const s = simplifyLoop(l, 0.008);
+      body += '<path d="M' + s.map(p => (p[0]/MM).toFixed(2) + ' ' + (-p[1]/MM).toFixed(2)).join('L') + 'Z"/>';
+      for(const p of s){ x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); y0=Math.min(y0,-p[1]); y1=Math.max(y1,-p[1]); }
+    }
+  }
+  if(!body){ say('Nothing to draw'); return; }
+  const m = 1;
+  const X=(x0/MM)-m*10, Y=(y0)/MM-m*10, W=(x1-x0)/MM+m*20, H=(y1-y0)/MM+m*20;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W.toFixed(1) + 'mm" height="' + H.toFixed(1)
+    + 'mm" viewBox="' + X.toFixed(1) + ' ' + Y.toFixed(1) + ' ' + W.toFixed(1) + ' ' + H.toFixed(1) + '">'
+    + '<g fill="none" stroke="#000" stroke-width="0.4" fill-rule="evenodd">' + body + '</g></svg>';
+  download('malleable-rb1-elevation.svg', new Blob([svg], {type:'image/svg+xml'}));
+  say('Elevation SVG saved at full size');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   8 · TOOL RAIL
+   ══════════════════════════════════════════════════════════════════ */
+const sw = 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"';
+const I = {
+  select:'<path d="M4 2l10.5 7.6-4.6.8 2.4 4.6-1.9.9-2.4-4.6L4 15z" fill="currentColor"/>',
+  pen:'<path d="M2.6 13.6C5 13.6 4.4 5.6 7.4 5.6s2.4 8 5.4 8 2-5 2.6-6.4" ' + sw + '/>',
+  line:'<path d="M2.6 14.4V8.2a2.6 2.6 0 012.6-2.6h4.2" ' + sw + '/>'
+    + '<circle cx="2.6" cy="14.4" r="1.5" ' + sw + '/><circle cx="12" cy="5.6" r="1.5" ' + sw + '/>',
+  tilt:'<path d="M2.4 6.2L9 3l6.6 3.2L9 9.4z" ' + sw + '/><path d="M2.4 6.2v5.6L9 15l6.6-3.2V6.2" ' + sw + ' opacity=".5"/>',
+  hand:'<path d="M6.2 9.4V3.9a1.2 1.2 0 112.4 0V8m0-.6V3.2a1.2 1.2 0 012.4 0V8m0-.9a1.2 1.2 0 112.4 0v4.3c0 2.5-1.8 4.4-4.4 4.4-2.2 0-3.3-.8-4.4-2.4L3.4 11c-.6-.9.5-2 1.4-1.4z" ' + sw + '/>',
+  zoom:'<circle cx="7.8" cy="7.8" r="5.2" ' + sw + '/><path d="M11.6 11.6L16 16" ' + sw + '/>'
+};
+const TOOLS = [
+  ['select','Selection','V'],
+  null,
+  ['pen','Draw a path','P'], ['line','Straight runs','L'],
+  null,
+  ['tilt','Pull off axis','R'], ['hand','Pan','H'], ['zoom','Zoom','Z']
+];
+const railEl = document.getElementById('rail');
+TOOLS.forEach(t => {
+  if(!t){ railEl.appendChild(Object.assign(document.createElement('div'), { className:'rail-sep' })); return; }
+  const [id,title,key] = t;
+  const b = document.createElement('button');
+  b.className = 'tool'; b.type = 'button'; b.title = title + '  (' + key + ')';
+  b.dataset.tool = id; b.setAttribute('aria-label', title);
+  b.innerHTML = '<svg viewBox="0 0 18 18" aria-hidden="true">' + I[id] + '</svg>';
+  b.onclick = () => setTool(id);
+  railEl.appendChild(b);
+});
+const CURSOR = { select:'default', pen:'crosshair', line:'crosshair', tilt:'move', hand:'grab', zoom:'zoom-in' };
+const HINTS = {
+  select:'Drag a shelf to move it - drag empty space to pull the elevation off axis',
+  pen:'Draw the path - the stroke is the real width of the wall',
+  line:'Click each turn - double-click or Enter finishes - Esc cancels',
+  tilt:'Drag to look at the path off axis - it glides back when you let go',
+  hand:'Drag to pan',
+  zoom:'Click to zoom in - alt-click to zoom out'
+};
+function setTool(id){
+  if(poly && id !== 'line') polyFinish();
+  S.tool = id;
+  railEl.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
+  viewEl.style.cursor = CURSOR[id] || 'crosshair';
+  document.getElementById('hint').textContent = HINTS[id] || '';
+  buildOpts();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   9 · OPTIONS BAR + INSPECTOR
+   ══════════════════════════════════════════════════════════════════ */
+const optsEl = document.getElementById('opts');
+const panel = document.getElementById('panel');
+const el = (tag,cls,html) => { const e = document.createElement(tag); if(cls) e.className = cls; if(html != null) e.innerHTML = html; return e; };
+const oGroup = () => { const g = el('div','ogrp'); optsEl.appendChild(g); return g; };
+function oRange(grp, label, min, max, st, get, set, fmt){
+  grp.appendChild(el('label',null,label));
+  const r = document.createElement('input');
+  r.type='range'; r.min=min; r.max=max; r.step=st; r.value=get();
+  r.setAttribute('aria-label', label);
+  const out = el('output',null,String((fmt||(v=>v))(get())));
+  r.oninput = () => { set(parseFloat(r.value)); out.textContent = String((fmt||(v=>v))(parseFloat(r.value))); };
+  r.onchange = () => snap();
+  grp.append(r,out);
+}
+function oCheck(grp, label, get, set){
+  const l = el('label','chk');
+  const i = document.createElement('input');
+  i.type='checkbox'; i.checked=get();
+  i.onchange = () => { set(i.checked); };
+  l.append(i, document.createTextNode(label));
+  grp.appendChild(l);
+}
+function buildOpts(){
+  optsEl.innerHTML = '';
+  const t = TOOLS.find(x => x && x[0] === S.tool);
+  optsEl.appendChild(el('div','tname', t ? t[1] : S.tool));
+  if(S.tool === 'pen' || S.tool === 'line'){
+    const g = oGroup();
+    oRange(g,'Depth',20,BUILD,5, ()=>S.depth, v=>{S.depth=v;}, v=>v+'mm');
+    oRange(g,'Corner',0,45,1, ()=>S.corner, v=>{S.corner=v; rebuildAll(); markAll();}, v=>v+'mm');
+    oCheck(g,'Snap 90°', ()=>S.ortho, v=>{S.ortho=v; rebuildAll(); markAll(); buildPanel();});
+  }
+  const g2 = oGroup();
+  oRange(g2,'Blend',0,16,0.5, ()=>S.blend, v=>{S.blend=v; markAll();}, v=>v.toFixed(1)+'mm');
+  const g3 = oGroup();
+  oRange(g3,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
+  oRange(g3,'Layer',0.4,3,0.05, ()=>S.layer, v=>{S.layer=v;}, v=>v.toFixed(2)+'mm');
+  g3.appendChild(el('label',null,'Stroke'));
+  g3.appendChild(el('output',null,strokeMM().toFixed(1)+'mm'));
+}
+function slider(parent, label, min, max, st, get, set, fmt){
+  const row = el('div','row');
+  row.appendChild(el('label',null,label));
+  const r = document.createElement('input');
+  r.type='range'; r.min=min; r.max=max; r.step=st; r.value=get();
+  r.setAttribute('aria-label', label);
+  const out = el('output',null,String((fmt||(v=>v))(get())));
+  r.oninput = () => { set(parseFloat(r.value)); out.textContent = String((fmt||(v=>v))(parseFloat(r.value))); };
+  r.onchange = () => { snap(); buildPanel(); };
+  row.append(r,out); parent.appendChild(row);
+}
+function check(parent, label, get, set){
+  const l = el('label','chk');
+  const i = document.createElement('input');
+  i.type='checkbox'; i.checked=get();
+  i.onchange = () => { set(i.checked); sync(); };
+  l.append(i, document.createTextNode(label));
+  parent.appendChild(l);
+}
+function button(parent, label, fn){
+  const b = document.createElement('button');
+  b.type='button'; b.className='btn'; b.textContent=label; b.onclick=fn;
+  parent.appendChild(b);
+}
+function sect(title){
+  const s = el('div','sect');
+  if(title) s.appendChild(el('h2',null,title));
+  panel.appendChild(s);
+  return s;
+}
+function setInvert(v){
+  S.invert = v;
+  document.documentElement.setAttribute('data-theme', v ? 'dark' : 'light');
+}
+function buildPanel(){
+  panel.innerHTML = '';
+  const sel = selRibs();
+
+  const a = sect('Shelf');
+  if(!sel.length) a.appendChild(el('div','hint','Nothing selected. Draw a path, or click a shelf to pick it up.'));
+  else {
+    slider(a,'Depth',20,BUILD,5, ()=>sel[0].depth, v=>sel.forEach(o=>o.depth=v), v=>v+'mm');
+    const sz = ribSize(sel[0]);
+    a.appendChild(el('div','hint', sel.length > 1 ? sel.length + ' shelves selected'
+      : Math.round(sz.w) + ' × ' + Math.round(sz.h) + 'mm on the wall, ' + Math.round(sz.d)
+        + 'mm deep · ' + Math.max(2, Math.round(sz.d/S.layer)) + ' laps · '
+        + (sel[0].len/MM).toFixed(0) + 'mm of path'));
+    const g = el('div','grid2'); a.appendChild(g);
+    button(g,'Duplicate', duplicateSel);
+    button(g,'Delete', deleteSel);
+  }
+
+  const b = sect('Path');
+  slider(b,'Blend',0,16,0.5, ()=>S.blend, v=>{S.blend=v; markAll();}, v=>v.toFixed(1)+'mm');
+  slider(b,'Corner',0,45,1, ()=>S.corner, v=>{S.corner=v; rebuildAll(); markAll();}, v=>v+'mm');
+  check(b,'Snap near-orthogonal runs', ()=>S.ortho, v=>{S.ortho=v; rebuildAll(); markAll();});
+  if(S.ortho){
+    slider(b,'Angle',3,25,1, ()=>S.orthoTol, v=>{S.orthoTol=v; rebuildAll(); markAll();}, v=>v+'°');
+    slider(b,'Min run',8,60,1, ()=>S.runMin, v=>{S.runMin=v; rebuildAll(); markAll();}, v=>v+'mm');
+  }
+  b.appendChild(el('div','hint','A blend joins a curve to itself where it loops back, so a scroll grows a fillet instead of crossing. Corners are always rounded, snapped or not.'));
+
+  const c = sect('Wall');
+  slider(c,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
+  slider(c,'Layer',0.4,3,0.05, ()=>S.layer, v=>{S.layer=v;}, v=>v.toFixed(2)+'mm');
+  slider(c,'Overlap',0,2,0.05, ()=>S.lap, v=>{S.lap=v; markAll();}, v=>v.toFixed(2)+'mm');
+  c.appendChild(el('div','hint','Stroke ' + strokeMM().toFixed(1) + 'mm · two passes at ±'
+    + (passOff()/MM).toFixed(2) + 'mm · ' + passArea().toFixed(2) + 'mm² each · F' + printFeed()));
+
+  const d = sect('View');
+  slider(d,'Shade',0,8,1, ()=>S.shade, v=>{S.shade=v;});
+  slider(d,'Tone',0,1,0.02, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
+  slider(d,'Ambient',0,0.6,0.02, ()=>S.ambient, v=>{S.ambient=v;}, v=>v.toFixed(2));
+  slider(d,'Seam',0,1,0.05, ()=>S.seam, v=>{S.seam=v;}, v=>v.toFixed(2));
+  slider(d,'Relief',0,1.6,0.05, ()=>S.relief, v=>{S.relief=v;}, v=>v.toFixed(2));
+  slider(d,'Roll',0,2.4,0.05, ()=>S.roll, v=>{S.roll=v;}, v=>v.toFixed(2)+'mm');
+  slider(d,'Crown',0,0.6,0.02, ()=>S.crown, v=>{S.crown=v;}, v=>v.toFixed(2)+'mm');
+  check(d,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
+  check(d,'Build volume', ()=>S.plate, v=>{S.plate=v;});
+  check(d,'Dark', ()=>S.invert, setInvert);
+
+  const e = sect('Export');
+  const g2 = el('div','grid2'); e.appendChild(g2);
+  button(g2,'GCODE', exportGcode);
+  button(g2,'SVG', exportSVG);
+  const g3 = el('div','grid2'); e.appendChild(g3);
+  button(g3,'PNG', exportPNG);
+  button(g3,'Fit', () => { fitView(); say('Fit'); });
+  e.appendChild(el('div','hint','One file a shelf. The drawing is the toolpath: it lies on the bed and the depth off the wall is the print height, climbing in one unbroken spiral.'));
+
+  const f = sect('Start');
+  const g4 = el('div','grid2'); f.appendChild(g4);
+  button(g4,'Three', () => { snap(); preset('three'); });
+  button(g4,'Clear', clearAll);
+
+  const g = sect('Caption');
+  [['cap1',S.cap1],['cap2',S.cap2],['cap3',S.cap3]].forEach(([k,v]) => {
+    const i = document.createElement('input');
+    i.className='txt'; i.value=v; i.oninput = () => { S[k] = i.value; };
+    g.appendChild(i);
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   10 · PRESETS
+   ══════════════════════════════════════════════════════════════════ */
+/* Walked by turning rather than plotted: curvature is gentle through
+   the middle and tightens at both ends, which is a long arc that rolls
+   itself up into a scroll at each tip. */
+function scrollPath(len, kMid, kEnd, pow){
+  const ds = 0.07, n = Math.round(len/ds);
+  const pts = []; let x=0, y=0, a=0;
+  for(let i=0;i<=n;i++){
+    pts.push({x,y});
+    const t = i/n, u = Math.abs(2*t-1);
+    const k = kMid + (kEnd-kMid)*Math.pow(u, pow);
+    a += k*ds; x += Math.cos(a)*ds; y += Math.sin(a)*ds;
+  }
+  return pts;
+}
+function recentre(pts, cx, cy){
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const p of pts){ x0=Math.min(x0,p.x); x1=Math.max(x1,p.x); y0=Math.min(y0,p.y); y1=Math.max(y1,p.y); }
+  const dx = cx-(x0+x1)/2, dy = cy-(y0+y1)/2;
+  return pts.map(p => ({x:p.x+dx, y:p.y+dy}));
+}
+function preset(name){
+  S.ribs = []; S.sel.clear();
+  if(name === 'three'){
+    /* A wave, a bracket and a scroll - the three things this makes.
+       Each is drawn inside the printer's cube, so each is one part. */
+    const wave = [];
+    for(let i=0;i<=140;i++){
+      const t = i/140;
+      wave.push({ x:-11.5+23*t, y: 3.7*Math.sin(t*Math.PI*5) });
+    }
+    const w = mkRib(recentre(wave, 0, 9.5), 'pen'); w.depth = 110;
+
+    const brk = mkRib(recentre([
+      {x:-9,y:-7.5},{x:-9,y:4.5},{x:0.5,y:4.5},{x:0.5,y:-2.5},{x:9,y:-2.5},{x:9,y:6}
+    ], -10, -5.5), 'line'); brk.depth = 150;
+
+    const sc = mkRib(recentre(scrollPath(40, 0.13, 0.62, 3), 10.5, -5.5), 'pen'); sc.depth = 90;
+    S.ribs = [w, brk, sc].filter(o => o.segs.length > 2);
+  }
+  markAll(); sync();
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   11 · SYNC + FRAME
+   ══════════════════════════════════════════════════════════════════ */
+function fitView(){
+  if(!S.ribs.length){ S.tx=0; S.ty=0; S.tz=5; S.scale=52; return; }
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9,dm=0;
+  for(const o of S.ribs){
+    x0=Math.min(x0,o.inner[0]); x1=Math.max(x1,o.inner[2]);
+    y0=Math.min(y0,o.inner[1]); y1=Math.max(y1,o.inner[3]);
+    dm = Math.max(dm, o.depth*MM);
+  }
+  S.tx=(x0+x1)/2; S.ty=(y0+y1)/2; S.tz=dm/2;
+  S.scale = Math.max(10, Math.min(260, Math.max(x1-x0, (y1-y0)*1.25) + 6));
+}
+function sync(){
+  document.getElementById('st-n').textContent = S.ribs.length;
+  let over = 0;
+  for(const o of S.ribs){ const s = ribSize(o); if(s.w>BUILD || s.h>BUILD || s.d>BUILD) over++; }
+  document.getElementById('st-fit').textContent = over ? over + ' OVER ' + BUILD + 'mm' : '';
+  buildPanel();
+}
+let prev = performance.now(), fAcc = 0, fN = 0;
+const ease = (c,t,dt,tau) => c + (t-c)*(1 - Math.exp(-dt/tau));
+function frame(t){
+  const dt = Math.min(0.05, (t-prev)/1000) || 0.016;
+  prev = t;
+  fAcc += dt; fN++;
+  if(fAcc > 0.5){
+    document.getElementById('perf').textContent = Math.round(fN/fAcc) + ' fps / ' + S.ribs.length + ' shelves';
+    fAcc = 0; fN = 0;
+  }
+  resize();
+  /* Off axis the view follows the hand; let go and it takes its time
+     coming back to the elevation, which is where the drawing lives. */
+  const tau = (drag && drag.kind === 'tilt') ? 0.05 : 0.20;
+  A.az = ease(A.az, S.az, dt, tau);
+  A.el = ease(A.el, S.el, dt, tau);
+  A.scale = ease(A.scale, S.scale, dt, 0.07);
+  A.tx = ease(A.tx, S.tx, dt, 0.07);
+  A.ty = ease(A.ty, S.ty, dt, 0.07);
+  A.tz = ease(A.tz, S.tz, dt, 0.07);
+  A.pitch = ease(A.pitch, S.layer*MM, dt, 0.09);
+  const off = Math.hypot(A.az, A.el) > 0.012;
+  document.getElementById('st-view').textContent = off ? 'OFF AXIS' : 'ELEVATION';
+  draw();
+  overlay();
+  rulers();
+  requestAnimationFrame(frame);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   12 · KEYBOARD
+   ══════════════════════════════════════════════════════════════════ */
+const KEYMAP = { v:'select', p:'pen', l:'line', r:'tilt', h:'hand', z:'zoom' };
+addEventListener('keydown', e => {
+  const tag = (e.target.tagName||'').toLowerCase();
+  if(tag === 'input' || tag === 'textarea') return;
+  if(e.code === 'Space'){ spaceDown = true; viewEl.style.cursor = 'grab'; e.preventDefault(); return; }
+  if(e.metaKey || e.ctrlKey){
+    const k = e.key.toLowerCase();
+    if(k === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    else if(k === 'd'){ e.preventDefault(); duplicateSel(); }
+    else if(k === 'a'){ e.preventDefault(); S.sel = new Set(S.ribs.map(o=>o.id)); sync(); }
+    return;
+  }
+  if(e.key === 'Enter'){ if(poly){ e.preventDefault(); polyFinish(); } return; }
+  if(e.key === 'Escape'){ if(poly){ poly = null; sync(); } else { S.sel.clear(); sync(); } return; }
+  if(e.key === 'Delete' || e.key === 'Backspace'){
+    e.preventDefault();
+    if(poly && poly.pts.length > 1){ poly.pts.pop(); return; }
+    deleteSel(); return;
+  }
+  const k = e.key.toLowerCase();
+  if(KEYMAP[k]){ setTool(KEYMAP[k]); return; }
+  if(k === 'f'){ fitView(); say('Fit'); return; }
+});
+addEventListener('keyup', e => {
+  if(e.code === 'Space'){ spaceDown = false; viewEl.style.cursor = CURSOR[S.tool] || 'crosshair'; }
+});
+document.getElementById('drawer').onclick = () => panel.classList.toggle('open');
+
+/* ══════════════════════════════════════════════════════════════════
+   13 · BOOT
+   ══════════════════════════════════════════════════════════════════ */
+resize();
+document.documentElement.setAttribute('data-theme','light');
+setTool('pen');
+preset('three');
+fitView();
+A.scale = S.scale; A.tx = S.tx; A.ty = S.ty; A.tz = S.tz; A.pitch = S.layer*MM;
+snap(); sync(); buildOpts();
+requestAnimationFrame(frame);
+
+})();
+</script>
+
+</body>
+</html>
