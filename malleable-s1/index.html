@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Malleable RB1 — Noah Taylor</title>
+<title>Malleable S1 — Noah Taylor</title>
 <style>
 /* Same plate-and-chrome identity as Malleable: strictly achromatic, Helvetica,
    options bar over [rail | ruled viewport | inspector], status strip beneath. */
@@ -84,8 +84,9 @@ button,input,select{font:inherit;color:inherit}
 #view{position:relative;overflow:hidden;touch-action:none;background:var(--paper);min-width:0;min-height:0}
 #gl,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
 #ov{pointer-events:none}
-#hint{position:absolute;left:12px;bottom:9px;font-size:11.5px;color:var(--t3);pointer-events:none;user-select:none}
-#perf{position:absolute;right:12px;bottom:9px;font-size:11px;color:var(--t3);pointer-events:none;
+#hint{position:absolute;right:12px;top:9px;font-size:11.5px;color:var(--t3);pointer-events:none;
+  user-select:none;text-align:right;max-width:60%}
+#perf{position:absolute;right:12px;top:27px;font-size:11px;color:var(--t3);pointer-events:none;
   font-variant-numeric:tabular-nums}
 
 #panel{grid-column:3;grid-row:2/4;background:var(--chrome);border-left:1px solid var(--rule);
@@ -210,7 +211,7 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 (() => {
 
 /* ══════════════════════════════════════════════════════════════════
-   MALLEABLE RB1 — ribbon shelves
+   MALLEABLE S1 — ribbon shelves
    ------------------------------------------------------------------
    You draw a toolpath on the wall in elevation. The stroke is the real
    width of the material: two 3 mm beads laid side by side with a
@@ -236,12 +237,13 @@ const S = {
   bead:3, layer:1.5, lap:0.5,      // mm - the mod's fat nozzle
   depth:110,                       // mm off the wall, which is the print height
   blend:7, corner:16,              // mm
-  ortho:true, orthoTol:12, runMin:22,
+  ortho:true, orthoTol:12, runMin:22, smooth:5,
+  wall:true, figs:true, wallBox:[-20,-20,20,20],
   shade:5, tone:0.66, ambient:0.18, seam:0.6, edges:false, relief:0.55,
   roll:1.1, crown:0.22,
   steps:132, plate:true, invert:false,
   flow:9.3,
-  cap1:'MALLEABLE', cap2:'ribbon.rb1', cap3:'nr.001'
+  cap1:'MALLEABLE', cap2:'ribbon.s1', cap3:'nr.001'
 };
 const A = { scale:52, az:0, el:0, tx:0, ty:0, tz:5, pitch:0.15 };
 
@@ -283,6 +285,63 @@ function relax(v, passes){
     }
   }
   return p;
+}
+/* Fairing. One Laplacian pass smooths and shrinks; a slightly larger
+   negative pass pushes back out, so the curve fairs without losing its
+   size - Taubin's trick. Every point is then pulled back inside a
+   tolerance of where the hand actually went, which is what keeps a
+   smoothed line the line that was drawn rather than a different one. */
+function fairCurve(v, maxDev, passes){
+  const n = v.length;
+  if(n < 5 || maxDev <= 1e-6) return v.map(q => ({x:q.x, y:q.y}));
+  const p = v.map(q => ({x:q.x, y:q.y})), home = v.map(q => ({x:q.x, y:q.y}));
+  const pass = (lam) => {
+    const q = p.map(r => ({x:r.x, y:r.y}));
+    for(let i=1;i<n-1;i++){
+      p[i].x += lam*((q[i-1].x + q[i+1].x)*0.5 - q[i].x);
+      p[i].y += lam*((q[i-1].y + q[i+1].y)*0.5 - q[i].y);
+    }
+    /* The two ends get smoothed too, against the line carried on from
+       just inside them. Holding them still instead leaves the tremor
+       of the first and last samples sitting on the tip of the stroke -
+       which is exactly where it shows. */
+    p[0].x += lam*((2*q[1].x - q[2].x) - q[0].x);
+    p[0].y += lam*((2*q[1].y - q[2].y) - q[0].y);
+    p[n-1].x += lam*((2*q[n-2].x - q[n-3].x) - q[n-1].x);
+    p[n-1].y += lam*((2*q[n-2].y - q[n-3].y) - q[n-1].y);
+  };
+  for(let s=0;s<passes;s++){
+    pass(0.58); pass(-0.62);
+    for(let i=0;i<n;i++){
+      const dx = p[i].x-home[i].x, dy = p[i].y-home[i].y;
+      const d = Math.hypot(dx,dy);
+      if(d > maxDev){ p[i].x = home[i].x + dx*maxDev/d; p[i].y = home[i].y + dy*maxDev/d; }
+    }
+  }
+  /* And then each tip is set down on the line its neighbours arrive on,
+     keeping the length it had. Whatever is left of the first and last
+     samples' wobble is a kink exactly at the end of the stroke, which
+     is the one place a kink is impossible to miss. */
+  const settle = (i, a, b) => {
+    const dx = p[a].x-p[b].x, dy = p[a].y-p[b].y;
+    const L = Math.hypot(dx,dy);
+    if(L < 1e-9) return;
+    const d = Math.hypot(p[i].x-p[a].x, p[i].y-p[a].y);
+    p[i].x = p[a].x + dx/L*d; p[i].y = p[a].y + dy/L*d;
+  };
+  settle(0, 1, 2); settle(n-1, n-2, n-3);
+  return p;
+}
+/* The slider is a LENGTH: how long a wobble gets ironed out. That is
+   the number of passes, not the tolerance - a tolerance alone stops
+   biting after a dozen passes and the line stays as knobbly as it was.
+   Smoothing by L shifts a curve of radius R by about L squared over 2R,
+   so the leash is a fraction of L and the drawn shape survives. */
+const fairPasses = () => Math.max(0, Math.min(360, Math.round(S.smooth*S.smooth/0.42)));
+const fairDev    = () => Math.max(0.6, S.smooth*0.35)*MM;
+function fairPen(v){
+  if(S.smooth <= 0.05 || v.length < 5) return v.map(q => ({x:q.x, y:q.y}));
+  return fairCurve(densify(relax(v, 2), 0.06), fairDev(), fairPasses());
 }
 const devFrom = (p, a, b) => {
   const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy;
@@ -472,10 +531,13 @@ function build(o){
   let straight = null;
   if(v.length >= 2){
     if(o.mode === 'pen'){
-      /* Simplify to within a fraction of a bead, not to within a bead:
-         on a 5.5mm stroke a couple of millimetres of licence is a
-         visibly different curve from the one that was drawn. */
-      const sm = relax(v, 2);
+      /* Walked out evenly, faired, and only then simplified. Doing it
+         the other way round leaves the hand's wobble sitting on the
+         knots, and a spline through wobbly knots wobbles. Simplify to
+         within a fraction of a bead, not to within a bead: on a 5.5mm
+         stroke a couple of millimetres of licence is a visibly
+         different curve from the one that was drawn. */
+      const sm = fairPen(v);
       const keep = rdpKeep(sm, 0.03);
       straight = runDev(sm, keep);
       v = keep.map(i => ({x:sm[i].x, y:sm[i].y}));
@@ -677,6 +739,15 @@ uniform vec4 uBox[8];
 uniform float uDep[8];
 uniform sampler2DArray uField;
 uniform float uPad, uRound, uPitch, uTone, uAmb, uSeam, uHalf, uOff, uHW, uRelief, uCrown;
+uniform int uHasWall;
+uniform vec4 uWallBox;
+uniform float uWallT;
+const vec3 LDIR = vec3(-0.4575, 0.5968, 0.6565);
+/* The shadow is thrown by a steeper light than the one that models the
+   parts. A key light raking at forty-five degrees gives good tone on a
+   bead but throws a shadow longer than the shelf is wide, which buries
+   the drawing. */
+const vec2 LSUN = vec2(-0.3576, 0.4916);
 uniform vec3 uInk, uPaper;
 out vec4 outColor;
 bool gSmooth;
@@ -714,10 +785,52 @@ float sdOne(vec3 p, int i){
   vec2 e = vec2(d2 + uRound, w + uRound);
   return min(max(e.x,e.y), 0.0) + length(max(e,0.0)) - uRound;
 }
-float scene(vec3 p){
+float sceneR(vec3 p){
   float d = 1e9;
   for(int i=0;i<8;i++){ if(i >= uCount) break; d = min(d, sdOne(p,i)); }
   return d;
+}
+/* The wall itself: a slab behind z = 0, which is where every shelf
+   sits. It is not blended with anything - it is what they hang on. */
+float sdWall(vec3 p){
+  vec2 c = (uWallBox.xy + uWallBox.zw)*0.5, h = (uWallBox.zw - uWallBox.xy)*0.5;
+  vec3 q = abs(vec3(p.xy - c, p.z + uWallT*0.5)) - vec3(h, uWallT*0.5);
+  return min(max(q.x, max(q.y, q.z)), 0.0) + length(max(q, 0.0));
+}
+float scene(vec3 p){
+  float d = sceneR(p);
+  if(uHasWall == 1) d = min(d, sdWall(p));
+  return d;
+}
+/* What the shelves throw onto the wall. A shelf is its drawn profile
+   carried straight off the wall, so its shadow is simply that profile
+   swept along the light's own projection - no ray to march, and so
+   none of the striping a march leaves when it skims a thin wall. The
+   penumbra opens with distance, which is what tells you how far off
+   the wall a shelf stands. */
+float wallShadow(vec2 p){
+  float reach = length(LSUN);                 // of wall crossed per unit of depth
+  vec2 dir = LSUN/reach;
+  float occ = 0.0;
+  for(int i=0;i<8;i++){
+    if(i >= uCount) break;
+    float far = uDep[i]*reach;
+    float t = 0.0;
+    /* Walked by the field's own value rather than in fixed steps: far
+       from the shelf it strides, close to it it creeps, so the swept
+       shadow comes out solid instead of as a row of ghosts. The last
+       step lands exactly on the far end for every pixel, or the end of
+       the shadow comes out as a comb. */
+    for(int k=0;k<48;k++){
+      float d = fieldAt(i, p + dir*t);
+      float w = 0.045 + 0.075*(t/reach);
+      occ = max(occ, smoothstep(w, -w, d));
+      if(occ > 0.995) return 0.0;
+      if(t >= far) break;
+      t = min(t + max(d*0.8, 0.07), far);
+    }
+  }
+  return 1.0 - occ;
 }
 float occlusion(vec3 p, vec3 n){
   gSmooth = true;
@@ -759,7 +872,15 @@ void main(){
     if(t > 700.0) break;
   }
   vec3 col = uPaper;
-  if(hit){
+  bool onWall = hit && uHasWall == 1 && sdWall(pos) <= sceneR(pos);
+  if(onWall){
+    /* The wall stays near the paper it is drawn on: it is a ground,
+       not a part. All it carries is the shadow, stepped like every
+       other tone here so it reads as drawn rather than rendered. */
+    float sh = wallShadow(pos.xy);
+    float q = clamp(floor(sh*3.0 + 0.5)/3.0, 0.0, 1.0);   // three steps, like everything else here
+    col = mix(uPaper, uInk, (1.0 - q)*0.26 + 0.045);
+  } else if(hit){
     col = uInk;
     vec3 n = normalAt(pos, max(px*1.2, uTexel*1.15));
     float face = abs(n.z);                    // 1 on the cut faces, 0 on the walls
@@ -839,7 +960,8 @@ function initGL(){
   bakeProg = link(VS, BAKE_FS);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uStepK','uTexel',
                   'uCount','uShade','uEdges','uSteps','uBox','uDep','uField','uPad','uRound',
-                  'uPitch','uTone','uAmb','uSeam','uHalf','uOff','uHW','uRelief','uCrown','uInk','uPaper'])
+                  'uPitch','uTone','uAmb','uSeam','uHalf','uOff','uHW','uRelief','uCrown','uInk','uPaper',
+                  'uHasWall','uWallBox','uWallT'])
     uni[n] = gl.getUniformLocation(prog, n);
   for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap'])
     bun[n] = gl.getUniformLocation(bakeProg, n);
@@ -957,6 +1079,9 @@ function draw(){
   gl.uniform4fv(uni.uBox, boxData);
   gl.uniform1fv(uni.uDep, depData);
   gl.uniform1f(uni.uPad, PAD);
+  gl.uniform1i(uni.uHasWall, S.wall ? 1 : 0);
+  gl.uniform4f(uni.uWallBox, S.wallBox[0], S.wallBox[1], S.wallBox[2], S.wallBox[3]);
+  gl.uniform1f(uni.uWallT, 1.5);
   gl.uniform1f(uni.uRound, Math.max(0.02, Math.min(S.roll, strokeMM()*0.42))*MM);
   gl.uniform1f(uni.uCrown, S.crown*MM);
   /* Ribbing finer than a few pixels is only moire, so the relief fades
@@ -1153,7 +1278,7 @@ addEventListener('pointermove', e => {
   if(drag.kind === 'pen'){
     if(!w) return;
     const last = drag.pts[drag.pts.length-1];
-    if(Math.hypot(w.x-last.x, w.y-last.y) > A.scale*0.004) drag.pts.push(w);
+    if(Math.hypot(w.x-last.x, w.y-last.y) > A.scale*0.0018) drag.pts.push(w);
     return;
   }
   if(drag.kind === 'move'){
@@ -1162,6 +1287,7 @@ addEventListener('pointermove', e => {
     if(!drag.moved && Math.hypot(dx,dy) < 0.05) return;
     if(!drag.moved){ snap(); drag.moved = true; }
     drag.ribs.forEach(o => translate(o, dx, dy));
+    S.wallBox = wallBox();
     drag.w = w;
     return;
   }
@@ -1212,6 +1338,53 @@ function rulers(){
   rhEl.innerHTML = h; rvEl.innerHTML = v;
 }
 const pxPerUnit = () => vh/Math.max(A.scale, 1e-4);
+/* Things you already know the size of, drawn at the same scale as the
+   drawing, along the bottom. Silhouettes only - they are there to say
+   how big a shelf is, not to be looked at. Local coordinates are
+   millimetres, origin top left of each one. */
+const FIGS = [
+  /* A beaker that tapers, with a ring for a handle. */
+  { n:'cup', w:95, h:95, d:
+      '<path d="M0 3h62l-6 80c-.6 8-6 12-25 12s-24.4-4-25-12z"/>'
+    + '<path d="M62 17c20.5 0 32.5 11.5 32.5 27S82 71 61 71l-1-11.5c14 0 23-6.5 23-15.5s-9-15.5-21.4-15.5z"/>' },
+  { n:'phone', w:72, h:147, d:'<rect x="0" y="0" width="72" height="147" rx="11"/>' },
+  /* A coupe: wide shallow bowl, slim stem, a disc for a foot. */
+  { n:'glass', w:88, h:210, d:
+      '<path d="M2 3h84c0 40-17 70-42 70S2 43 2 3z"/>'
+    + '<path d="M40 70h8v122h-8z"/>'
+    + '<path d="M6 210c0-12 17-19 38-19s38 7 38 19z"/>' },
+  /* Heavy body, narrow neck, hairline stems carrying three discs. */
+  { n:'flowers', w:140, h:300, d:
+      '<circle cx="70" cy="30" r="28"/><circle cx="22" cy="58" r="21"/><circle cx="120" cy="72" r="18"/>'
+    + '<path d="M67 192h6V58h-6z"/>'
+    + '<path d="M65 192C65 130 51 94 22 70l-5 6c27 22 42 62 42 116z"/>'
+    + '<path d="M75 192c0-56 14-92 44-112l5 6c-27 19-43 53-43 106z"/>'
+    + '<path d="M55 176H85V197C107 213 121 240 121 264 121 286 103 300 70 300 37 300 19 286 19 264 19 240 33 213 55 197Z"/>' }
+];
+function scaleFigs(){
+  if(!S.figs) return '';
+  /* They belong to the elevation: they stand on the bottom of the
+     frame, not in the scene, so they go as the view comes off axis. */
+  const fade = 1 - Math.min(1, Math.hypot(A.az, A.el)/0.45);
+  if(fade < 0.02) return '';
+  const k = pxPerUnit()*MM;                 // screen pixels per millimetre
+  const base = vh - 4;
+  let x = 16, out = '';
+  for(const f of FIGS){
+    const w = f.w*k, h = f.h*k;
+    if(w < 3) continue;
+    if(x + w*0.55 > vw - 8) break;    // mostly there is there; the row may run off
+    out += '<g transform="translate(' + x.toFixed(1) + ' ' + (base-h).toFixed(1)
+         + ') scale(' + k.toFixed(5) + ')" fill="var(--ink)" fill-opacity=".10" '
+         + 'stroke="var(--ink)" stroke-opacity=".34" stroke-linejoin="round" '
+         + 'stroke-width="' + (1.1/Math.max(k,1e-4)).toFixed(2) + '">'
+         + f.d + '</g>';
+    if(h > 26) out += '<text x="' + (x + w/2).toFixed(1) + '" y="' + (base-h-4).toFixed(1)
+         + '" text-anchor="middle" font-size="8" letter-spacing="1" fill="var(--t3)">' + f.h + '</text>';
+    x += w + Math.max(9, 16*k);
+  }
+  return out ? '<g opacity="' + fade.toFixed(3) + '">' + out + '</g>' : '';
+}
 function screenPath(pts){
   let d = '';
   for(let i=0;i<pts.length;i++){
@@ -1221,15 +1394,17 @@ function screenPath(pts){
   return d;
 }
 function overlay(){
-  let s = '';
+  let s = scaleFigs();
   const k = pxPerUnit();
 
   /* The stroke under the hand is drawn, not modelled: it is the width
      of the real material, so what you are dragging out is already the
      wall you will print. The field is baked once you let go. */
   if(drag && drag.kind === 'pen' && drag.pts.length > 1){
-    s += '<path d="' + screenPath(drag.pts) + '" fill="none" stroke="var(--ink)" stroke-opacity=".30" stroke-linecap="round" stroke-linejoin="round" stroke-width="' + (strokeMM()*MM*k).toFixed(2) + '"/>'
-       + '<path d="' + screenPath(drag.pts) + '" fill="none" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1"/>';
+    // faired as it is drawn, so the line under the hand is the line committed
+    const live = drag.pts.length > 6 ? fairPen(drag.pts) : drag.pts;
+    s += '<path d="' + screenPath(live) + '" fill="none" stroke="var(--ink)" stroke-opacity=".30" stroke-linecap="round" stroke-linejoin="round" stroke-width="' + (strokeMM()*MM*k).toFixed(2) + '"/>'
+       + '<path d="' + screenPath(live) + '" fill="none" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1"/>';
   }
   if(poly && poly.pts.length){
     const pts = poly.pts.slice();
@@ -1281,7 +1456,7 @@ function download(name, blob){
 }
 function exportPNG(){
   draw();
-  cvs.toBlob(b => { if(b){ download('malleable-rb1.png', b); say('PNG saved'); } }, 'image/png');
+  cvs.toBlob(b => { if(b){ download('malleable-s1.png', b); say('PNG saved'); } }, 'image/png');
 }
 /* Marching squares, with the crossing named by the grid edge it sits
    on. Matching vertices by rounded coordinates lets one point reached
@@ -1422,6 +1597,81 @@ function startAt(loop, pt){
   return out;
 }
 
+/* ── one wall, one path ────────────────────────────────────────────
+   Where the drawn line crosses itself it encloses voids, and a void's
+   boundary is a loop of its own that a single spiral cannot reach. So
+   each one is spliced into the loop around it: the path crosses the
+   wall, goes round the inside, and crosses back a bead-spacing further
+   along - it loops back on itself and carries on. Every profile comes
+   out as one continuous closed path, whatever the drawing does.     */
+function resampleClosed(loop, step){
+  const L = loopLen(loop);
+  if(!(L > 0)) return loop.slice(0,-1);
+  const n = Math.max(16, Math.round(L/step));
+  const out = [];
+  let k = 0, acc = 0;
+  const seg = i => Math.hypot(loop[i+1][0]-loop[i][0], loop[i+1][1]-loop[i][1]);
+  for(let i=0;i<n;i++){
+    const target = L*i/n;
+    while(k < loop.length-2 && acc + seg(k) < target){ acc += seg(k); k++; }
+    const d = seg(k) || 1e-9;
+    const t = Math.max(0, Math.min(1, (target-acc)/d));
+    out.push([loop[k][0]+(loop[k+1][0]-loop[k][0])*t, loop[k][1]+(loop[k+1][1]-loop[k][1])*t]);
+  }
+  return out;
+}
+function pointIn(pt, loop){
+  let c = false;
+  for(let i=0, j=loop.length-2; i<loop.length-1; j=i++){
+    const yi=loop[i][1], yj=loop[j][1];
+    if((yi > pt[1]) !== (yj > pt[1]) &&
+       pt[0] < (loop[j][0]-loop[i][0])*(pt[1]-yi)/((yj-yi) || 1e-12) + loop[i][0]) c = !c;
+  }
+  return c;
+}
+const signedArea = u => { let a=0; for(let i=0;i<u.length;i++){ const j=(i+1)%u.length;
+  a += u[i][0]*u[j][1] - u[j][0]*u[i][1]; } return a; };
+/* Nearest pair of vertices between two loops, coarse then local, so a
+   couple of thousand points a side still costs nothing. */
+function nearestPair(A, B){
+  const sa = Math.max(1, Math.floor(A.length/160)), sb = Math.max(1, Math.floor(B.length/160));
+  let bi=0, bj=0, bd=Infinity;
+  for(let i=0;i<A.length;i+=sa) for(let j=0;j<B.length;j+=sb){
+    const dx=A[i][0]-B[j][0], dy=A[i][1]-B[j][1], d=dx*dx+dy*dy;
+    if(d < bd){ bd=d; bi=i; bj=j; }
+  }
+  for(let i=bi-sa;i<=bi+sa;i++) for(let j=bj-sb;j<=bj+sb;j++){
+    const ii=(i+A.length)%A.length, jj=(j+B.length)%B.length;
+    const dx=A[ii][0]-B[jj][0], dy=A[ii][1]-B[jj][1], d=dx*dx+dy*dy;
+    if(d < bd){ bd=d; bi=ii; bj=jj; }
+  }
+  return [bi, bj];
+}
+function stitchLoops(loops){
+  if(loops.length < 2) return { loop:loops[0], bridges:0 };
+  const rs = 0.05;                                   // 0.5mm, even, so a splice can step along
+  const arr = loops.map((l,i) => {
+    const u = resampleClosed(l, rs);
+    // depth says which are solid and which are voids; a void runs the other way
+    const depth = loops.filter((o,k) => k !== i && pointIn(l[0], o)).length;
+    if((signedArea(u) > 0) !== (depth % 2 === 0)) u.reverse();
+    return u;
+  }).sort((a,b) => b.length - a.length);
+  const sk = Math.max(2, Math.round(passOff()*2/rs));  // cross back one pass-spacing along
+  let M = arr[0], bridges = 0;
+  for(let q=1;q<arr.length;q++){
+    const B = arr[q];
+    if(M.length < 2*sk+6 || B.length < 2*sk+6) continue;
+    const [bi, bj] = nearestPair(M, B);
+    const n = M.length, m = B.length, out = [];
+    for(let k=sk; k<=n; k++) out.push(M[(bi+k)%n]);      // round the outside, ending at the crossing
+    for(let k=0; k<=m-sk; k++) out.push(B[(bj+k)%m]);    // across, round the inside, and back
+    M = out; bridges++;
+  }
+  M.push(M[0].slice());
+  return { loop:M, bridges };
+}
+
 /* ── the toolpath ──────────────────────────────────────────────────
    The stroke is 5.5 mm across because it is two 3 mm beads overlapped
    by half a millimetre. Step half a bead in from the edge you drew and
@@ -1439,11 +1689,13 @@ function ribbonToolpath(o){
   const f = ribField(o), inset = insetU(), box = o.box;
   const res = Math.max(96, Math.min(1600, Math.round((box[2]-box[0])/0.08)));
   let loops = isoLoops((x,y) => f(x,y) + inset, box[0], box[2], box[1], box[3], res)
-                .filter(l => l.length > 6);
+                .filter(l => l.length > 6)
+                .map(l => refineLoop(simplifyLoop(l, 0.005), f, inset))
+                .filter(l => loopLen(l) > passOff()*8);
   if(!loops.length) return null;
   loops.sort((a,b) => loopLen(b) - loopLen(a));
-  const extra = loops.length - 1;
-  let loop = refineLoop(simplifyLoop(loops[0], 0.005), f, inset);
+  const st = stitchLoops(loops);
+  let loop = st.bridges ? simplifyLoop(st.loop, 0.005) : st.loop;
   loop = startAt(loop, [o.pts[0].x, o.pts[0].y]);
   const layerU = S.layer*MM;
   const laps = Math.max(2, Math.round(o.depth/S.layer));
@@ -1458,7 +1710,7 @@ function ribbonToolpath(o){
       path.push({ x:loop[i][0], y:loop[i][1], z:z0 + layerU*(acc/L) });
     }
   }
-  return { path, loop, top:laps*layerU, laps, extra, len:L };
+  return { path, loop, top:laps*layerU, laps, bridges:st.bridges, len:L };
 }
 const GC = { bedTemp:80, nozzleTemp:220, travelF:30000, retractF:1800, retract:1.70, ams:1 };
 
@@ -1474,7 +1726,7 @@ function ribbonGcode(o, idx){
   const area = passArea(), F = printFeed();
   const w = mm(x1-x0)+S.bead, d = mm(y1-y0)+S.bead, h = mm(tp.top);
   const L = [];
-  L.push('; Malleable RB1 - ribbon shelf ' + (idx+1) + ' of ' + S.ribs.length);
+  L.push('; Malleable S1 - ribbon shelf ' + (idx+1) + ' of ' + S.ribs.length);
   L.push('; Mode: SPIRAL VASE | Nozzle mod: ' + S.bead.toFixed(1) + 'mm bead | Bambu Lab X1 Carbon');
   L.push('; The drawn stroke is ' + strokeMM().toFixed(1) + 'mm across: two ' + S.bead.toFixed(1)
        + 'mm beads overlapped by ' + S.lap.toFixed(1) + 'mm.');
@@ -1485,8 +1737,9 @@ function ribbonGcode(o, idx){
        + 'mm^2, flow capped at ' + S.flow + 'mm^3/s -> F' + F);
   L.push('; ' + tp.laps + ' laps, lap length ' + mm(tp.len).toFixed(0) + 'mm, footprint '
        + w.toFixed(1) + ' x ' + d.toFixed(1) + 'mm, shelf projects ' + h.toFixed(1) + 'mm off the wall');
-  if(tp.extra) L.push('; WARNING: the path encloses ' + tp.extra + ' further loop'
-       + (tp.extra>1?'s':'') + ' - only the longest is printed. Open the scroll or raise the blend.');
+  if(tp.bridges) L.push('; the drawing encloses ' + tp.bridges + ' void'
+       + (tp.bridges>1?'s':'') + '; each is spliced into the outer loop with a pair of crossings '
+       + (passOff()*2/MM).toFixed(2) + 'mm apart, so this is still one continuous path');
   if(w > BUILD || d > BUILD || h > BUILD) L.push('; WARNING: this shelf does not fit the ' + BUILD + 'mm cube');
   L.push('G90 ; absolute positioning');
   L.push('G21 ; mm units');
@@ -1576,7 +1829,7 @@ function exportGcode(){
     S.ribs.forEach((o, i) => {
       setTimeout(() => {
         const g = ribbonGcode(o, i);
-        if(g){ made++; download('malleable-rb1-shelf' + (i+1) + '.gcode', new Blob([g], {type:'text/plain'})); }
+        if(g){ made++; download('malleable-s1-shelf' + (i+1) + '.gcode', new Blob([g], {type:'text/plain'})); }
         if(i === S.ribs.length-1) say(made ? made + ' gcode file' + (made>1?'s':'') + ' saved' : 'Nothing to slice');
       }, i*350);
     });
@@ -1603,7 +1856,7 @@ function exportSVG(){
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W.toFixed(1) + 'mm" height="' + H.toFixed(1)
     + 'mm" viewBox="' + X.toFixed(1) + ' ' + Y.toFixed(1) + ' ' + W.toFixed(1) + ' ' + H.toFixed(1) + '">'
     + '<g fill="none" stroke="#000" stroke-width="0.4" fill-rule="evenodd">' + body + '</g></svg>';
-  download('malleable-rb1-elevation.svg', new Blob([svg], {type:'image/svg+xml'}));
+  download('malleable-s1-elevation.svg', new Blob([svg], {type:'image/svg+xml'}));
   say('Elevation SVG saved at full size');
 }
 
@@ -1688,6 +1941,7 @@ function buildOpts(){
   if(S.tool === 'pen' || S.tool === 'line'){
     const g = oGroup();
     oRange(g,'Depth',20,BUILD,5, ()=>S.depth, v=>{S.depth=v;}, v=>v+'mm');
+    oRange(g,'Smooth',0,14,0.5, ()=>S.smooth, v=>{S.smooth=v; rebuildAll(); markAll();}, v=>v.toFixed(1)+'mm');
     oRange(g,'Corner',0,45,1, ()=>S.corner, v=>{S.corner=v; rebuildAll(); markAll();}, v=>v+'mm');
     oCheck(g,'Snap 90°', ()=>S.ortho, v=>{S.ortho=v; rebuildAll(); markAll(); buildPanel();});
   }
@@ -1753,13 +2007,14 @@ function buildPanel(){
 
   const b = sect('Path');
   slider(b,'Blend',0,16,0.5, ()=>S.blend, v=>{S.blend=v; markAll();}, v=>v.toFixed(1)+'mm');
+  slider(b,'Smooth',0,14,0.5, ()=>S.smooth, v=>{S.smooth=v; rebuildAll(); markAll();}, v=>v.toFixed(1)+'mm');
   slider(b,'Corner',0,45,1, ()=>S.corner, v=>{S.corner=v; rebuildAll(); markAll();}, v=>v+'mm');
   check(b,'Snap near-orthogonal runs', ()=>S.ortho, v=>{S.ortho=v; rebuildAll(); markAll();});
   if(S.ortho){
     slider(b,'Angle',3,25,1, ()=>S.orthoTol, v=>{S.orthoTol=v; rebuildAll(); markAll();}, v=>v+'°');
     slider(b,'Min run',8,60,1, ()=>S.runMin, v=>{S.runMin=v; rebuildAll(); markAll();}, v=>v+'mm');
   }
-  b.appendChild(el('div','hint','A blend joins a curve to itself where it loops back, so a scroll grows a fillet instead of crossing. Corners are always rounded, snapped or not.'));
+  b.appendChild(el('div','hint','Smooth is a length: how long a wobble gets ironed out of the drawn line. A blend joins a curve to itself where it loops back, so a scroll grows a fillet instead of crossing. Corners are always rounded, snapped or not.'));
 
   const c = sect('Wall');
   slider(c,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
@@ -1776,6 +2031,8 @@ function buildPanel(){
   slider(d,'Relief',0,1.6,0.05, ()=>S.relief, v=>{S.relief=v;}, v=>v.toFixed(2));
   slider(d,'Roll',0,2.4,0.05, ()=>S.roll, v=>{S.roll=v;}, v=>v.toFixed(2)+'mm');
   slider(d,'Crown',0,0.6,0.02, ()=>S.crown, v=>{S.crown=v;}, v=>v.toFixed(2)+'mm');
+  check(d,'Wall plane', ()=>S.wall, v=>{S.wall=v;});
+  check(d,'Scale figures', ()=>S.figs, v=>{S.figs=v;});
   check(d,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
   check(d,'Build volume', ()=>S.plate, v=>{S.plate=v;});
   check(d,'Dark', ()=>S.invert, setInvert);
@@ -1861,7 +2118,20 @@ function fitView(){
   S.tx=(x0+x1)/2; S.ty=(y0+y1)/2; S.tz=dm/2;
   S.scale = Math.max(10, Math.min(260, Math.max(x1-x0, (y1-y0)*1.25) + 6));
 }
+/* The wall is sized to what is on it, with room around - a panel of
+   wall rather than the whole room. */
+function wallBox(){
+  if(!S.ribs.length) return [-25,-18,25,18];
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  for(const o of S.ribs){
+    x0=Math.min(x0,o.inner[0]); x1=Math.max(x1,o.inner[2]);
+    y0=Math.min(y0,o.inner[1]); y1=Math.max(y1,o.inner[3]);
+  }
+  const mx = Math.max(8, (x1-x0)*0.22), my = Math.max(8, (y1-y0)*0.30);
+  return [x0-mx, y0-my*0.8, x1+mx, y1+my];
+}
 function sync(){
+  S.wallBox = wallBox();
   document.getElementById('st-n').textContent = S.ribs.length;
   let over = 0;
   for(const o of S.ribs){ const s = ribSize(o); if(s.w>BUILD || s.h>BUILD || s.d>BUILD) over++; }
