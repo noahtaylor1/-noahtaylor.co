@@ -231,7 +231,7 @@ const S = {
   /* The modded X1C: a 3 mm wide bead laid 1.5 mm tall. The layer pitch,
      the wall and the rim radius all follow from it, and the base is a
      whole number of those layers so the spiral can start flat. */
-  beadW:3, beadH:1.5, relief:0.4, wallBeads:1, baseLayers:1,
+  beadW:3, beadH:1.5, relief:0.4, wallBeads:1, baseLayers:1, baseGap:2,
   pitch:1.5/10, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:1.5, air:true, stopSink:true, oneWall:true, edges:false, hollow:true, wall:3/10,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
@@ -1446,7 +1446,17 @@ const GC = {
   ams:1                                // AMS slot to claim and select; 0 feeds nothing
 };
 /* A laid bead is a rectangle with half-round ends. */
-const beadArea = () => S.beadW*S.beadH - S.beadH*S.beadH*(1 - Math.PI/4);
+const lineArea = (w) => w*S.beadH - S.beadH*S.beadH*(1 - Math.PI/4);
+const beadArea = () => lineArea(S.beadW);
+/* The base spiral is packed tighter than the bead is wide, so a pass
+   carries only the material that spacing holds - otherwise closing the
+   turns from 3 to 2mm would put half as much plastic again into the
+   same floor. And a packed pass is a plain rectangle, not a bead with
+   round sides: its neighbours are pressed against it, so the round ends
+   that lineArea subtracts are not there. Spacing times layer is exactly
+   the floor it has to fill. */
+const baseGap  = () => Math.min(S.baseGap, S.beadW);
+const baseArea = () => baseGap()*S.beadH;
 const printFeed = () => Math.max(60, Math.round(60*GC.flow/beadArea()));
 
 /* The pot's cross-section at one height, as a distance measured IN THE
@@ -1562,7 +1572,7 @@ function resampleLoop(loop, n, startPt){
 }
 /* The path for one pot, in scene units: [x, z, y] with y the height. */
 function potToolpath(o){
-  const layer = S.beadH*MM, half = S.beadW*0.5*MM, step = S.beadW*MM;
+  const layer = S.beadH*MM, half = S.beadW*0.5*MM, step = S.beadW*MM, gap = baseGap()*MM;
   const base = baseH();
   const k = skel(o), pad = k.R*0.2 + step*2;
   const bx0 = Math.min(k.ax,k.bx)-k.R-pad, bx1 = Math.max(k.ax,k.bx)+k.R+pad;
@@ -1584,13 +1594,13 @@ function potToolpath(o){
      rather than a line dragged across the pot. */
   const link = (l) => {
     const l2 = startAt(l, last);
-    const gap = last ? Math.hypot(l2[0][0]-last[0], l2[0][1]-last[1]) : 0;
-    path.push({x:l2[0][0], z:l2[0][1], y:null, travel: !last ? true : gap > step*1.6});
+    const jump = last ? Math.hypot(l2[0][0]-last[0], l2[0][1]-last[1]) : 0;
+    path.push({x:l2[0][0], z:l2[0][1], y:null, travel: !last ? true : jump > step*1.6});
     return l2;
   };
   // ── the base, flat, from the middle outward ──────────────────────
   const rings = [];
-  for(let d = half; d < (k.R + 1); d += step){
+  for(let d = half; d < (k.R + 1); d += gap){
     const ls = iso(layer*0.5, d);
     if(!ls.length) break;
     rings.push(ls.slice().sort((a,b) => loopLen(b) - loopLen(a)));
@@ -1610,8 +1620,8 @@ function potToolpath(o){
       const A = resampleLoop(here[0], n, last);
       const B = A && resampleLoop(next[0], n, A[0]);
       if(A && B){
-        const gap = last ? Math.hypot(A[0][0]-last[0], A[0][1]-last[1]) : 0;
-        path.push({x:A[0][0], z:A[0][1], y:layer, travel: !last ? true : gap > step*1.6});
+        const jump = last ? Math.hypot(A[0][0]-last[0], A[0][1]-last[1]) : 0;
+        path.push({x:A[0][0], z:A[0][1], y:layer, travel: !last ? true : jump > gap*1.8});
         for(let i=1;i<n;i++){
           const t = i/n;
           path.push({x:A[i][0]+(B[i][0]-A[i][0])*t, z:A[i][1]+(B[i][1]-A[i][1])*t, y:layer, travel:false});
@@ -1661,13 +1671,14 @@ function potGcode(o, idx){
   const cx = (x0+x1)/2, cz = (z0+z1)/2;
   const BX = BUILD/2, BY = BUILD/2;
   const PX = p => BX + mm(p.x - cx), PY = p => BY + mm(p.z - cz);
-  const area = beadArea(), F = printFeed(), layerMM = S.beadH;
+  const area = beadArea(), aBase = baseArea(), F = printFeed(), layerMM = S.beadH;
+  const bTop = baseH() + 1e-9;
   const w = mm(x1-x0), d = mm(z1-z0), h = mm(tp.top);
   const L = [];
   L.push('; Malleable CL1 - pot '+(idx+1)+' of '+S.pots.length);
   L.push('; Mode: SPIRAL VASE | Nozzle mod: '+S.beadW.toFixed(1)+'mm bead | Bambu Lab X1 Carbon');
   L.push('; bead '+S.beadW.toFixed(1)+' x '+layerMM.toFixed(2)+'mm = '+area.toFixed(3)+'mm^2, flow capped at '+GC.flow+'mm^3/s -> F'+F);
-  L.push('; base '+Math.max(1,Math.round(S.baseLayers))+' layer, wall 1 bead, size '+w.toFixed(1)+' x '+d.toFixed(1)+' x '+h.toFixed(1)+'mm');
+  L.push('; base '+Math.max(1,Math.round(S.baseLayers))+' layer spiralled at '+baseGap().toFixed(1)+'mm = '+aBase.toFixed(3)+'mm^2, wall 1 bead, size '+w.toFixed(1)+' x '+d.toFixed(1)+' x '+h.toFixed(1)+'mm');
   if(w > BUILD || d > BUILD || h > BUILD) L.push('; WARNING: this pot does not fit the '+BUILD+'mm cube');
   L.push('G90 ; absolute positioning');
   L.push('G21 ; mm units');
@@ -1737,7 +1748,8 @@ function potGcode(o, idx){
     total += seg;
     // the acceleration stays where the first layer set it, as these files leave it
     if(!fanOn && p.y > baseH()){ L.push('M106 S255 ; part cooling fan'); fanOn = true; }
-    L.push('G1 X'+PX(p).toFixed(3)+' Y'+PY(p).toFixed(3)+' Z'+mm(p.y).toFixed(3)+' E'+(area*seg).toFixed(4)+' F'+F);
+    const aHere = p.y <= bTop ? aBase : area;
+    L.push('G1 X'+PX(p).toFixed(3)+' Y'+PY(p).toFixed(3)+' Z'+mm(p.y).toFixed(3)+' E'+(aHere*seg).toFixed(4)+' F'+F);
     const pct = Math.floor(i/n*100);
     if(pct !== lastPct && pct%5 === 0){ L.push('M73 P'+pct); lastPct = pct; }
     prev = p;
@@ -2043,6 +2055,8 @@ function buildPanel(){
     v=>{ S.beadH=v; S.pitch=v*MM; }, v=>v.toFixed(2)+'mm');
   slider(s3,'Base layers',1,8,1, ()=>S.baseLayers,
     v=>{ S.baseLayers=Math.round(v); }, v=>Math.round(v)+' \u00D7 '+(S.beadH*Math.round(v)).toFixed(1)+'mm');
+  slider(s3,'Base pitch',0.6,6,.1, ()=>S.baseGap, v=>{ S.baseGap=v; },
+    v=>Math.min(v,S.beadW).toFixed(1)+'mm \u00B7 '+(Math.min(v,S.beadW)*S.beadH).toFixed(2)+'mm\u00B2');
   slider(s3,'Relief',0,1,.05, ()=>S.relief, v=>{S.relief=v;}, v=> v<0.01 ? 'flat' : v.toFixed(2));
   slider(s3,'Shade',0,6,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v)+' steps');
   if(S.shade > 0){
