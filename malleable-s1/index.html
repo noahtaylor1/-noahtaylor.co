@@ -239,8 +239,9 @@ const S = {
   blend:7, corner:16,              // mm
   inlet:4.5,                       // mm - the slit cut to open an enclosed void
   ortho:true, orthoTol:12, runMin:22, smooth:7,
-  wall:true, wallBox:[-20,-20,20,20],
-  shade:0, tone:0.80, ambient:0.10, seam:0.45, edges:false, relief:0.30,
+  /* One plane, the same at every zoom and whatever is on it. */
+  wall:true, wallBox:[-4000,-4000,4000,4000],
+  shade:0, tone:0.20, ambient:0.10, seam:0.45, edges:false, relief:0.30,
   roll:1.1, crown:0.22,
   steps:132, plate:true, invert:false,
   flow:9.3,
@@ -731,13 +732,73 @@ function touchesItself(o){
   }
   return false;
 }
+/* Where the line crosses itself. A void is nearly always closed by a
+   crossing, and the crossing is the place to open it again: four arms
+   meet, the material is thickest, and a notch taken out of a knot
+   reads as part of the knot. The thinnest neck is the opposite - a
+   clean single strand at the far apex of the loop, which is both the
+   most conspicuous place to nick and the worst place to weaken. */
+function selfNodes(o){
+  const v = o.pts, cum = o.cum, out = [];
+  if(!v || v.length < 8) return out;
+  const sep = gapS();
+  for(let i=0;i<v.length-1;i++){
+    const ax=v[i].x, ay=v[i].y, bx=v[i+1].x-ax, by=v[i+1].y-ay;
+    for(let j=i+2;j<v.length-1;j++){
+      if(cum[j]-cum[i] <= sep) continue;
+      const cx=v[j].x, cy=v[j].y, dx=v[j+1].x-cx, dy=v[j+1].y-cy;
+      const den = bx*dy - by*dx;
+      if(Math.abs(den) < 1e-12) continue;
+      const ex = cx-ax, ey = cy-ay;
+      const t = (ex*dy - ey*dx)/den, u = (ex*by - ey*bx)/den;
+      if(t < 0 || t > 1 || u < 0 || u > 1) continue;
+      out.push([ax+bx*t, ay+by*t]);
+    }
+  }
+  return out;
+}
+function nearestTo(P, q){
+  let bi = -1, bd = 1e30;
+  for(let i=0;i<P.length;i++){
+    const dx = P[i][0]-q[0], dy = P[i][1]-q[1], d = dx*dx + dy*dy;
+    if(d < bd){ bd = d; bi = i; }
+  }
+  return bi;
+}
+/* a to b, run a little past both ends so the slit breaks through */
+function throughCut(a, b, ext){
+  let dx = b[0]-a[0], dy = b[1]-a[1];
+  const L = Math.hypot(dx, dy);
+  if(!(L > 1e-6)) return null;
+  dx /= L; dy /= L;
+  return [a[0]-dx*ext, a[1]-dy*ext, b[0]+dx*ext, b[1]+dy*ext];
+}
+/* How many strands the slit severs. One is what opens a void and
+   leaves the drawing in one piece; two would cut a crossing clean in
+   half and leave two drawings. */
+function armsCut(c, segs){
+  const ax=c[0], ay=c[1], bx=c[2]-ax, by=c[3]-ay;
+  let k = 0;
+  for(const s of segs){
+    const dx=s.bx-s.ax, dy=s.by-s.ay;
+    const den = bx*dy - by*dx;
+    if(Math.abs(den) < 1e-12) continue;
+    const ex = s.ax-ax, ey = s.ay-ay;
+    const t = (ex*dy - ey*dx)/den, u = (ex*by - ey*bx)/den;
+    if(t < 0 || t > 1 || u < 0 || u > 1) continue;
+    k++;
+    if(k > 1) return k;
+  }
+  return k;
+}
 /* Contour the stroke as drawn. One loop and the drawing is already a
-   single line. More than one and every loop after the first is a void:
-   take the shortest neck between it and the material already joined to
-   the outside, and run the slit along it, a little past both ends so
-   it breaks through. Each void joined counts as outside for the next,
-   so two voids in a row are reached one after another, never twice
-   through the same wall. */
+   single line. More than one and every loop after the first is a void.
+   Open it beside the crossing that closed it: step from the void to
+   open air across one arm of the knot, the shortest such step there
+   is. Where nothing crosses - a scroll sealed by its own blend, say -
+   fall back to the shortest neck anywhere. Each void joined counts as
+   outside for the next, so two voids in a row are reached one after
+   another, never twice through the same wall. */
 function findInlets(o){
   o.inlets = null;
   if(o.segs.length < 2 || !touchesItself(o)) return null;
@@ -748,18 +809,41 @@ function findInlets(o){
   if(loops.length < 2) return null;
   loops.sort((a,b) => loopLen(b) - loopLen(a));
   const ext = inset + 0.06;                    // past the inset contour and out through the face
+  const nodes = selfNodes(o);
+  const reach = strokeMM()*MM + 2*blendR() + 2.0;   // a node this void actually borders
+  const wide  = strokeMM()*MM + 4*blendR() + 6.0;   // and not so wide it is a gash
   const cuts = [];
   let M = resampleClosed(loops[0], 0.08);
   for(let q=1; q<loops.length && cuts.length < MAXCUT; q++){
     const B = resampleClosed(loops[q], 0.08);
     if(B.length < 4) continue;
-    const [bi, bj] = nearestPair(M, B);
-    const a = M[bi], b = B[bj];
-    let dx = b[0]-a[0], dy = b[1]-a[1];
-    const L = Math.hypot(dx, dy);
-    if(!(L > 1e-6)) continue;
-    dx /= L; dy /= L;
-    cuts.push([a[0]-dx*ext, a[1]-dy*ext, b[0]+dx*ext, b[1]+dy*ext]);
+    let cut = null, best = 1e30;
+    for(const N of nodes){
+      const ia = nearestTo(B, N);
+      if(ia < 0 || Math.hypot(B[ia][0]-N[0], B[ia][1]-N[1]) > reach) continue;
+      const a0 = B[ia];
+      /* Open air near the node, nearest first. The nearest of all is
+         often straight across the knot - two arms, which would leave
+         two drawings - so walk out until one lands that severs a
+         single arm, and that one is the shortest that can. */
+      const near = [];
+      for(let i=0;i<M.length;i+=3){
+        const L = Math.hypot(M[i][0]-a0[0], M[i][1]-a0[1]);
+        if(L <= wide && L < best) near.push([L, i]);
+      }
+      near.sort((p,q) => p[0]-q[0]);
+      for(let k=0; k<near.length && k<300; k++){
+        const c = throughCut(a0, M[near[k][1]], ext);
+        if(!c || armsCut(c, o.segs) !== 1) continue;
+        best = near[k][0]; cut = c; break;
+      }
+    }
+    if(!cut){
+      const [bi, bj] = nearestPair(M, B);
+      cut = throughCut(M[bi], B[bj], ext);
+    }
+    if(!cut) continue;
+    cuts.push(cut);
     M = M.concat(B);                           // joined now, so the next void may cut to either
   }
   o.inlets = cuts.length ? cuts : null;
@@ -853,7 +937,12 @@ void main(){
     vec2 u = max(vec2(uCutF+o, uCutF+b), 0.0);
     o = min(-uCutF, max(o, b)) + length(u);
   }
-  outColor = vec4(o, 0.0, 0.0, 1.0);
+  /* Green is the plain distance to the nearest strand, before any of
+     that: what the bead itself is doing, with no fillet in it. The
+     crown across the stroke is read from here, so where two strands
+     cross you see the two of them cross - not a plateau standing in
+     the middle of the knot where the blended field runs deep. */
+  outColor = vec4(o, a, 0.0, 1.0);
 }`;
 
 const FS = `#version 300 es
@@ -876,18 +965,20 @@ uniform vec3 uInk, uPaper;
 out vec4 outColor;
 bool gSmooth;
 
-float fieldAt(int i, vec2 p){
+/* x is the blended field the surface is traced against; y is the plain
+   distance to the strand, which is what the bead reads from. */
+vec2 fieldAt(int i, vec2 p){
   vec4 b = uBox[i];
   vec2 q = max(b.xy - p, p - b.zw);
   float o = length(max(q,0.0)) + min(max(q.x,q.y), 0.0);
   /* Outside the baked square the field is unknown but bounded: the box
      was padded, so nothing can be nearer than the way out plus that
      padding. An under-estimate is all a sphere trace ever needs. */
-  if(o > 0.0) return o + uPad;
-  return texture(uField, vec3((p - b.xy)/(b.zw - b.xy), float(i))).r;
+  if(o > 0.0) return vec2(o + uPad);
+  return texture(uField, vec3((p - b.xy)/(b.zw - b.xy), float(i))).rg;
 }
-float fieldMin(vec2 p){
-  float d = 1e9;
+vec2 fieldMin(vec2 p){
+  vec2 d = vec2(1e9);
   for(int i=0;i<8;i++){ if(i >= uCount) break; d = min(d, fieldAt(i,p)); }
   return d;
 }
@@ -898,14 +989,17 @@ float crownOf(float d2){
   return cos(tb*1.5707963);
 }
 float sdOne(vec3 p, int i){
-  float d2 = fieldAt(i, p.xy);
+  vec2 F = fieldAt(i, p.xy);
+  float d2 = F.x;
   // every layer stands a little proud, as a laid bead does
   if(!gSmooth && uRelief > 1e-5)
     d2 -= uRelief*sin(3.14159265*fract(p.z/max(uPitch,1e-4)));
   float h = uDep[i];
   /* The cut face is not flat. Two beads crown there and meet in a dip,
-     which is the whole of what you see looking at the wall head on. */
-  float w = abs(p.z - h*0.5) - (h*0.5 + (uCrown > 1e-5 ? uCrown*crownOf(d2) : 0.0));
+     which is the whole of what you see looking at the wall head on.
+     Off the plain distance, so a crossing is two beads laid over one
+     another and the web between them is flat, as it is in the part. */
+  float w = abs(p.z - h*0.5) - (h*0.5 + (uCrown > 1e-5 ? uCrown*crownOf(F.y) : 0.0));
   vec2 e = vec2(d2 + uRound, w + uRound);
   return min(max(e.x,e.y), 0.0) + length(max(e,0.0)) - uRound;
 }
@@ -1005,7 +1099,7 @@ void main(){
          wall head on this is the whole of what you see: a bright pass
          either side of the seam where they overlap, falling away at
          the outside edges. */
-      float dm = fieldMin(pos.xy);
+      float dm = fieldMin(pos.xy).y;
       float dc = abs(dm + uHalf);
       float cx = crownOf(dm);
       cx = mix(cx, 0.55, smoothstep(0.25, 0.85, fwidth(dc)/max(uHW,1e-4)));
@@ -1020,7 +1114,7 @@ void main(){
     }
     // the seam the two passes leave between them
     if(uSeam > 0.001 && face > 0.05){
-      float dc = abs(fieldMin(pos.xy) + uHalf);
+      float dc = abs(fieldMin(pos.xy).y + uHalf);
       float g = dc/max(fwidth(dc), 1e-5);
       col = mix(col, uInk, (1.0 - smoothstep(0.35, 1.5, g))*uSeam*face);
     }
@@ -1407,7 +1501,6 @@ addEventListener('pointermove', e => {
     if(!drag.moved && Math.hypot(dx,dy) < 0.05) return;
     if(!drag.moved){ snap(); drag.moved = true; }
     drag.ribs.forEach(o => translate(o, dx, dy));
-    S.wallBox = wallBox();
     drag.w = w;
     return;
   }
@@ -2111,10 +2204,11 @@ function buildPanel(){
   const cut = S.ribs.reduce((t,o) => t + ((ribField(o), o.inlets) || []).length, 0);
   i.appendChild(el('div','hint', cut
     ? cut + ' slit' + (cut>1?'s':'') + ' cut. A drawing that closes a void around itself cannot be one '
-      + 'line, so the void is opened to the outside with a slit this wide and the path jogs in, round '
-      + 'the bay and back out. The notch is a feature; the alternative is a seam doubled on itself.'
+      + 'line, so the void is opened with a slit this wide and the path jogs in, round the bay and '
+      + 'back out. The slit goes through one arm of the crossing that closed the void, where the '
+      + 'material is thickest and the notch reads as part of the knot.'
     : 'Nothing drawn here closes a void, so every profile is already one line. Loop a path back on '
-      + 'itself and the void it traps gets a slit cut through the nearest wall to open it.'));
+      + 'itself and the void it traps gets a slit cut beside the crossing to open it.'));
 
   const c = sect('Wall');
   slider(c,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
@@ -2146,12 +2240,9 @@ function buildPanel(){
   e.appendChild(el('div','hint','One file a shelf. The drawing is the toolpath: it lies on the bed and the depth off the wall is the print height, climbing in one unbroken spiral.'));
 
   const f = sect('Start');
-  const g4 = el('div','grid2'); f.appendChild(g4);
-  button(g4,'Three', () => { snap(); preset('three'); });
-  button(g4,'Loops', () => { snap(); preset('loops'); });
   const g5 = el('div','grid2'); f.appendChild(g5);
   button(g5,'Clear', clearAll);
-  f.appendChild(el('div','hint','Loops are the awkward ones: both close a void, so both get a slit.'));
+  f.appendChild(el('div','hint','Draw the shelf with the pen or the line tool. The drawing is the part.'));
 
   const g = sect('Caption');
   [['cap1',S.cap1],['cap2',S.cap2],['cap3',S.cap3]].forEach(([k,v]) => {
@@ -2162,65 +2253,7 @@ function buildPanel(){
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   10 · PRESETS
-   ══════════════════════════════════════════════════════════════════ */
-/* Walked by turning rather than plotted: curvature is gentle through
-   the middle and tightens at both ends, which is a long arc that rolls
-   itself up into a scroll at each tip. */
-function scrollPath(len, kMid, kEnd, pow){
-  const ds = 0.07, n = Math.round(len/ds);
-  const pts = []; let x=0, y=0, a=0;
-  for(let i=0;i<=n;i++){
-    pts.push({x,y});
-    const t = i/n, u = Math.abs(2*t-1);
-    const k = kMid + (kEnd-kMid)*Math.pow(u, pow);
-    a += k*ds; x += Math.cos(a)*ds; y += Math.sin(a)*ds;
-  }
-  return pts;
-}
-function recentre(pts, cx, cy){
-  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-  for(const p of pts){ x0=Math.min(x0,p.x); x1=Math.max(x1,p.x); y0=Math.min(y0,p.y); y1=Math.max(y1,p.y); }
-  const dx = cx-(x0+x1)/2, dy = cy-(y0+y1)/2;
-  return pts.map(p => ({x:p.x+dx, y:p.y+dy}));
-}
-function preset(name){
-  S.ribs = []; S.sel.clear();
-  if(name === 'three'){
-    /* A wave, a bracket and a scroll - the three things this makes.
-       Each is drawn inside the printer's cube, so each is one part. */
-    const wave = [];
-    for(let i=0;i<=140;i++){
-      const t = i/140;
-      wave.push({ x:-11.5+23*t, y: 3.7*Math.sin(t*Math.PI*5) });
-    }
-    const w = mkRib(recentre(wave, 0, 9.5), 'pen'); w.depth = 110;
-
-    const brk = mkRib(recentre([
-      {x:-9,y:-7.5},{x:-9,y:4.5},{x:0.5,y:4.5},{x:0.5,y:-2.5},{x:9,y:-2.5},{x:9,y:6}
-    ], -10, -5.5), 'line'); brk.depth = 150;
-
-    const sc = mkRib(recentre(scrollPath(40, 0.13, 0.62, 3), 10.5, -5.5), 'pen'); sc.depth = 90;
-    S.ribs = [w, brk, sc].filter(o => o.segs.length > 2);
-  }
-  if(name === 'loops'){
-    /* Two drawings that trap a void. The eight crosses itself and
-       closes an eye either side of the crossing; the scroll rolls past
-       its own tail at both ends. Neither can be one line until each
-       void is cut open, which is what the slits are. */
-    const eight = [];
-    for(let i=0;i<=400;i++){ const a = i/400*Math.PI*2;
-      eight.push({ x:Math.sin(a)*8, y:Math.sin(a*2)*4.5 }); }
-    const e = mkRib(recentre(eight, -10.5, 1.5), 'pen'); e.depth = 110;
-
-    const sc = mkRib(recentre(scrollPath(70, 0.08, 1.5, 3), 11.5, 0), 'pen'); sc.depth = 90;
-    S.ribs = [e, sc].filter(o => o.segs.length > 2);
-  }
-  markAll(); sync();
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   11 · SYNC + FRAME
+   10 · SYNC + FRAME
    ══════════════════════════════════════════════════════════════════ */
 function fitView(){
   if(!S.ribs.length){ S.tx=0; S.ty=0; S.tz=5; S.scale=52; return; }
@@ -2233,20 +2266,7 @@ function fitView(){
   S.tx=(x0+x1)/2; S.ty=(y0+y1)/2; S.tz=dm/2;
   S.scale = Math.max(10, Math.min(260, Math.max(x1-x0, (y1-y0)*1.25) + 6));
 }
-/* The wall is sized to what is on it, with room around - a panel of
-   wall rather than the whole room. */
-function wallBox(){
-  if(!S.ribs.length) return [-25,-18,25,18];
-  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
-  for(const o of S.ribs){
-    x0=Math.min(x0,o.inner[0]); x1=Math.max(x1,o.inner[2]);
-    y0=Math.min(y0,o.inner[1]); y1=Math.max(y1,o.inner[3]);
-  }
-  const mx = Math.max(8, (x1-x0)*0.22), my = Math.max(8, (y1-y0)*0.30);
-  return [x0-mx, y0-my*0.8, x1+mx, y1+my];
-}
 function sync(){
-  S.wallBox = wallBox();
   document.getElementById('st-n').textContent = S.ribs.length;
   let over = 0;
   for(const o of S.ribs){ const s = ribSize(o); if(s.w>BUILD || s.h>BUILD || s.d>BUILD) over++; }
@@ -2282,7 +2302,7 @@ function frame(t){
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   12 · KEYBOARD
+   11 · KEYBOARD
    ══════════════════════════════════════════════════════════════════ */
 const KEYMAP = { v:'select', p:'pen', l:'line', r:'tilt', h:'hand', z:'zoom' };
 // keys a focused range / checkbox / button is entitled to keep for itself
@@ -2327,15 +2347,15 @@ addEventListener('click', e => {
 document.getElementById('drawer').onclick = () => panel.classList.toggle('open');
 
 /* ══════════════════════════════════════════════════════════════════
-   13 · BOOT
+   12 · BOOT
    ══════════════════════════════════════════════════════════════════ */
 resize();
 document.documentElement.setAttribute('data-theme','light');
 setTool('pen');
-preset('three');
 fitView();
 A.scale = S.scale; A.tx = S.tx; A.ty = S.ty; A.tz = S.tz; A.pitch = S.layer*MM;
 snap(); sync(); buildOpts();
+
 requestAnimationFrame(frame);
 
 })();
