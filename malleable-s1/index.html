@@ -237,13 +237,13 @@ const S = {
   bead:3, layer:1.5, lap:0.5,      // mm - the mod's fat nozzle
   depth:110,                       // mm off the wall, which is the print height
   blend:7, corner:16,              // mm
-  inlet:4.5,                       // mm - the slit cut to open an enclosed void
+  inlet:0,                         // mm - clearance in the slit; zero and the two walls touch
   ortho:true, orthoTol:12, runMin:22, smooth:7,
   /* One plane, the same at every zoom and whatever is on it. */
   wall:true, wallBox:[-4000,-4000,4000,4000],
   shade:0, tone:0.20, ambient:0.10, seam:0.45, edges:false, relief:0.30,
   roll:1.1, crown:0.22,
-  steps:132, plate:true, invert:false,
+  steps:132, plate:true, invert:false, path:false,
   flow:9.3,
   cap1:'MALLEABLE', cap2:'ribbon.s1', cap3:'nr.001'
 };
@@ -283,20 +283,36 @@ const gapS     = () => 2*(blendR() + halfW()) + 1.0;
    off the outside, and one line walks in, round it and back out. The
    path jogs in and out where the slit is, and the slit is a feature -
    a notch you can see on the edge - not an artefact.                */
-const inletHalf = () => Math.max(1.0, S.inlet)*MM/2;
-const inletFil  = () => Math.min(inletHalf()*0.65, 1.1*MM);   // the mouth is radiused, not square
+/* Zero clearance is the normal case: the two ends come to a kiss, and
+   each lays its bead half a bead off its own face, so the two beads
+   touch and nothing is laid twice.
+   How the end is shaped matters more than how wide the gap is. Cut a
+   slot of the stroke's own width clean across the arm and the ends
+   are flat, with a blob of fillet at each corner. Cut it a stroke
+   wider and give each end back a disc of the stroke's radius, and the
+   end is a semicircle - which is how a drawn line ends. Two of those,
+   kissing, leave a lens of air either side of the touch: the little
+   opening, and the turn the path takes round it is the same turn it
+   takes round the end of any line. */
+const inletGap  = () => Math.max(0.05, S.inlet)*MM;   // a kiss is a hairline, never nothing
+const inletHalf = () => inletGap()/2;
 const MAXCUT = 8;
-/* material AND NOT slit, with the corners of the mouth rounded off */
-function cutInlets(d, x, y, cuts, half, fil){
+/* material MINUS the slot, PLUS the cap a stopped end is owed. The
+   slot is lopsided on purpose: a stroke deep on the side that stops,
+   so a disc fits inside it, and a hairline on the side that stays, so
+   the crossing keeps the shape it had. */
+function cutInlets(d, x, y, cuts){
   if(!cuts) return d;
   for(let i=0;i<cuts.length;i++){
     const c = cuts[i];
-    const vx=c[2]-c[0], vy=c[3]-c[1], wx=x-c[0], wy=y-c[1];
-    const L2=vx*vx+vy*vy;
-    const t = L2 > 1e-14 ? Math.max(0, Math.min(1, (wx*vx+wy*vy)/L2)) : 0;
-    const b = half - Math.hypot(wx-vx*t, wy-vy*t);     // the slit's complement
-    const ua = Math.max(fil+d, 0), ub = Math.max(fil+b, 0);
-    d = Math.min(-fil, Math.max(d, b)) + Math.hypot(ua, ub);
+    const vx=c[2]-c[0], vy=c[3]-c[1], L=Math.hypot(vx,vy);
+    if(!(L > 1e-9)) continue;
+    const ex=vx/L, ey=vy/L, nx=-ey, ny=ex;
+    const px=x-c[0], py=y-c[1];
+    const u = px*ex + py*ey, q = px*nx + py*ny;
+    d = Math.max(d, Math.min(Math.min(u, L-u), Math.min(q + c[8], c[9] - q)));
+    if(c[10] > 0) d = Math.min(d, Math.hypot(x-c[4], y-c[5]) - c[10]);
+    if(c[11] > 0) d = Math.min(d, Math.hypot(x-c[6], y-c[7]) - c[11]);
   }
   return d;
 }
@@ -621,6 +637,7 @@ function build(o){
   o.dirty = true;
   o.inlets = null;
   o.field = null;
+  o.tp = null;
 }
 function ribSize(o){
   const h = halfW()/MM;
@@ -632,7 +649,8 @@ function translate(o, dx, dy){
   for(const s of o.segs){ s.ax+=dx; s.ay+=dy; s.bx+=dx; s.by+=dy; }
   o.box[0]+=dx; o.box[2]+=dx; o.box[1]+=dy; o.box[3]+=dy;
   o.inner[0]+=dx; o.inner[2]+=dx; o.inner[1]+=dy; o.inner[3]+=dy;
-  if(o.inlets) for(const c of o.inlets){ c[0]+=dx; c[1]+=dy; c[2]+=dx; c[3]+=dy; }
+  if(o.inlets) for(const c of o.inlets) for(let i=0;i<8;i+=2){ c[i]+=dx; c[i+1]+=dy; }
+  if(o.tp) for(const q of o.tp){ q.x+=dx; q.y+=dy; }
   /* A move is a move: the same field and the same cuts, carried along
      with the box, so nothing has to be looked for or baked again. */
   o.field = o.inlets ? fieldFn(o) : null;
@@ -659,7 +677,6 @@ function fieldFn(o){
   });
   const half = halfW(), kr = blendR(), gap = gapS();
   const cuts = o.inlets && o.inlets.length ? o.inlets : null;
-  const cutH = inletHalf(), cutF = inletFil();
   const sd = (s, x, y) => {
     const vx=s.bx-s.ax, vy=s.by-s.ay, wx=x-s.ax, wy=y-s.ay;
     const L2=vx*vx+vy*vy;
@@ -701,7 +718,7 @@ function fieldFn(o){
     const ua = Math.max(kr-a, 0), ub = Math.max(kr-bb, 0);
     return Math.max(kr, Math.min(a, bb)) - Math.hypot(ua, ub);
   };
-  return cuts ? (x,y) => cutInlets(raw(x,y), x, y, cuts, cutH, cutF) : raw;
+  return cuts ? (x,y) => cutInlets(raw(x,y), x, y, cuts) : raw;
 }
 /* ── where to cut ──────────────────────────────────────────────────
    A tube of even width traps nothing unless it runs back over itself,
@@ -773,12 +790,12 @@ function throughCut(a, b, ext){
   dx /= L; dy /= L;
   return [a[0]-dx*ext, a[1]-dy*ext, b[0]+dx*ext, b[1]+dy*ext];
 }
-/* How many strands the slit severs. One is what opens a void and
-   leaves the drawing in one piece; two would cut a crossing clean in
-   half and leave two drawings. */
+/* How many strands the slit severs, and where. One is what opens a
+   void and leaves the drawing in one piece; two would cut a crossing
+   clean in half and leave two drawings. */
 function armsCut(c, segs){
   const ax=c[0], ay=c[1], bx=c[2]-ax, by=c[3]-ay;
-  let k = 0;
+  let k = 0, hit = null;
   for(const s of segs){
     const dx=s.bx-s.ax, dy=s.by-s.ay;
     const den = bx*dy - by*dx;
@@ -786,10 +803,54 @@ function armsCut(c, segs){
     const ex = s.ax-ax, ey = s.ay-ay;
     const t = (ex*dy - ey*dx)/den, u = (ex*by - ey*bx)/den;
     if(t < 0 || t > 1 || u < 0 || u > 1) continue;
-    k++;
-    if(k > 1) return k;
+    if(++k > 1) return { n:k };
+    const L = Math.hypot(dx, dy) || 1;
+    hit = { x:ax+bx*t, y:ay+by*t, tx:dx/L, ty:dy/L };
   }
-  return k;
+  return { n:k, hit };
+}
+/* The cap: a disc of the stroke's radius on the strand's own
+   centreline, set so its near edge stands exactly the clearance off
+   the face opposite. The side the knot is on is left alone - that is
+   what the end kisses. With no knot to speak of, both sides stop and
+   both get a cap. Too oblique a crossing for a disc to cap it and the
+   cut keeps the plain hairline. */
+function capCut(c, segs, N, f0){
+  const a = armsCut(c, segs);
+  const h0 = inletHalf();
+  const plain = c.concat([0, 0, 0, 0, h0, h0, 0, 0]);   // twelve: cut, two cap seats, then the four numbers
+  if(a.n !== 1) return plain;
+  const vx=c[2]-c[0], vy=c[3]-c[1], L=Math.hypot(vx,vy);
+  if(!(L > 1e-9)) return null;
+  const nx = -vy/L, ny = vx/L;
+  const tn = a.hit.tx*nx + a.hit.ty*ny;
+  if(Math.abs(tn) < 0.3) return plain;
+  const h = halfW(), lo = h*0.8, hi = h*1.25;
+  /* The disc has to be as big as the material it caps, or the corners
+     the slot took off are not given back and the end is left with an
+     ear. So fit it: sit it where its near edge stands the clearance
+     off the opposite face, read how much room is there, and settle. */
+  const fit = sign => {
+    let r = h, P = [a.hit.x, a.hit.y], raw = h;
+    for(let i=0;i<5;i++){
+      const k = sign*(h0 + r)/tn;
+      P = [a.hit.x + a.hit.tx*k, a.hit.y + a.hit.ty*k];
+      raw = -f0(P[0], P[1]);
+      const rr = Math.min(hi, Math.max(lo, raw));
+      const done = Math.abs(rr - r) < 0.004;
+      r = rr;
+      if(done) break;
+    }
+    return { P, r, w:h0 + r };
+  };
+  /* Only a crossing earns a cap. A slit through a plain wall - a
+     scroll sealed by its own blend - has no end to show, and widening
+     it there only walks the slot into the next turn of the spiral. */
+  if(!N) return plain;
+  const qN = (N[0]-c[0])*nx + (N[1]-c[1])*ny;
+  const K = fit(qN > 0 ? -1 : 1);                            // the side that stops
+  return qN > 0 ? c.concat(K.P, K.P, [K.w, h0, 0, K.r])      // the knot is the + side: leave it
+                : c.concat(K.P, K.P, [h0, K.w, K.r, 0]);
 }
 /* Contour the stroke as drawn. One loop and the drawing is already a
    single line. More than one and every loop after the first is a void.
@@ -817,7 +878,7 @@ function findInlets(o){
   for(let q=1; q<loops.length && cuts.length < MAXCUT; q++){
     const B = resampleClosed(loops[q], 0.08);
     if(B.length < 4) continue;
-    let cut = null, best = 1e30;
+    let cut = null, knot = null, best = 1e30;
     for(const N of nodes){
       const ia = nearestTo(B, N);
       if(ia < 0 || Math.hypot(B[ia][0]-N[0], B[ia][1]-N[1]) > reach) continue;
@@ -834,8 +895,8 @@ function findInlets(o){
       near.sort((p,q) => p[0]-q[0]);
       for(let k=0; k<near.length && k<300; k++){
         const c = throughCut(a0, M[near[k][1]], ext);
-        if(!c || armsCut(c, o.segs) !== 1) continue;
-        best = near[k][0]; cut = c; break;
+        if(!c || armsCut(c, o.segs).n !== 1) continue;
+        best = near[k][0]; cut = c; knot = N; break;
       }
     }
     if(!cut){
@@ -843,7 +904,8 @@ function findInlets(o){
       cut = throughCut(M[bi], B[bj], ext);
     }
     if(!cut) continue;
-    cuts.push(cut);
+    const done = capCut(cut, o.segs, knot, f0);
+    if(done) cuts.push(done);
     M = M.concat(B);                           // joined now, so the next void may cut to either
   }
   o.inlets = cuts.length ? cuts : null;
@@ -892,9 +954,10 @@ uniform sampler2D uSeg;
 uniform int uSegN;
 uniform vec4 uBox;
 uniform float uN, uHalf, uKR, uGap;
-uniform vec4 uCut[8];
+uniform vec4 uCut[8];     // the slot, end to end
+uniform vec4 uCap[8];     // the two cap centres
+uniform vec4 uCutK[8];    // (depth one side, depth the other, cap r, cap r)
 uniform int uCutN;
-uniform float uCutH, uCutF;
 out vec4 outColor;
 void main(){
   vec2 uv = gl_FragCoord.xy/uN;
@@ -927,15 +990,18 @@ void main(){
     vec2 u = max(vec2(uKR-a, uKR-b), 0.0);
     o = max(uKR, min(a,b)) - length(u);
   }
-  /* and the slits, taken back out of it, with a radiused mouth */
+  /* and the slits: a slot clean across the arm, and then the cap each
+     end is owed, so it finishes the way a drawn line finishes */
   for(int i=0;i<uCutN;i++){
-    vec4 c = uCut[i];
-    vec2 v = c.zw - c.xy, w = p - c.xy;
-    float L2 = dot(v,v);
-    float t = L2 < 1e-12 ? 0.0 : clamp(dot(w,v)/L2, 0.0, 1.0);
-    float b = uCutH - length(w - v*t);
-    vec2 u = max(vec2(uCutF+o, uCutF+b), 0.0);
-    o = min(-uCutF, max(o, b)) + length(u);
+    vec4 c = uCut[i], K = uCutK[i], P = uCap[i];
+    vec2 v = c.zw - c.xy;
+    float L = length(v);
+    if(L < 1e-9) continue;
+    vec2 e = v/L, nn = vec2(-e.y, e.x), w = p - c.xy;
+    float u = dot(w,e), q = dot(w,nn);
+    o = max(o, min(min(u, L-u), min(q + K.x, K.y - q)));
+    if(K.z > 0.0) o = min(o, length(p - P.xy) - K.z);
+    if(K.w > 0.0) o = min(o, length(p - P.zw) - K.w);
   }
   /* Green is the plain distance to the nearest strand, before any of
      that: what the bead itself is doing, with no fillet in it. The
@@ -1167,7 +1233,7 @@ function initGL(){
                   'uPitch','uTone','uAmb','uSeam','uHalf','uOff','uHW','uRelief','uCrown','uInk','uPaper',
                   'uHasWall','uWallBox','uWallT'])
     uni[n] = gl.getUniformLocation(prog, n);
-  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap','uCut','uCutN','uCutH','uCutF'])
+  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap','uCut','uCap','uCutK','uCutN'])
     bun[n] = gl.getUniformLocation(bakeProg, n);
   gl.bindVertexArray(gl.createVertexArray());
 
@@ -1197,7 +1263,8 @@ function initGL(){
 }
 try { initGL(); } catch(e){ ok = false; console.error(e); }
 
-const cutData = new Float32Array(MAXCUT*4);
+const cutData = new Float32Array(MAXCUT*4), capData = new Float32Array(MAXCUT*4),
+      cutK    = new Float32Array(MAXCUT*4);
 function bake(o, layer){
   const n = Math.min(o.segs.length, MAXSEG);
   if(!n) return;
@@ -1226,12 +1293,15 @@ function bake(o, layer){
   gl.uniform1f(bun.uGap, gapS());
   const cuts = o.inlets || [];
   const cn = Math.min(cuts.length, MAXCUT);
-  for(let i=0;i<cn;i++){ cutData[i*4]=cuts[i][0]; cutData[i*4+1]=cuts[i][1];
-                         cutData[i*4+2]=cuts[i][2]; cutData[i*4+3]=cuts[i][3]; }
+  for(let i=0;i<cn;i++){
+    const c = cuts[i];
+    for(let k=0;k<4;k++){ cutData[i*4+k] = c[k]; capData[i*4+k] = c[4+k]; }
+    for(let k=0;k<4;k++) cutK[i*4+k] = c[8+k];
+  }
   gl.uniform4fv(bun.uCut, cutData);
+  gl.uniform4fv(bun.uCap, capData);
+  gl.uniform4fv(bun.uCutK, cutK);
   gl.uniform1i(bun.uCutN, cn);
-  gl.uniform1f(bun.uCutH, inletHalf());
-  gl.uniform1f(bun.uCutF, inletFil());
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   o.dirty = false;
@@ -1241,7 +1311,7 @@ function bakeDirty(){
   live.forEach((o,i) => { if(o.dirty || o.layer !== i){ o.layer = i; bake(o, i); } });
   return live.length;
 }
-const markAll = () => S.ribs.forEach(o => { o.dirty = true; o.field = null; });
+const markAll = () => S.ribs.forEach(o => { o.dirty = true; o.field = null; o.tp = null; });
 function rebuildAll(){ S.ribs.forEach(build); }
 
 function themeColors(){
@@ -1289,7 +1359,7 @@ function draw(){
   gl.uniform3f(uni.uTarget, A.tx, A.ty, A.tz);
   gl.uniform1f(uni.uScale, A.scale);
   gl.uniform1f(uni.uPix, A.scale/Math.max(1,cvs.height));
-  gl.uniform1i(uni.uCount, n);
+  gl.uniform1i(uni.uCount, S.path ? 0 : n);
   gl.uniform4fv(uni.uBox, boxData);
   gl.uniform1fv(uni.uDep, depData);
   gl.uniform1f(uni.uPad, PAD);
@@ -1606,6 +1676,13 @@ function overlay(){
     }
   }
 
+  /* Just the line, when that is all you want to see. */
+  if(S.path) for(const o of S.ribs){
+    const L = ribPath(o);
+    if(L) s += '<path d="' + screenPath(L) + 'Z" fill="none" stroke="var(--ink)" stroke-width="1.25" '
+             + 'stroke-linejoin="round" stroke-linecap="round"/>';
+  }
+
   s += '<g fill="var(--t3)" font-family="var(--font)" font-size="9" letter-spacing="1.4">'
      + '<text x="14" y="20">' + esc(S.cap1) + '</text>'
      + '<text x="14" y="32">' + esc(S.cap2) + ' · ' + esc(S.cap3) + '</text></g>';
@@ -1852,7 +1929,30 @@ const lineArea = (w) => w*S.layer - S.layer*S.layer*(1 - Math.PI/4);
 const passArea = () => lineArea(strokeMM())/2;
 const printFeed = () => Math.max(60, Math.round(60*S.flow/passArea()));
 
-function ribbonToolpath(o){
+/* Closest the path comes to itself, counting only stretches it left
+   a while ago. Two passes of a wall sit a bead's overlap apart and
+   nothing should sit closer, or the nozzle lays over what it just
+   laid - which is the whole thing the slit is here to avoid. */
+function selfGap(loop){
+  const n = loop.length, cum = [0];
+  for(let i=1;i<n;i++) cum.push(cum[i-1] + Math.hypot(loop[i][0]-loop[i-1][0], loop[i][1]-loop[i-1][1]));
+  const tot = cum[n-1] || 1;
+  let m = 1e9;
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+    const ds = Math.abs(cum[j]-cum[i]);
+    if(Math.min(ds, tot-ds) < passOff()*2.4) continue;
+    const d = Math.hypot(loop[j][0]-loop[i][0], loop[j][1]-loop[i][1]);
+    if(d < m) m = d;
+  }
+  return m;
+}
+const capped = o => !!(o.inlets && o.inlets.some(c => c[10] > 0 || c[11] > 0));
+function uncap(o){
+  const h0 = inletHalf();
+  for(const c of o.inlets){ c[8]=h0; c[9]=h0; c[10]=0; c[11]=0; }
+  o.field = fieldFn(o); o.dirty = true; o.tp = null;
+}
+function ribbonToolpath(o, plain){
   if(o.segs.length < 2) return null;
   const f = ribField(o), inset = insetU(), box = o.box;
   const res = Math.max(96, Math.min(1600, Math.round((box[2]-box[0])/0.08)));
@@ -1867,6 +1967,14 @@ function ribbonToolpath(o){
      loop. The splice stays as a backstop for anything the cut missed. */
   const st = stitchLoops(loops);
   let loop = st.bridges ? simplifyLoop(st.loop, 0.005) : st.loop;
+  /* A cap is a nicety; one unbroken line is not. Where giving an end
+     its round would walk the path back into itself - two stops at one
+     knot, or a knot too tight to hold a disc - take the caps off and
+     settle for the hairline. */
+  if(!plain && capped(o) && selfGap(loop) < (strokeMM()*MM - 2*insetU())*0.65){
+    uncap(o);
+    return ribbonToolpath(o, true);
+  }
   loop = startAt(loop, [o.pts[0].x, o.pts[0].y]);
   const layerU = S.layer*MM;
   const laps = Math.max(2, Math.round(o.depth/S.layer));
@@ -1886,6 +1994,15 @@ function ribbonToolpath(o){
 }
 const GC = { bedTemp:80, nozzleTemp:220, travelF:30000, retractF:1800, retract:1.70, ams:1 };
 
+/* The line the nozzle walks: one closed loop, switchbacks and all.
+   Kept on the ribbon, because contouring it is not a per-frame job. */
+function ribPath(o){
+  if(!o.tp){
+    const t = ribbonToolpath(o);
+    o.tp = t ? t.loop.map(p => ({ x:p[0], y:p[1] })) : [];
+  }
+  return o.tp.length ? o.tp : null;
+}
 function ribbonGcode(o, idx){
   const tp = ribbonToolpath(o);
   if(!tp) return null;
@@ -2200,15 +2317,15 @@ function buildPanel(){
   b.appendChild(el('div','hint','Smooth is a length: how long a wobble gets ironed out of the drawn line. A blend joins a curve to itself where it loops back, so a scroll grows a fillet instead of crossing. Corners are always rounded, snapped or not.'));
 
   const i = sect('Inlet');
-  slider(i,'Slit',1.5,14,0.5, ()=>S.inlet, v=>{S.inlet=v; markAll();}, v=>v.toFixed(1)+'mm');
+  slider(i,'Clearance',0,14,0.5, ()=>S.inlet, v=>{S.inlet=v; markAll();}, v=>v ? v.toFixed(1)+'mm' : 'touching');
   const cut = S.ribs.reduce((t,o) => t + ((ribField(o), o.inlets) || []).length, 0);
   i.appendChild(el('div','hint', cut
-    ? cut + ' slit' + (cut>1?'s':'') + ' cut. A drawing that closes a void around itself cannot be one '
-      + 'line, so the void is opened with a slit this wide and the path jogs in, round the bay and '
-      + 'back out. The slit goes through one arm of the crossing that closed the void, where the '
-      + 'material is thickest and the notch reads as part of the knot.'
+    ? cut + ' slit' + (cut>1?'s':'') + ' cut, at the crossing that closed the void. One arm of the knot '
+      + 'is stopped short and finished the way a drawn line finishes, in a semicircle of the stroke, '
+      + 'so the two ends kiss across this clearance with a lens of air either side. The path turns '
+      + 'round that end exactly as it turns round the end of any line.'
     : 'Nothing drawn here closes a void, so every profile is already one line. Loop a path back on '
-      + 'itself and the void it traps gets a slit cut beside the crossing to open it.'));
+      + 'itself and the void it traps gets opened at the crossing.'));
 
   const c = sect('Wall');
   slider(c,'Bead',1.5,8,0.1, ()=>S.bead, v=>{S.bead=v; markAll();}, v=>v.toFixed(1)+'mm');
@@ -2227,6 +2344,7 @@ function buildPanel(){
   slider(d,'Crown',0,0.6,0.02, ()=>S.crown, v=>{S.crown=v;}, v=>v.toFixed(2)+'mm');
   check(d,'Wall plane', ()=>S.wall, v=>{S.wall=v;});
   check(d,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
+  check(d,'Toolpath only', ()=>S.path, v=>{S.path=v;});
   check(d,'Build volume', ()=>S.plate, v=>{S.plate=v;});
   check(d,'Dark', ()=>S.invert, setInvert);
 
@@ -2355,6 +2473,7 @@ setTool('pen');
 fitView();
 A.scale = S.scale; A.tx = S.tx; A.ty = S.ty; A.tz = S.tz; A.pitch = S.layer*MM;
 snap(); sync(); buildOpts();
+
 
 requestAnimationFrame(frame);
 
