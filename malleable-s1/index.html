@@ -661,6 +661,23 @@ function translate(o, dx, dy){
    slicer. A uniform grid of segment buckets keeps it quick, and the
    search is capped: past thirty millimetres the answer is only ever
    'outside', and the contour never goes looking there.              */
+/* How much of the blend two strands have earned. Running alongside,
+   they are a scroll closing on itself and the fillet is the point: it
+   carries one into the other instead of leaving a crease the nozzle
+   cannot reach. Crossing, they are a knot, and a knot is two lines
+   laid over each other - the one that loops back is not carried into
+   the one it crosses, it meets it in a corner. The sine between them
+   tells which, and the handover is soft so nothing snaps as a curve
+   turns through it: whole below about twelve degrees, down to the
+   corner by thirty. */
+function lean(p, q){
+  const ax=p.bx-p.ax, ay=p.by-p.ay, bx=q.bx-q.ax, by=q.by-q.ay;
+  const la=Math.hypot(ax,ay), lb=Math.hypot(bx,by);
+  if(!(la > 1e-9) || !(lb > 1e-9)) return 0;
+  const sn = Math.abs(ax*by - ay*bx)/(la*lb);
+  const t = Math.max(0, Math.min(1, (sn - 0.20)/0.30));
+  return t*t*(3 - 2*t);
+}
 function fieldFn(o){
   const segs = o.segs, box = o.box;
   const cell = 1.0, CAP = 3;
@@ -675,7 +692,7 @@ function fieldFn(o){
     const q0=ci(Math.min(s.ax,s.bx)), q1=ci(Math.max(s.ax,s.bx));
     for(let j=j0;j<=j1;j++) for(let q=q0;q<=q1;q++) bins[j*nx+q].push(i);
   });
-  const half = halfW(), kr = blendR(), gap = gapS();
+  const half = halfW(), kr = blendR(), gap = gapS(), inset = insetU();
   const cuts = o.inlets && o.inlets.length ? o.inlets : null;
   const sd = (s, x, y) => {
     const vx=s.bx-s.ax, vy=s.by-s.ay, wx=x-s.ax, wy=y-s.ay;
@@ -685,7 +702,7 @@ function fieldFn(o){
   };
   const raw = (x,y) => {
     const i0=ci(x), j0=cj(y);
-    let d1=1e9, s1=0;
+    let d1=1e9, s1=0, n1=-1;
     for(let R=0; R<=CAP; R++){
       if(d1 < 1e8 && (R-1)*cell > d1) break;
       for(let j=j0-R;j<=j0+R;j++){
@@ -696,7 +713,7 @@ function fieldFn(o){
           const bin = bins[j*nx+q];
           for(let b=0;b<bin.length;b++){
             const r = sd(segs[bin[b]], x, y);
-            if(r.d < d1){ d1 = r.d; s1 = r.s; }
+            if(r.d < d1){ d1 = r.d; s1 = r.s; n1 = bin[b]; }
           }
         }
       }
@@ -706,17 +723,29 @@ function fieldFn(o){
     if(!(kr > 1e-5) || a >= kr) return a;
     const reach = d1 + kr + cell;
     const qa=ci(x-reach), qb=ci(x+reach), ja=cj(y-reach), jb=cj(y+reach);
-    let d2 = 1e9;
+    let d2 = 1e9, n2 = -1;
     for(let j=ja;j<=jb;j++) for(let q=qa;q<=qb;q++){
       const bin = bins[j*nx+q];
       for(let b=0;b<bin.length;b++){
         const r = sd(segs[bin[b]], x, y);
-        if(r.d < d2 && Math.abs(r.s - s1) >= gap) d2 = r.d;
+        if(r.d < d2 && Math.abs(r.s - s1) >= gap){ d2 = r.d; n2 = bin[b]; }
       }
     }
+    if(n2 < 0) return a;
+    /* The corner is a corner where it shows, and only there. A fillet
+       taken out all the way down would take it from the contour as
+       well, and the contour is what gets printed: at a knot it needs
+       the two arms carried into each other or it comes back as two
+       loops and has to be spliced. So the blend is held off at the
+       face and faded back in over the first half-bead of depth. What
+       you see is a corner; what the nozzle walks, a bead and a half
+       under it, is still round. */
+    const dep = Math.max(0, Math.min(1, -a/(inset*0.5)));
+    const krL = kr*(1 - lean(segs[n1], segs[n2])*(1 - dep*dep*(3 - 2*dep)));
+    if(!(krL > 1e-5) || a >= krL) return a;
     const bb = d2 - half;
-    const ua = Math.max(kr-a, 0), ub = Math.max(kr-bb, 0);
-    return Math.max(kr, Math.min(a, bb)) - Math.hypot(ua, ub);
+    const ua = Math.max(krL-a, 0), ub = Math.max(krL-bb, 0);
+    return Math.max(krL, Math.min(a, bb)) - Math.hypot(ua, ub);
   };
   return cuts ? (x,y) => cutInlets(raw(x,y), x, y, cuts) : raw;
 }
@@ -985,7 +1014,7 @@ precision highp float;
 uniform sampler2D uSeg;
 uniform int uSegN;
 uniform vec4 uBox;
-uniform float uN, uHalf, uKR, uGap;
+uniform float uN, uHalf, uKR, uGap, uInset;
 uniform vec4 uCut[8];     // the slot, end to end
 uniform vec4 uCap[8];     // the two cap centres
 uniform vec4 uCutK[8];    // (depth one side, depth the other, cap r, cap r)
@@ -995,18 +1024,21 @@ void main(){
   vec2 uv = gl_FragCoord.xy/uN;
   vec2 p = mix(uBox.xy, uBox.zw, uv);
   float d1 = 1e9, s1 = 0.0;
+  vec2 e1 = vec2(1.0, 0.0);
   for(int i=0;i<uSegN;i++){
     vec4 G = texelFetch(uSeg, ivec2(i,0), 0);
     vec2 v = G.zw - G.xy, w = p - G.xy;
     float L2 = dot(v,v);
     float t = L2 < 1e-12 ? 0.0 : clamp(dot(w,v)/L2, 0.0, 1.0);
     float d = length(w - v*t);
-    if(d < d1){ d1 = d; vec4 L = texelFetch(uSeg, ivec2(i,1), 0); s1 = mix(L.x, L.y, t); }
+    if(d < d1){ d1 = d; vec4 L = texelFetch(uSeg, ivec2(i,1), 0); s1 = mix(L.x, L.y, t);
+                e1 = L2 < 1e-12 ? e1 : v*inversesqrt(L2); }
   }
   float a = d1 - uHalf;
   float o = a;
   if(uKR > 1e-5 && a < uKR){
     float d2 = 1e9;
+    vec2 e2 = e1;
     for(int i=0;i<uSegN;i++){
       vec4 G = texelFetch(uSeg, ivec2(i,0), 0);
       vec2 v = G.zw - G.xy, w = p - G.xy;
@@ -1017,10 +1049,20 @@ void main(){
       vec4 L = texelFetch(uSeg, ivec2(i,1), 0);
       if(abs(mix(L.x,L.y,t) - s1) < uGap) continue;
       d2 = d;
+      e2 = L2 < 1e-12 ? e2 : v*inversesqrt(L2);
     }
+    /* Alongside, blend; crossing, meet in a corner - but only at the
+       face, where it shows. Deeper than a half-bead the blend comes
+       back, because that is where the contour the nozzle walks is
+       read, and a knot with nothing carrying its arms into each other
+       comes back as two loops. */
     float b = d2 - uHalf;
-    vec2 u = max(vec2(uKR-a, uKR-b), 0.0);
-    o = max(uKR, min(a,b)) - length(u);
+    float dep = smoothstep(0.0, 1.0, clamp(-a/(uInset*0.5), 0.0, 1.0));
+    float kr = uKR*(1.0 - smoothstep(0.20, 0.50, abs(e1.x*e2.y - e1.y*e2.x))*(1.0 - dep));
+    if(kr > 1e-5 && a < kr){
+      vec2 u = max(vec2(kr-a, kr-b), 0.0);
+      o = max(kr, min(a,b)) - length(u);
+    }
   }
   /* and the slits: a slot clean across the arm, and then the cap each
      end is owed, so it finishes the way a drawn line finishes */
@@ -1265,7 +1307,7 @@ function initGL(){
                   'uPitch','uTone','uAmb','uSeam','uHalf','uOff','uHW','uRelief','uCrown','uInk','uPaper',
                   'uHasWall','uWallBox','uWallT'])
     uni[n] = gl.getUniformLocation(prog, n);
-  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap','uCut','uCap','uCutK','uCutN'])
+  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap','uInset','uCut','uCap','uCutK','uCutN'])
     bun[n] = gl.getUniformLocation(bakeProg, n);
   gl.bindVertexArray(gl.createVertexArray());
 
@@ -1323,6 +1365,7 @@ function bake(o, layer){
   gl.uniform1f(bun.uHalf, halfW());
   gl.uniform1f(bun.uKR, blendR());
   gl.uniform1f(bun.uGap, gapS());
+  gl.uniform1f(bun.uInset, insetU());
   const cuts = o.inlets || [];
   const cn = Math.min(cuts.length, MAXCUT);
   for(let i=0;i<cn;i++){
@@ -2346,7 +2389,7 @@ function buildPanel(){
     slider(b,'Angle',3,25,1, ()=>S.orthoTol, v=>{S.orthoTol=v; rebuildAll(); markAll();}, v=>v+'°');
     slider(b,'Min run',8,60,1, ()=>S.runMin, v=>{S.runMin=v; rebuildAll(); markAll();}, v=>v+'mm');
   }
-  b.appendChild(el('div','hint','Smooth is a length: how long a wobble gets ironed out of the drawn line. A blend joins a curve to itself where it loops back, so a scroll grows a fillet instead of crossing. Corners are always rounded, snapped or not.'));
+  b.appendChild(el('div','hint','Smooth is a length: how long a wobble gets ironed out of the drawn line. A blend joins a curve to itself where it runs back alongside itself, so a scroll grows a fillet instead of a crease; where it crosses itself outright it is left alone, and the two strands meet in a corner. Corners are always rounded, snapped or not.'));
 
   const i = sect('Inlet');
   slider(i,'Clearance',0,14,0.5, ()=>S.inlet, v=>{S.inlet=v; markAll();}, v=>v ? v.toFixed(1)+'mm' : 'touching');
