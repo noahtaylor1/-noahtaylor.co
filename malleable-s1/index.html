@@ -725,25 +725,57 @@ function fieldFn(o){
    so before contouring anything, ask the cheap question: does the line
    ever come within a stroke of a stretch of itself it has long since
    left behind? Nearly every drawing answers no, and skips the march. */
+function ptSegD(px, py, ax, ay, bx, by){
+  const vx = bx-ax, vy = by-ay, L2 = vx*vx + vy*vy;
+  let t = L2 > 1e-18 ? ((px-ax)*vx + (py-ay)*vy)/L2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(px - (ax+vx*t), py - (ay+vy*t));
+}
+/* Closest the two segments come, zero where they cross. */
+function segSegD(ax, ay, bx, by, cx, cy, dx, dy){
+  const rx = bx-ax, ry = by-ay, sx = dx-cx, sy = dy-cy;
+  const den = rx*sy - ry*sx;
+  if(Math.abs(den) > 1e-14){
+    const ex = cx-ax, ey = cy-ay;
+    const t = (ex*sy - ey*sx)/den, u = (ex*ry - ey*rx)/den;
+    if(t >= 0 && t <= 1 && u >= 0 && u <= 1) return 0;
+  }
+  return Math.min(ptSegD(ax,ay,cx,cy,dx,dy), ptSegD(bx,by,cx,cy,dx,dy),
+                  ptSegD(cx,cy,ax,ay,bx,by), ptSegD(dx,dy,ax,ay,bx,by));
+}
+/* Ask it of the segments, not of the vertices. A drawn line is kept as
+   few points, and a crossing almost never lands on one of them: at a
+   clean X the nearest two vertices can sit a stroke and a half apart
+   while the line itself passes through zero. Vertices missed it; the
+   spans between them cannot. */
 function touchesItself(o){
   const v = o.pts, cum = o.cum;
   if(!v || v.length < 8) return false;
   const th = strokeMM()*MM + 2*blendR() + 0.1, cell = th;
   const sep = th*1.05;
+  const n = v.length - 1;
   const grid = new Map();
   const key = (i,j) => i + ',' + j;
-  for(let i=0;i<v.length;i++){
-    const k = key(Math.floor(v[i].x/cell), Math.floor(v[i].y/cell));
-    const b = grid.get(k); b ? b.push(i) : grid.set(k, [i]);
+  const cellsOf = i => {
+    const gx0 = Math.floor(Math.min(v[i].x, v[i+1].x)/cell), gx1 = Math.floor(Math.max(v[i].x, v[i+1].x)/cell);
+    const gy0 = Math.floor(Math.min(v[i].y, v[i+1].y)/cell), gy1 = Math.floor(Math.max(v[i].y, v[i+1].y)/cell);
+    return [gx0, gx1, gy0, gy1];
+  };
+  for(let i=0;i<n;i++){
+    const [gx0, gx1, gy0, gy1] = cellsOf(i);
+    for(let gi=gx0; gi<=gx1; gi++) for(let gj=gy0; gj<=gy1; gj++){
+      const k = key(gi, gj), b = grid.get(k); b ? b.push(i) : grid.set(k, [i]);
+    }
   }
-  for(let i=0;i<v.length;i++){
-    const gi = Math.floor(v[i].x/cell), gj = Math.floor(v[i].y/cell);
-    for(let a=-1;a<=1;a++) for(let b=-1;b<=1;b++){
-      const bucket = grid.get(key(gi+a, gj+b));
+  for(let i=0;i<n;i++){
+    const [gx0, gx1, gy0, gy1] = cellsOf(i);
+    for(let gi=gx0-1; gi<=gx1+1; gi++) for(let gj=gy0-1; gj<=gy1+1; gj++){
+      const bucket = grid.get(key(gi, gj));
       if(!bucket) continue;
       for(const j of bucket){
-        if(Math.abs(cum[j]-cum[i]) <= sep) continue;
-        if(Math.hypot(v[j].x-v[i].x, v[j].y-v[i].y) < th) return true;
+        if(j <= i || cum[j] - cum[i+1] <= sep) continue;
+        if(segSegD(v[i].x,v[i].y, v[i+1].x,v[i+1].y,
+                   v[j].x,v[j].y, v[j+1].x,v[j+1].y) < th) return true;
       }
     }
   }
