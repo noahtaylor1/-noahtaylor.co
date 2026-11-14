@@ -237,7 +237,7 @@ const S = {
   bead:3, layer:1.5, lap:0.5,      // mm - the mod's fat nozzle
   depth:110,                       // mm off the wall, which is the print height
   blend:7, corner:16,              // mm
-  inlet:1.0,                       // mm - air at the stop; zero and the two beads touch
+  inlet:0,                         // mm - air at the stop; zero and the two beads touch
   ortho:true, orthoTol:12, runMin:22, smooth:7,
   /* One plane, the same at every zoom and whatever is on it. */
   wall:true, wallBox:[-4000,-4000,4000,4000],
@@ -673,7 +673,16 @@ function translate(o, dx, dy){
    the one it crosses, it meets it in a corner. The sine between them
    tells which, and the handover is soft so nothing snaps as a curve
    turns through it: whole below about twelve degrees, down to the
-   corner by thirty. */
+   knot's own by thirty.
+   Down to, not away. A knot is a corner, but a corner taken to a
+   point is one the nozzle cannot walk: the pass that turns into it
+   has to come round inside the bead it has just laid. So the arms of
+   a crossing keep a fillet of their own, small enough to read as a
+   corner and wide enough that the turn is a turn. What stays sharp
+   is the one place it should - where a stopped end kisses the strand
+   it crossed, and carrying one into the other would weld shut the
+   very gap the stop was taken to open. */
+const knotR = () => Math.min(blendR(), halfW()*0.8);
 function lean(p, q){
   const ax=p.bx-p.ax, ay=p.by-p.ay, bx=q.bx-q.ax, by=q.by-q.ay;
   const la=Math.hypot(ax,ay), lb=Math.hypot(bx,by);
@@ -698,6 +707,33 @@ function fieldFn(o){
   });
   const half = halfW(), kr = blendR(), gap = gapS();
   const cuts = o.inlets && o.inlets.length ? o.inlets : null;
+  /* Arclength as the line that is left measures it: the stretch taken
+     out of it does not count towards how far apart two strands are.
+     So the two sides of a stop read as what they are - this same line
+     a moment earlier - and are never blended into each other, however
+     long the stretch between them was. */
+  const trims = (o.gaps && o.gaps.length) ? o.gaps : null;
+  const sepS = trims ? (u, w) => {
+    const lo = Math.min(u,w), hi = Math.max(u,w);
+    let d = hi - lo;
+    for(let i=0;i<trims.length;i++){
+      const o0 = Math.max(lo, trims[i][0]), o1 = Math.min(hi, trims[i][1]);
+      if(o1 > o0) d -= o1 - o0;
+    }
+    return d;
+  } : (u, w) => Math.abs(u - w);
+  /* And a stopped end is never carried into anything. Where the line
+     stops, every point of the cap answers with the same arclength -
+     the one the stretch was taken at - so asking whether a strand is
+     within a bead of that boundary is asking whether it is the cap.
+     Fillet it and the kiss welds shut, and the gap the stop was taken
+     to open closes again. */
+  const capS = passOff();
+  const atEnd = trims ? u => {
+    for(let i=0;i<trims.length;i++)
+      if(Math.abs(u - trims[i][0]) < capS || Math.abs(u - trims[i][1]) < capS) return true;
+    return false;
+  } : () => false;
   const sd = (s, x, y) => {
     const vx=s.bx-s.ax, vy=s.by-s.ay, wx=x-s.ax, wy=y-s.ay;
     const L2=vx*vx+vy*vy;
@@ -727,16 +763,16 @@ function fieldFn(o){
     if(!(kr > 1e-5) || a >= kr) return a;
     const reach = d1 + kr + cell;
     const qa=ci(x-reach), qb=ci(x+reach), ja=cj(y-reach), jb=cj(y+reach);
-    let d2 = 1e9, n2 = -1;
+    let d2 = 1e9, n2 = -1, s2 = 0;
     for(let j=ja;j<=jb;j++) for(let q=qa;q<=qb;q++){
       const bin = bins[j*nx+q];
       for(let b=0;b<bin.length;b++){
         const r = sd(segs[bin[b]], x, y);
-        if(r.d < d2 && Math.abs(r.s - s1) >= gap){ d2 = r.d; n2 = bin[b]; }
+        if(r.d < d2 && sepS(r.s, s1) >= gap){ d2 = r.d; n2 = bin[b]; s2 = r.s; }
       }
     }
-    if(n2 < 0) return a;
-    const krL = kr*(1 - lean(segs[n1], segs[n2]));
+    if(n2 < 0 || atEnd(s1) || atEnd(s2)) return a;
+    const krL = kr - (kr - Math.min(kr, knotR()))*lean(segs[n1], segs[n2]);
     if(!(krL > 1e-5) || a >= krL) return a;
     const bb = d2 - half;
     const ua = Math.max(krL-a, 0), ub = Math.max(krL-bb, 0);
@@ -1131,12 +1167,27 @@ precision highp float;
 uniform sampler2D uSeg;
 uniform int uSegN;
 uniform vec4 uBox;
-uniform float uN, uHalf, uKR, uGap;
+uniform float uN, uHalf, uKR, uGap, uKnot, uCapS;
+uniform vec4 uStop[8];    // the stretches taken out of the line
+uniform int uStopN;
 uniform vec4 uCut[8];     // the slot, end to end
 uniform vec4 uCap[8];     // the two cap centres
 uniform vec4 uCutK[8];    // (depth one side, depth the other, cap r, cap r)
 uniform int uCutN;
 out vec4 outColor;
+/* How far apart two strands are along the line that is left. */
+float sepS(float a, float b){
+  float lo = min(a,b), hi = max(a,b), d = hi - lo;
+  for(int i=0;i<uStopN;i++) d -= max(min(hi, uStop[i].y) - max(lo, uStop[i].x), 0.0);
+  return d;
+}
+/* Is this strand the cap of a stopped end? Nothing is carried into
+   one of those, or the kiss welds shut. */
+bool atEnd(float u){
+  for(int i=0;i<uStopN;i++)
+    if(abs(u - uStop[i].x) < uCapS || abs(u - uStop[i].y) < uCapS) return true;
+  return false;
+}
 void main(){
   vec2 uv = gl_FragCoord.xy/uN;
   vec2 p = mix(uBox.xy, uBox.zw, uv);
@@ -1154,7 +1205,7 @@ void main(){
   float a = d1 - uHalf;
   float o = a;
   if(uKR > 1e-5 && a < uKR){
-    float d2 = 1e9;
+    float d2 = 1e9, s2 = 0.0;
     vec2 e2 = e1;
     for(int i=0;i<uSegN;i++){
       vec4 G = texelFetch(uSeg, ivec2(i,0), 0);
@@ -1164,13 +1215,17 @@ void main(){
       float d = length(w - v*t);
       if(d >= d2) continue;
       vec4 L = texelFetch(uSeg, ivec2(i,1), 0);
-      if(abs(mix(L.x,L.y,t) - s1) < uGap) continue;
-      d2 = d;
+      float sg = mix(L.x, L.y, t);
+      if(sepS(sg, s1) < uGap) continue;
+      d2 = d; s2 = sg;
       e2 = L2 < 1e-12 ? e2 : v*inversesqrt(L2);
     }
-    /* Alongside, blend; crossing, meet in a corner. */
+    /* Alongside, blend; crossing, meet in a corner - with the knot's
+       own small fillet in it, so the turn is still a turn. */
     float b = d2 - uHalf;
-    float kr = uKR*(1.0 - smoothstep(0.20, 0.50, abs(e1.x*e2.y - e1.y*e2.x)));
+    float kr = (atEnd(s1) || atEnd(s2)) ? 0.0
+             : uKR - (uKR - min(uKR, uKnot))
+                     *smoothstep(0.20, 0.50, abs(e1.x*e2.y - e1.y*e2.x));
     if(kr > 1e-5 && a < kr){
       vec2 u = max(vec2(kr-a, kr-b), 0.0);
       o = max(kr, min(a,b)) - length(u);
@@ -1419,7 +1474,7 @@ function initGL(){
                   'uPitch','uTone','uAmb','uSeam','uHalf','uOff','uHW','uRelief','uCrown','uInk','uPaper',
                   'uHasWall','uWallBox','uWallT'])
     uni[n] = gl.getUniformLocation(prog, n);
-  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap','uCut','uCap','uCutK','uCutN'])
+  for(const n of ['uSeg','uSegN','uBox','uN','uHalf','uKR','uGap','uKnot','uCapS','uStop','uStopN','uCut','uCap','uCutK','uCutN'])
     bun[n] = gl.getUniformLocation(bakeProg, n);
   gl.bindVertexArray(gl.createVertexArray());
 
@@ -1450,7 +1505,7 @@ function initGL(){
 try { initGL(); } catch(e){ ok = false; console.error(e); }
 
 const cutData = new Float32Array(MAXCUT*4), capData = new Float32Array(MAXCUT*4),
-      cutK    = new Float32Array(MAXCUT*4);
+      cutK    = new Float32Array(MAXCUT*4), stopData = new Float32Array(MAXCUT*4);
 function bake(o, layer){
   if(!o.segs.length) return;
   ribField(o);                         // the cuts are part of the shape, so find them first
@@ -1479,6 +1534,13 @@ function bake(o, layer){
   gl.uniform1f(bun.uHalf, halfW());
   gl.uniform1f(bun.uKR, blendR());
   gl.uniform1f(bun.uGap, gapS());
+  gl.uniform1f(bun.uKnot, knotR());
+  gl.uniform1f(bun.uCapS, passOff());
+  const stops = o.gaps || [];
+  const sn = Math.min(stops.length, MAXCUT);
+  for(let i=0;i<sn;i++){ stopData[i*4] = stops[i][0]; stopData[i*4+1] = stops[i][1]; }
+  gl.uniform4fv(bun.uStop, stopData);
+  gl.uniform1i(bun.uStopN, sn);
   const cuts = o.inlets || [];
   const cn = Math.min(cuts.length, MAXCUT);
   for(let i=0;i<cn;i++){
@@ -2121,6 +2183,12 @@ const printFeed = () => Math.max(60, Math.round(60*S.flow/passArea()));
    a while ago. Two passes of a wall sit a bead's overlap apart and
    nothing should sit closer, or the nozzle lays over what it just
    laid - which is the whole thing the slit is here to avoid. */
+/* The closest the wall comes to a different part of itself. Different
+   is the word doing the work: a path that turns tightly comes close
+   to itself around the turn, and that is a turn, not a doubled wall.
+   Skip anything inside six millimetres of path - rather more than the
+   longest way round the tightest turn the contour can take - and what
+   is left is two passes that really did meet. */
 function selfGap(loop){
   const n = loop.length, cum = [0];
   for(let i=1;i<n;i++) cum.push(cum[i-1] + Math.hypot(loop[i][0]-loop[i-1][0], loop[i][1]-loop[i-1][1]));
@@ -2128,7 +2196,7 @@ function selfGap(loop){
   let m = 1e9;
   for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
     const ds = Math.abs(cum[j]-cum[i]);
-    if(Math.min(ds, tot-ds) < passOff()*2.4) continue;
+    if(Math.min(ds, tot-ds) < passOff()*4.8) continue;
     const d = Math.hypot(loop[j][0]-loop[i][0], loop[j][1]-loop[i][1]);
     if(d < m) m = d;
   }
