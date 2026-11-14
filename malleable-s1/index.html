@@ -238,7 +238,7 @@ const S = {
   depth:110,                       // mm off the wall, which is the print height
   blend:7, corner:16,              // mm
   inlet:0,                         // mm - air at the stop; zero and the two beads touch
-  ortho:true, orthoTol:12, runMin:22, smooth:7,
+  ortho:true, orthoTol:12, runMin:22, hold:false,
   /* One plane, the same at every zoom and whatever is on it. */
   wall:true, wallBox:[-4000,-4000,4000,4000],
   shade:0, tone:0.20, ambient:0.10, seam:0.45, edges:false, relief:0.30,
@@ -320,151 +320,9 @@ function cutInlets(d, x, y, cuts){
 /* ══════════════════════════════════════════════════════════════════
    1 · CURVE WORK
    ══════════════════════════════════════════════════════════════════ */
-/* A hand wobbles. Averaging the samples a couple of times takes the
-   wobble out before anything else measures the curve, so what is
-   simplified is the line that was meant, not the tremor in it. */
-function relax(v, passes){
-  const p = v.map(q => ({x:q.x, y:q.y}));
-  for(let s=0;s<passes;s++){
-    const q = p.map(r => ({x:r.x, y:r.y}));
-    for(let i=1;i<p.length-1;i++){
-      p[i].x = (q[i-1].x + 2*q[i].x + q[i+1].x)/4;
-      p[i].y = (q[i-1].y + 2*q[i].y + q[i+1].y)/4;
-    }
-  }
-  return p;
-}
-/* Fairing. One Laplacian pass smooths and shrinks; a slightly larger
-   negative pass pushes back out, so the curve fairs without losing its
-   size - Taubin's trick. Every point is then pulled back inside a
-   tolerance of where the hand actually went, which is what keeps a
-   smoothed line the line that was drawn rather than a different one. */
-function fairCurve(v, maxDev, passes){
-  const n = v.length;
-  if(n < 5 || maxDev <= 1e-6) return v.map(q => ({x:q.x, y:q.y}));
-  const p = v.map(q => ({x:q.x, y:q.y})), home = v.map(q => ({x:q.x, y:q.y}));
-  const pass = (lam) => {
-    const q = p.map(r => ({x:r.x, y:r.y}));
-    for(let i=1;i<n-1;i++){
-      p[i].x += lam*((q[i-1].x + q[i+1].x)*0.5 - q[i].x);
-      p[i].y += lam*((q[i-1].y + q[i+1].y)*0.5 - q[i].y);
-    }
-    /* The two ends get smoothed too, against the line carried on from
-       just inside them. Holding them still instead leaves the tremor
-       of the first and last samples sitting on the tip of the stroke -
-       which is exactly where it shows. */
-    p[0].x += lam*((2*q[1].x - q[2].x) - q[0].x);
-    p[0].y += lam*((2*q[1].y - q[2].y) - q[0].y);
-    p[n-1].x += lam*((2*q[n-2].x - q[n-3].x) - q[n-1].x);
-    p[n-1].y += lam*((2*q[n-2].y - q[n-3].y) - q[n-1].y);
-  };
-  for(let s=0;s<passes;s++){
-    pass(0.58); pass(-0.62);
-    for(let i=0;i<n;i++){
-      const dx = p[i].x-home[i].x, dy = p[i].y-home[i].y;
-      const d = Math.hypot(dx,dy);
-      if(d > maxDev){ p[i].x = home[i].x + dx*maxDev/d; p[i].y = home[i].y + dy*maxDev/d; }
-    }
-  }
-  /* And then each tip is set down on the line its neighbours arrive on,
-     keeping the length it had. Whatever is left of the first and last
-     samples' wobble is a kink exactly at the end of the stroke, which
-     is the one place a kink is impossible to miss. */
-  const settle = (i, a, b) => {
-    const dx = p[a].x-p[b].x, dy = p[a].y-p[b].y;
-    const L = Math.hypot(dx,dy);
-    if(L < 1e-9) return;
-    const d = Math.hypot(p[i].x-p[a].x, p[i].y-p[a].y);
-    p[i].x = p[a].x + dx/L*d; p[i].y = p[a].y + dy/L*d;
-  };
-  settle(0, 1, 2); settle(n-1, n-2, n-3);
-  return p;
-}
-/* The slider is a LENGTH: how long a wobble gets ironed out. That is
-   the number of passes, not the tolerance - a tolerance alone stops
-   biting after a dozen passes and the line stays as knobbly as it was.
-   Smoothing by L shifts a curve of radius R by about L squared over 2R,
-   so the leash is a fraction of L and the drawn shape survives. */
-const fairPasses = () => Math.max(0, Math.min(360, Math.round(S.smooth*S.smooth/0.42)));
-const fairDev    = () => Math.max(0.6, S.smooth*0.28)*MM;
-function fairPen(v){
-  const d = densify(relax(v, 2), 0.06);
-  if(S.smooth <= 0.05 || d.length < 5) return d;
-  return fairCurve(d, fairDev(), fairPasses());
-}
-/* Carry the faired curve onto the snapped knots. The knots move, and
-   the curve between any two of them moves with them, so the line keeps
-   every bit of its fairing and only the straight runs change
-   character. The alternative - thinning to knots and splining back
-   through them - throws the faired curve away and splines a new one,
-   which is where the ripple kept coming from. */
-function warpToKnots(dense, keep, knots, lock){
-  const out = dense.map(q => ({x:q.x, y:q.y}));
-  for(let k=0;k<keep.length-1;k++){
-    const i0 = keep[k], i1 = keep[k+1], span = i1-i0;
-    const d0x = knots[k].x-dense[i0].x,   d0y = knots[k].y-dense[i0].y;
-    const d1x = knots[k+1].x-dense[i1].x, d1y = knots[k+1].y-dense[i1].y;
-    for(let i=i0;i<=i1;i++){
-      const t = span > 0 ? (i-i0)/span : 0;
-      out[i].x = dense[i].x + d0x + (d1x-d0x)*t;
-      out[i].y = dense[i].y + d0y + (d1y-d0y)*t;
-    }
-  }
-  for(let k=0;k<lock.length;k++){          // a locked run is dead straight, not merely moved
-    if(!lock[k]) continue;
-    for(let i=keep[k];i<=keep[k+1];i++){
-      if(lock[k] === 1) out[i].y = knots[k].y; else out[i].x = knots[k].x;
-    }
-  }
-  return out;
-}
-/* Which samples must not move: the inside of every straight run, with
-   its last few millimetres released so the turn off it can round. On a
-   dense line a tangent fillet has nothing to bite on - it can only
-   round within half a segment, which here is half a millimetre - so
-   the corner is faired instead, with the straights held. */
-function pinMask(keep, lock, n, release){
-  const pin = new Uint8Array(n);
-  for(let k=0;k<lock.length;k++){
-    if(!lock[k]) continue;
-    const a = Math.min(keep[k]+release, keep[k+1]), b = Math.max(keep[k+1]-release, keep[k]);
-    for(let i=a;i<=b;i++) pin[i] = 1;
-  }
-  return pin;
-}
-function fairPinned(v, pin, passes){
-  const n = v.length;
-  if(n < 5 || passes < 1) return v;
-  const p = v.map(q => ({x:q.x, y:q.y}));
-  for(let s=0;s<passes;s++) for(const lam of [0.58, -0.62]){
-    const q = p.map(r => ({x:r.x, y:r.y}));
-    for(let i=1;i<n-1;i++){
-      if(pin[i]) continue;
-      p[i].x += lam*((q[i-1].x + q[i+1].x)*0.5 - q[i].x);
-      p[i].y += lam*((q[i-1].y + q[i+1].y)*0.5 - q[i].y);
-    }
-  }
-  return p;
-}
-const devFrom = (p, a, b) => {
-  const vx=b.x-a.x, vy=b.y-a.y, L2=vx*vx+vy*vy;
-  const t = L2 > 1e-18 ? Math.max(0, Math.min(1, ((p.x-a.x)*vx + (p.y-a.y)*vy)/L2)) : 0;
-  return Math.hypot(p.x-a.x-vx*t, p.y-a.y-vy*t);
-};
-/* How far the drawn samples under each simplified segment stray from
-   its chord. A segment is only a straight RUN - something that can be
-   snapped to an axis - if the hand really did go straight along it;
-   a long chord across a gentle curve is not one. */
-function runDev(v, keep){
-  const out = [];
-  for(let k=0;k<keep.length-1;k++){
-    const a = v[keep[k]], b = v[keep[k+1]];
-    let d = 0;
-    for(let i=keep[k]+1;i<keep[k+1];i++) d = Math.max(d, devFrom(v[i], a, b));
-    out.push(d);
-  }
-  return out;
-}
+/* The hand is not a way in here any more: a path is placed, not
+   drawn, so the fairing that took the tremor out of a drawn line has
+   nothing left to take it out of. */
 function rdpKeep(v, eps){
   const n = v.length;
   if(n < 3) return v.map((_,i)=>i);
@@ -580,7 +438,7 @@ function orthoSnap(v, tolDeg, runMinMM, straight, devMax){
    2 · RIBBONS
    ══════════════════════════════════════════════════════════════════ */
 function mkRib(raw, mode){
-  const o = { id:uid++, raw:raw.map(q=>({x:q.x, y:q.y})), mode:mode||'pen',
+  const o = { id:uid++, raw:raw.map(q=>({x:q.x, y:q.y})), mode:mode||'curve',
               depth:S.depth, pts:[], segs:[], cum:[], box:[0,0,0,0], len:0, dirty:true };
   build(o);
   return o;
@@ -647,23 +505,6 @@ function build(o){
          the drawing, and the curve through them is what they say. */
       const shut = curveShut(v);
       v = bspline(shut ? v.slice(0, -1) : v, 3, shut);
-    } else if(o.mode === 'pen'){
-      /* The faired line IS the geometry from here on. Thinning it to
-         knots is only ever a way of asking which stretches the hand
-         meant to be straight. */
-      const dense = fairPen(v);
-      v = dense;
-      if(S.ortho && dense.length > 5){
-        const keep = rdpKeep(dense, 0.03);
-        const knots = keep.map(i => ({x:dense[i].x, y:dense[i].y}));
-        const r = orthoSnap(knots, S.orthoTol, S.runMin, runDev(dense, keep), 0.04);
-        if(r.lock.some(Boolean)){
-          v = warpToKnots(dense, keep, r.p, r.lock);
-          const rel = Math.max(2, Math.round(S.corner*MM/0.06));
-          v = fairPinned(v, pinMask(keep, r.lock, v.length, rel),
-                         Math.max(6, Math.min(260, Math.round(S.corner*S.corner/1.3))));
-        }
-      }
     } else {
       /* Clicked vertices are straight by intent, so these are coarse
          enough for a tangent fillet to do the rounding. */
@@ -1827,11 +1668,6 @@ viewEl.addEventListener('pointerdown', e => {
     S.scale = Math.max(6, Math.min(260, S.scale*(e.altKey ? 1.5 : 1/1.5)));
     dragging = false; drag = null; return;
   }
-  if(S.tool === 'pen'){
-    if(!w) return;
-    drag = { kind:'pen', pts:[w] };
-    return;
-  }
   if(S.tool === 'curve' || S.tool === 'line'){
     if(!w) return;
     const kind = S.tool;
@@ -1884,12 +1720,6 @@ addEventListener('pointermove', e => {
     S.ty = drag.ty + (e.clientY-drag.sy)*k;
     return;
   }
-  if(drag.kind === 'pen'){
-    if(!w) return;
-    const last = drag.pts[drag.pts.length-1];
-    if(Math.hypot(w.x-last.x, w.y-last.y) > A.scale*0.0018) drag.pts.push(w);
-    return;
-  }
   if(drag.kind === 'cp'){
     if(!w) return;
     const { o, i } = drag.cp;
@@ -1915,11 +1745,11 @@ addEventListener('pointermove', e => {
   }
 });
 addEventListener('pointerup', () => {
-  if(drag && drag.kind === 'tilt'){ S.az = 0; S.el = 0; }   // and it glides home
-  if(drag && drag.kind === 'pen'){
-    if(drag.pts.length > 3){ snap(); addRib(drag.pts, 'pen'); }
-    else say('Too short to be a path');
-  }
+  /* Let go and the view glides back square to the wall, which is how
+     you draw on it. Held, it stays where it was put - the drawing is
+     still laid on the wall either way, because what the cursor means
+     is where its ray meets the wall plane, not where it is on screen. */
+  if(drag && drag.kind === 'tilt' && !S.hold){ S.az = 0; S.el = 0; }
   if(drag && drag.kind === 'move' && drag.moved) sync();
   if(drag && drag.kind === 'cp' && drag.moved) sync();
   drag = null; dragging = false;
@@ -1975,15 +1805,6 @@ function overlay(){
   let s = '';
   const k = pxPerUnit();
 
-  /* The stroke under the hand is drawn, not modelled: it is the width
-     of the real material, so what you are dragging out is already the
-     wall you will print. The field is baked once you let go. */
-  if(drag && drag.kind === 'pen' && drag.pts.length > 1){
-    // faired as it is drawn, so the line under the hand is the line committed
-    const live = drag.pts.length > 6 ? fairPen(drag.pts) : drag.pts;
-    s += '<path d="' + screenPath(live) + '" fill="none" stroke="var(--ink)" stroke-opacity=".30" stroke-linecap="round" stroke-linejoin="round" stroke-width="' + (strokeMM()*MM*k).toFixed(2) + '"/>'
-       + '<path d="' + screenPath(live) + '" fill="none" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1"/>';
-  }
   if(poly && poly.pts.length){
     const curve = poly.mode === 'curve';
     const pts = poly.pts.slice();
@@ -2528,7 +2349,6 @@ function exportSVG(){
 const sw = 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"';
 const I = {
   select:'<path d="M4 2l10.5 7.6-4.6.8 2.4 4.6-1.9.9-2.4-4.6L4 15z" fill="currentColor"/>',
-  pen:'<path d="M2.6 13.6C5 13.6 4.4 5.6 7.4 5.6s2.4 8 5.4 8 2-5 2.6-6.4" ' + sw + '/>',
   curve:'<path d="M2.4 14.6C2.4 8.4 5.4 4 9 4s6.6 4.4 6.6 10.6" ' + sw + '/>'
     + '<rect x="1" y="13.2" width="2.8" height="2.8" ' + sw + '/>'
     + '<rect x="7.6" y="2.6" width="2.8" height="2.8" ' + sw + '/>'
@@ -2542,7 +2362,7 @@ const I = {
 const TOOLS = [
   ['select','Selection','V'],
   null,
-  ['curve','Control points','C'], ['line','Straight runs','L'], ['pen','Draw freehand','P'],
+  ['curve','Control points','C'], ['line','Straight runs','L'],
   null,
   ['tilt','Pull off axis','R'], ['hand','Pan','H'], ['zoom','Zoom','Z']
 ];
@@ -2557,13 +2377,12 @@ TOOLS.forEach(t => {
   b.onclick = () => setTool(id);
   railEl.appendChild(b);
 });
-const CURSOR = { select:'default', curve:'crosshair', pen:'crosshair', line:'crosshair', tilt:'move', hand:'grab', zoom:'zoom-in' };
+const CURSOR = { select:'default', curve:'crosshair', line:'crosshair', tilt:'move', hand:'grab', zoom:'zoom-in' };
 const HINTS = {
-  select:'Drag a shelf to move it - drag a control point to reshape the curve - drag empty space to pull the elevation off axis',
+  select:'Drag a shelf to move it - drag a control point to reshape the curve - drag empty space to look off axis',
   curve:'Click the control points - the curve is pulled towards them - click the first again to close - double-click or Enter finishes',
-  pen:'Draw the path - the stroke is the real width of the wall',
   line:'Click each turn - double-click or Enter finishes - Esc cancels',
-  tilt:'Drag to look at the path off axis - it glides back when you let go',
+  tilt:'Drag to look at the path off axis - it glides back when you let go, or hold it where you put it',
   hand:'Drag to pan',
   zoom:'Click to zoom in - alt-click to zoom out'
 };
@@ -2610,10 +2429,12 @@ function buildOpts(){
     oRange(g,'Depth',20,BUILD,5, ()=>S.depth, v=>{S.depth=v;}, v=>v+'mm');
     g.appendChild(el('label',null,'Degree'));
     g.appendChild(el('output',null,'3'));
-  } else if(S.tool === 'pen' || S.tool === 'line'){
+  } else if(S.tool === 'tilt'){
+    const g = oGroup();
+    oCheck(g,'Hold the view', ()=>S.hold, v=>{S.hold=v; if(!v){ S.az = 0; S.el = 0; } buildPanel();});
+  } else if(S.tool === 'line'){
     const g = oGroup();
     oRange(g,'Depth',20,BUILD,5, ()=>S.depth, v=>{S.depth=v;}, v=>v+'mm');
-    oRange(g,'Smooth',0,14,0.5, ()=>S.smooth, v=>{S.smooth=v; rebuildAll(); markAll();}, v=>v.toFixed(1)+'mm');
     oRange(g,'Corner',0,45,1, ()=>S.corner, v=>{S.corner=v; rebuildAll(); markAll();}, v=>v+'mm');
     oCheck(g,'Snap 90°', ()=>S.ortho, v=>{S.ortho=v; rebuildAll(); markAll(); buildPanel();});
   }
@@ -2686,14 +2507,13 @@ function buildPanel(){
 
   const b = sect('Path');
   slider(b,'Blend',0,16,0.5, ()=>S.blend, v=>{S.blend=v; markAll();}, v=>v.toFixed(1)+'mm');
-  slider(b,'Smooth',0,14,0.5, ()=>S.smooth, v=>{S.smooth=v; rebuildAll(); markAll();}, v=>v.toFixed(1)+'mm');
   slider(b,'Corner',0,45,1, ()=>S.corner, v=>{S.corner=v; rebuildAll(); markAll();}, v=>v+'mm');
   check(b,'Snap near-orthogonal runs', ()=>S.ortho, v=>{S.ortho=v; rebuildAll(); markAll();});
   if(S.ortho){
     slider(b,'Angle',3,25,1, ()=>S.orthoTol, v=>{S.orthoTol=v; rebuildAll(); markAll();}, v=>v+'°');
     slider(b,'Min run',8,60,1, ()=>S.runMin, v=>{S.runMin=v; rebuildAll(); markAll();}, v=>v+'mm');
   }
-  b.appendChild(el('div','hint','Smooth is a length: how long a wobble gets ironed out of the drawn line. A blend joins a curve to itself where it runs back alongside itself, so a scroll grows a fillet instead of a crease; where it crosses itself outright it is left alone, and the two strands meet in a corner. Corners are always rounded, snapped or not.'));
+  b.appendChild(el('div','hint','A blend joins a curve to itself where it runs back alongside itself, so a scroll grows a fillet instead of a crease; where it crosses itself outright it is left alone, and the two strands meet in a corner. Corners are always rounded, snapped or not.'));
 
   const i = sect('Inlet');
   slider(i,'Clearance',0,14,0.5, ()=>S.inlet, v=>{S.inlet=v; markAll();}, v=>v ? v.toFixed(1)+'mm' : 'touching');
@@ -2730,6 +2550,7 @@ function buildPanel(){
   check(d,'Crease lines', ()=>S.edges, v=>{S.edges=v;});
   check(d,'Toolpath only', ()=>S.path, v=>{S.path=v;});
   check(d,'Build volume', ()=>S.plate, v=>{S.plate=v;});
+  check(d,'Hold the view', ()=>S.hold, v=>{S.hold=v; if(!v){ S.az = 0; S.el = 0; } });
   check(d,'Dark', ()=>S.invert, setInvert);
 
   const e = sect('Export');
@@ -2744,7 +2565,7 @@ function buildPanel(){
   const f = sect('Start');
   const g5 = el('div','grid2'); f.appendChild(g5);
   button(g5,'Clear', clearAll);
-  f.appendChild(el('div','hint','Draw the shelf with the pen or the line tool. The drawing is the part.'));
+  f.appendChild(el('div','hint','Place the shelf with the control points or the line tool. The drawing is the part.'));
 
   const g = sect('Caption');
   [['cap1',S.cap1],['cap2',S.cap2],['cap3',S.cap3]].forEach(([k,v]) => {
@@ -2806,7 +2627,7 @@ function frame(t){
 /* ══════════════════════════════════════════════════════════════════
    11 · KEYBOARD
    ══════════════════════════════════════════════════════════════════ */
-const KEYMAP = { v:'select', c:'curve', p:'pen', l:'line', r:'tilt', h:'hand', z:'zoom' };
+const KEYMAP = { v:'select', c:'curve', l:'line', r:'tilt', h:'hand', z:'zoom' };
 // keys a focused range / checkbox / button is entitled to keep for itself
 const WIDGET_KEYS = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',
                              'Home','End','PageUp','PageDown','Enter',' ','Spacebar']);
