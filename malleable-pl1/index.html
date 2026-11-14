@@ -210,6 +210,9 @@ const BLEND  = 4;              // mm - the nozzle cannot turn a corner tighter t
 const DRAFT  = 7;              // degrees off plumb, and it stays there
 const MAXMM  = 914.4;          // 36 inches, every axis
 const FLOORT = 12;             // mm - three layers of floor
+/* The floor is one concentric spiral, not a stack of rings: the pass
+   steps in by six so each one lies two millimetres over the last. */
+const FSTEP  = NOZ - 2;        // mm
 const MINW   = 70;             // mm - the smallest the base may get
 const RIMMIN = 60;             // mm - and the smallest the opening may close to
 const BAKE_W = 2048, BAKE_H = 768;
@@ -373,7 +376,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale, uPix;
 uniform float uA, uR0, uH, uTan, uCos, uT, uFloor;
-uniform float uG, uSW, uBlend, uPitch, uRelief, uStepK;
+uniform float uG, uSW, uBlend, uPitch, uRelief, uStepK, uStep;
 uniform int uHasEmb, uSteps;
 uniform sampler2D uEmb;
 uniform vec3 uInk, uPaper;
@@ -414,6 +417,11 @@ float emboss(vec3 p){
 float planD(vec3 p){
   float r = rAtZ(p.z) - emboss(p);
   return length(p.xy - vec2(clamp(p.x, -uA, uA), 0.0)) - r;
+}
+/* the plain plan, with no drawing in it - what the floor's spiral is
+   stepped off, since the floor carries no embossing */
+float planFlat(vec3 p){
+  return length(p.xy - vec2(clamp(p.x, -uA, uA), 0.0)) - rAtZ(p.z);
 }
 float sdForm(vec3 p){
   float d = planD(p);
@@ -490,6 +498,19 @@ void main(){
       float cov = mix(sharp, 0.22, smoothstep(0.20, 0.55, w));
       col = mix(col, uInk, cov*0.17*(1.0 - face));
     }
+    /* and the floor, which is one spiral worked concentrically out from
+       the middle: the first pass runs half a bead in from the wall and
+       every one after it steps out by uStep, so each lies two
+       millimetres over the one before. The seam between two passes is
+       what you see looking down into it. */
+    if(uStep > 0.001 && face > 0.5 && abs(pos.z - uFloor) < 0.9){
+      float q = (-planFlat(pos) - uT*0.5)/uStep;
+      float w = fwidth(q);
+      float g = abs(fract(q + 0.5) - 0.5)/max(w, 1e-5);
+      float sharp = 1.0 - smoothstep(0.18, 0.80, g);
+      float cov = mix(sharp, 0.22, smoothstep(0.20, 0.55, w));
+      col = mix(col, uInk, cov*0.20*face);
+    }
   }
   outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -518,7 +539,7 @@ function initGL(){
   prog = link(VS, FS);
   bakeProg = link(VS, BAKE_FS);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uA','uR0','uH','uTan',
-                  'uCos','uT','uFloor','uG','uSW','uBlend','uPitch','uRelief','uStepK',
+                  'uCos','uT','uFloor','uG','uSW','uBlend','uPitch','uRelief','uStepK','uStep',
                   'uHasEmb','uSteps','uEmb','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
   for(const n of ['uSeg','uSegN','uRes','uA','uR0','uH','uTan'])
@@ -635,6 +656,7 @@ function draw(){
   gl.uniform1f(uni.uG, DEPTH);
   gl.uniform1f(uni.uSW, STROKE);
   gl.uniform1f(uni.uBlend, BLEND);
+  gl.uniform1f(uni.uStep, FSTEP);
   gl.uniform1i(uni.uHasEmb, embN ? 1 : 0);
   /* a rib finer than a couple of pixels is only moire, so the bead
      fades out as the layer approaches the pixel and the drawn seam
@@ -779,19 +801,30 @@ const redo = () => { if(hi < hist.length-1){ restore(hi+1); say('Redo'); } };
    thing height is answerable to is the opening: the wall draws in all
    the way up, so a tall enough planter would close itself, and the
    height stops where the rim has 60 mm left. */
+/* Length and width are not a bigger and a smaller: they are the two
+   axes of the same plan, and when they meet, the plan is a circle. The
+   one that is given way has to follow rather than stop dead, or a
+   circle is a corner you cannot back out of - push the end of a circle
+   in and the whole circle comes in with it, pull the side of one out
+   and the whole circle goes out. */
 function setDim(k, v){
   const want = v, draw = -2*SLOPE;       // mm the opening loses per mm of height
+  const floorW = Math.max(MINW, Math.ceil(RIMMIN + S.H*draw));
+  const top = Math.floor(MAXMM);
   if(k === 'H'){
     const lim = Math.min(MAXMM, (S.W - RIMMIN)/draw);
     S.H = Math.max(LAYER*3, Math.floor(Math.min(v, lim)/LAYER)*LAYER);
     if(want > S.H + LAYER) say(S.H*draw > S.W - RIMMIN - 1 ? 'the rim would close' : '36 in');
   } else if(k === 'L'){
-    S.L = Math.max(S.W, Math.min(Math.round(v), Math.floor(MAXMM)));
+    S.L = Math.max(floorW, Math.min(Math.round(v), top));
+    if(S.W > S.L) S.W = S.L;
     if(want > S.L + 1) say('36 in');
+    else if(want < S.L - 1) say(S.L > MINW ? 'the rim would close' : 'as small as it goes');
   } else {
-    S.W = Math.max(MINW, Math.ceil(RIMMIN + S.H*draw), Math.min(Math.round(v), S.L, Math.floor(MAXMM)));
+    S.W = Math.max(floorW, Math.min(Math.round(v), top));
     if(S.L < S.W) S.L = S.W;
     if(want > S.W + 1) say('36 in');
+    else if(want < S.W - 1) say(S.W > MINW ? 'the rim would close' : 'as small as it goes');
   }
   embDirty = true;
 }
@@ -853,9 +886,15 @@ function grabAt(sx, sy){
      whatever the zoom. Take hold of the rim and the planter grows. */
   const lip = 9*(A.scale/Math.max(vh,1));
   const flat = Math.abs(n[2]) > 0.55 || z > S.H - lip;
+  /* Which dimension a wall belongs to is the way it faces, not which
+     part of the plan it was cut from. On a circle the straight run has
+     no length at all, so by region every point would be an end and the
+     width would have no handle left anywhere on the planter. Which SIDE
+     still comes from the plan, so the inside face of a wall moves the
+     same way the outside of it does. */
   const g = flat
     ? { key:'H', axis:[0,0,1], gain:1 }
-    : (c.face === 'R' || c.face === 'L')
+    : Math.abs(n[0]) >= Math.abs(n[1])
       ? { key:'L', axis:[p[0] >= 0 ? 1 : -1, 0, 0], gain:2 }
       : { key:'W', axis:[0, p[1] >= 0 ? 1 : -1, 0], gain:2 };
   /* A wall pointing straight at the camera has nowhere on the paper to
@@ -1086,25 +1125,55 @@ function loopAt(z, segs){
   }
   return out;
 }
+/* ── the floor, as one concentric spiral ───────────────────────────
+   The plan offset inward by o is the same obround with the same
+   straight run and a radius smaller by o, so a spiral is just that
+   offset creeping on by one step every time round. It starts in the
+   middle and works out, and the last turn finishes half a bead inside
+   the wall - which is exactly where the wall's own spiral begins, so
+   the nozzle never has to lift between the two.                      */
+function floorSpiral(z){
+  const r = rAt(z), a = aOf(), out = [];
+  for(let o = NOZ/2; r - o > 0.5; o += FSTEP){
+    const rr = r - o;
+    const P0 = 2*Math.PI*rr + 4*a;
+    const n = Math.max(16, Math.round(P0/4));
+    for(let i=0;i<n;i++){
+      const frac = i/n;
+      const r2 = r - (o + FSTEP*frac);
+      if(r2 <= 0) continue;
+      const q = atArc(frac*(2*Math.PI*r2 + 4*a), r2);
+      out.push([q.x, q.y]);
+    }
+  }
+  out.reverse();                 // middle first, wall last
+  return out;
+}
 function gcode(){
   const segs = segsMM();
-  const EPMM = (NOZ*LAYER - LAYER*LAYER*(1 - Math.PI/4))/(Math.PI*Math.pow(1.75/2, 2));
+  const FA = Math.PI*Math.pow(1.75/2, 2);
+  const VWALL = NOZ*LAYER - LAYER*LAYER*(1 - Math.PI/4);   // mm3 of bead per mm
+  const VFLOOR = FSTEP*LAYER;                              // a pass only owes its own step
+  const EPMM = VWALL/FA, EFLR = VFLOOR/FA;
   const L = [];
   L.push('; MALLEABLE PL1');
   L.push('; base ' + S.L + ' x ' + S.W + ' mm, height ' + S.H + ' mm, rim ' +
          Math.round(rimL()) + ' x ' + Math.round(rimW()) + ' mm');
   L.push('; draft ' + DRAFT + ' deg, nozzle ' + NOZ + ' mm, layer ' + LAYER + ' mm, ' + layers() + ' layers');
   L.push('; emboss ' + S.strokes.length + ' strokes, ' + STROKE + ' mm wide, ' + DEPTH + ' mm deep');
-  L.push('; one spiral, no retraction. E is 1.75 mm filament: ' + EPMM.toFixed(3) +
-         ' mm per mm of travel, ' + (NOZ*LAYER - LAYER*LAYER*(1 - Math.PI/4)).toFixed(2) +
-         ' mm3 per mm. For a volumetric machine, multiply E by 2.405.');
+  L.push('; floor: concentric spiral, ' + FSTEP + ' mm step, so each pass lies ' +
+         (NOZ - FSTEP) + ' mm over the last');
+  L.push('; no retraction anywhere. E is 1.75 mm filament: wall ' + EPMM.toFixed(3) +
+         ' mm/mm (' + VWALL.toFixed(2) + ' mm3/mm), floor ' + EFLR.toFixed(3) +
+         ' mm/mm (' + VFLOOR.toFixed(2) + ' mm3/mm). For a volumetric machine, multiply E by ' +
+         FA.toFixed(3) + '.');
   L.push('G21'); L.push('G90'); L.push('M83');
   L.push('G92 E0');
   let px = null, py = null;
-  const move = (x, y, z) => {
+  const move = (x, y, z, rate) => {
     if(px === null){ L.push('G0 Z'+z.toFixed(3)); L.push('G0 X'+x.toFixed(3)+' Y'+y.toFixed(3)); }
     else {
-      const e = Math.hypot(x-px, y-py)*EPMM;
+      const e = Math.hypot(x-px, y-py)*(rate === undefined ? EPMM : rate);
       L.push('G1 X'+x.toFixed(3)+' Y'+y.toFixed(3)+' Z'+z.toFixed(3)+' E'+e.toFixed(4));
     }
     px = x; py = y;
@@ -1113,24 +1182,22 @@ function gcode(){
     L.push('G0 X'+x.toFixed(3)+' Y'+y.toFixed(3)+' Z'+z.toFixed(3));
     px = x; py = y;
   };
-  // the floor, laid in rings from the outside in, then a run down the middle
+  /* The floor. Each layer is one spiral, and they run alternately out
+     and in so the end of one is where the next begins - an odd number
+     of them finishes at the wall. */
   const nFloor = Math.max(1, Math.round(Math.min(FLOORT, S.H)/LAYER));
-  const a = aOf();
   for(let li=0; li<nFloor; li++){
     const z = (li+1)*LAYER;
-    const r = rAt(z);
-    let rr = r - NOZ/2;
-    for(; rr >= NOZ*0.6; rr -= NOZ){
-      const P = 2*Math.PI*rr + 4*a;
-      const n = Math.max(32, Math.round(P/4));
-      for(let i=0;i<=n;i++){
-        const q = atArc(Math.min(P*i/n, P-1e-6), rr);
-        if(i === 0 && px !== null) jump(q.x, q.y, z); else move(q.x, q.y, z);
-      }
-    }
-    if(a > NOZ*0.5){                       // the seam the rings cannot reach
-      jump(-a, 0, z); move(a, 0, z);
-    }
+    const sp = floorSpiral(z);
+    if(li % 2) sp.reverse();                 // every other one comes back in
+    if(!sp.length) continue;
+    if(px === null) move(sp[0][0], sp[0][1], z);
+    else if(Math.hypot(sp[0][0]-px, sp[0][1]-py) > NOZ) jump(sp[0][0], sp[0][1], z);
+    for(let i=1;i<sp.length;i++) move(sp[i][0], sp[i][1], z, EFLR);
+  }
+  if(nFloor % 2 === 0){                      // ended in the middle; walk back out
+    const z = nFloor*LAYER, sp = floorSpiral(z);
+    if(sp.length) jump(sp[sp.length-1][0], sp[sp.length-1][1], z);
   }
   // and then one spiral, all the way up
   const z0 = nFloor*LAYER;
