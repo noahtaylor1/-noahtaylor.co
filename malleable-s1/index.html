@@ -231,7 +231,7 @@ const PAD = 1.2;                   // units of empty field around a ribbon
 let uid = 1;
 
 const S = {
-  ribs:[], sel:new Set(), tool:'pen',
+  ribs:[], sel:new Set(), tool:'curve',
   tx:0, ty:0, tz:5, scale:52,
   az:0, el:0,                      // the elevation is home; a tilt springs back to it
   bead:3, layer:1.5, lap:0.5,      // mm - the mod's fat nozzle
@@ -585,10 +585,69 @@ function mkRib(raw, mode){
   build(o);
   return o;
 }
+/* ── control points ────────────────────────────────────────────────
+   A degree-three B-spline on the points as placed: the curve is
+   pulled towards them rather than threaded through them, which is
+   what makes it fair, and it holds the first and last exactly, and
+   leaves each end tangent to its first span. Fewer than four points
+   and the degree comes down to what they can carry, so three points
+   are a parabola and two are a line - the same thing Rhino does.
+   Bring the last point back onto the first and it closes periodic,
+   with no corner at the join. */
+function bspline(cps, deg, per){
+  const n = cps.length;
+  if(n < 2) return cps.map(q => ({x:q.x, y:q.y}));
+  const P = cps.map(q => ({x:q.x, y:q.y}));
+  const p = Math.min(deg, (per ? n : n-1));
+  if(p < 1) return P;
+  let C = P, lo, hi, U;
+  if(per){
+    C = P.concat(P.slice(0, p));                 // wrap, so the join is just another span
+    U = []; for(let i=0;i<C.length+p+1;i++) U.push(i);
+    lo = U[p]; hi = U[C.length];
+  } else {
+    const m = n + p + 1;
+    U = new Array(m);
+    for(let i=0;i<=p;i++) U[i] = 0;
+    for(let i=p+1;i<n;i++) U[i] = i - p;
+    for(let i=n;i<m;i++) U[i] = n - p;
+    lo = 0; hi = n - p;
+  }
+  const N = C.length;
+  const spanOf = u => {
+    if(u >= U[N]) return N-1;
+    let a = p, b = N;
+    while(b - a > 1){ const mid = (a+b) >> 1; if(U[mid] <= u) a = mid; else b = mid; }
+    return a;
+  };
+  const at = u => {
+    const k = spanOf(u), d = [];
+    for(let j=0;j<=p;j++){ const q = C[k-p+j]; d.push({x:q.x, y:q.y}); }
+    for(let r=1;r<=p;r++) for(let j=p;j>=r;j--){
+      const i = k - p + j;
+      const den = U[i+p-r+1] - U[i];
+      const a = den > 1e-12 ? (u - U[i])/den : 0;
+      d[j] = { x:(1-a)*d[j-1].x + a*d[j].x, y:(1-a)*d[j-1].y + a*d[j].y };
+    }
+    return d[p];
+  };
+  const steps = Math.max(24, Math.min(1400, Math.round((hi - lo)*26)));
+  const out = [];
+  for(let i=0;i<=steps;i++) out.push(at(lo + (hi-lo)*i/steps));
+  if(per) out[out.length-1] = { x:out[0].x, y:out[0].y };
+  return out;
+}
+/* Closed if the hand brought the last point home. */
+const curveShut = v => v.length > 3 && Math.hypot(v[0].x - v[v.length-1].x, v[0].y - v[v.length-1].y) < 1e-6;
 function build(o){
   let v = o.raw.map(q=>({x:q.x, y:q.y}));
   if(v.length >= 2){
-    if(o.mode === 'pen'){
+    if(o.mode === 'curve'){
+      /* Nothing is faired, snapped or filletted here: the points are
+         the drawing, and the curve through them is what they say. */
+      const shut = curveShut(v);
+      v = bspline(shut ? v.slice(0, -1) : v, 3, shut);
+    } else if(o.mode === 'pen'){
       /* The faired line IS the geometry from here on. Thinning it to
          knots is only ever a way of asking which stretches the hand
          meant to be straight. */
@@ -1726,9 +1785,22 @@ function orthoCursor(from, to){
   return to;
 }
 function polyFinish(){
-  if(poly && poly.pts.length > 1){ snap(); addRib(poly.pts, 'line'); }
+  if(poly && poly.pts.length > 1){ snap(); addRib(poly.pts, poly.mode || 'line'); }
   poly = null;
   sync();
+}
+/* The control point under the cursor, on a ribbon already picked out.
+   Points are grabbed in screen pixels, not in millimetres, so the
+   grab is the same size however far in you are. */
+function cpAt(sx, sy){
+  for(const o of S.ribs){
+    if(o.mode !== 'curve' || !S.sel.has(o.id)) continue;
+    for(let i=0;i<o.raw.length;i++){
+      const q = worldToScreen(o.raw[i].x, o.raw[i].y, 0);
+      if(Math.hypot(q.x-sx, q.y-sy) < 7) return { o, i };
+    }
+  }
+  return null;
 }
 function addRib(raw, mode){
   if(S.ribs.length >= MAXRIB){ say('Eight ribbons is the limit'); return null; }
@@ -1760,11 +1832,12 @@ viewEl.addEventListener('pointerdown', e => {
     drag = { kind:'pen', pts:[w] };
     return;
   }
-  if(S.tool === 'line'){
+  if(S.tool === 'curve' || S.tool === 'line'){
     if(!w) return;
+    const kind = S.tool;
     const last = poly && poly.pts.length ? poly.pts[poly.pts.length-1] : null;
-    const p = orthoCursor(last, w);
-    if(!poly) poly = { pts:[p] };
+    const p = kind === 'curve' ? w : orthoCursor(last, w);
+    if(!poly) poly = { pts:[p], mode:kind };
     else {
       // clicking the first point again closes the run
       const f = poly.pts[0];
@@ -1777,6 +1850,8 @@ viewEl.addEventListener('pointerdown', e => {
     return;
   }
   // select
+  const cp = cpAt(sx, sy);
+  if(cp){ drag = { kind:'cp', cp, moved:false }; return; }
   const hit = w ? ribAt(w.x, w.y) : null;
   if(hit){
     if(e.shiftKey) S.sel.has(hit.id) ? S.sel.delete(hit.id) : S.sel.add(hit.id);
@@ -1815,6 +1890,20 @@ addEventListener('pointermove', e => {
     if(Math.hypot(w.x-last.x, w.y-last.y) > A.scale*0.0018) drag.pts.push(w);
     return;
   }
+  if(drag.kind === 'cp'){
+    if(!w) return;
+    const { o, i } = drag.cp;
+    if(!drag.moved){ snap(); drag.moved = true; }
+    const shut = curveShut(o.raw);
+    o.raw[i].x = w.x; o.raw[i].y = w.y;
+    /* A closed curve keeps the point it came home to. */
+    if(shut && (i === 0 || i === o.raw.length-1)){
+      const j = i === 0 ? o.raw.length-1 : 0;
+      o.raw[j].x = w.x; o.raw[j].y = w.y;
+    }
+    build(o);
+    return;
+  }
   if(drag.kind === 'move'){
     if(!w) return;
     const dx = w.x-drag.w.x, dy = w.y-drag.w.y;
@@ -1832,6 +1921,7 @@ addEventListener('pointerup', () => {
     else say('Too short to be a path');
   }
   if(drag && drag.kind === 'move' && drag.moved) sync();
+  if(drag && drag.kind === 'cp' && drag.moved) sync();
   drag = null; dragging = false;
 });
 viewEl.addEventListener('dblclick', () => { if(poly) polyFinish(); });
@@ -1895,9 +1985,13 @@ function overlay(){
        + '<path d="' + screenPath(live) + '" fill="none" stroke="var(--ink)" stroke-opacity=".5" stroke-width="1"/>';
   }
   if(poly && poly.pts.length){
+    const curve = poly.mode === 'curve';
     const pts = poly.pts.slice();
-    if(hoverW) pts.push(orthoCursor(pts[pts.length-1], hoverW));
-    const f = pts.length > 2 ? filletPoly(pts, S.corner*MM) : pts;
+    if(hoverW) pts.push(curve ? hoverW : orthoCursor(pts[pts.length-1], hoverW));
+    const f = curve ? bspline(pts, 3) : (pts.length > 2 ? filletPoly(pts, S.corner*MM) : pts);
+    /* The cage, so you can see what the curve is being pulled by. */
+    if(curve && pts.length > 1)
+      s += '<path d="' + screenPath(pts) + '" fill="none" stroke="var(--sel)" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>';
     s += '<path d="' + screenPath(f) + '" fill="none" stroke="var(--ink)" stroke-opacity=".30" stroke-linecap="round" stroke-linejoin="round" stroke-width="' + (strokeMM()*MM*k).toFixed(2) + '"/>'
        + '<path d="' + screenPath(f) + '" fill="none" stroke="var(--ink)" stroke-opacity=".55" stroke-width="1"/>';
     for(const p of poly.pts){
@@ -1911,6 +2005,15 @@ function overlay(){
     const d = screenPath(o.pts);
     s += '<path d="' + d + '" fill="none" stroke="var(--paper)" stroke-width="2.4" opacity=".7"/>'
        + '<path d="' + d + '" fill="none" stroke="var(--guide)" stroke-width="1.1" stroke-dasharray="4 3" opacity=".9"/>';
+    /* A curve shows what shapes it, and the points can be taken hold
+       of where they are drawn. */
+    if(o.mode === 'curve'){
+      s += '<path d="' + screenPath(o.raw) + '" fill="none" stroke="var(--sel)" stroke-width="1" stroke-dasharray="3 3" opacity=".5"/>';
+      for(const p of o.raw){
+        const q = worldToScreen(p.x, p.y, 0);
+        s += '<rect x="' + (q.x-2.5) + '" y="' + (q.y-2.5) + '" width="5" height="5" fill="var(--paper)" stroke="var(--sel)" stroke-width="1.2"/>';
+      }
+    }
     if(S.plate){
       /* The cube the printer actually has, squared on this ribbon. If a
          corner of it is inside the drawing, the shelf is not one part. */
@@ -2426,6 +2529,10 @@ const sw = 'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin
 const I = {
   select:'<path d="M4 2l10.5 7.6-4.6.8 2.4 4.6-1.9.9-2.4-4.6L4 15z" fill="currentColor"/>',
   pen:'<path d="M2.6 13.6C5 13.6 4.4 5.6 7.4 5.6s2.4 8 5.4 8 2-5 2.6-6.4" ' + sw + '/>',
+  curve:'<path d="M2.4 14.6C2.4 8.4 5.4 4 9 4s6.6 4.4 6.6 10.6" ' + sw + '/>'
+    + '<rect x="1" y="13.2" width="2.8" height="2.8" ' + sw + '/>'
+    + '<rect x="7.6" y="2.6" width="2.8" height="2.8" ' + sw + '/>'
+    + '<rect x="14.2" y="13.2" width="2.8" height="2.8" ' + sw + '/>',
   line:'<path d="M2.6 14.4V8.2a2.6 2.6 0 012.6-2.6h4.2" ' + sw + '/>'
     + '<circle cx="2.6" cy="14.4" r="1.5" ' + sw + '/><circle cx="12" cy="5.6" r="1.5" ' + sw + '/>',
   tilt:'<path d="M2.4 6.2L9 3l6.6 3.2L9 9.4z" ' + sw + '/><path d="M2.4 6.2v5.6L9 15l6.6-3.2V6.2" ' + sw + ' opacity=".5"/>',
@@ -2435,7 +2542,7 @@ const I = {
 const TOOLS = [
   ['select','Selection','V'],
   null,
-  ['pen','Draw a path','P'], ['line','Straight runs','L'],
+  ['curve','Control points','C'], ['line','Straight runs','L'], ['pen','Draw freehand','P'],
   null,
   ['tilt','Pull off axis','R'], ['hand','Pan','H'], ['zoom','Zoom','Z']
 ];
@@ -2450,9 +2557,10 @@ TOOLS.forEach(t => {
   b.onclick = () => setTool(id);
   railEl.appendChild(b);
 });
-const CURSOR = { select:'default', pen:'crosshair', line:'crosshair', tilt:'move', hand:'grab', zoom:'zoom-in' };
+const CURSOR = { select:'default', curve:'crosshair', pen:'crosshair', line:'crosshair', tilt:'move', hand:'grab', zoom:'zoom-in' };
 const HINTS = {
-  select:'Drag a shelf to move it - drag empty space to pull the elevation off axis',
+  select:'Drag a shelf to move it - drag a control point to reshape the curve - drag empty space to pull the elevation off axis',
+  curve:'Click the control points - the curve is pulled towards them - click the first again to close - double-click or Enter finishes',
   pen:'Draw the path - the stroke is the real width of the wall',
   line:'Click each turn - double-click or Enter finishes - Esc cancels',
   tilt:'Drag to look at the path off axis - it glides back when you let go',
@@ -2460,7 +2568,7 @@ const HINTS = {
   zoom:'Click to zoom in - alt-click to zoom out'
 };
 function setTool(id){
-  if(poly && id !== 'line') polyFinish();
+  if(poly && id !== poly.mode) polyFinish();
   S.tool = id;
   railEl.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
   viewEl.style.cursor = CURSOR[id] || 'crosshair';
@@ -2497,7 +2605,12 @@ function buildOpts(){
   optsEl.innerHTML = '';
   const t = TOOLS.find(x => x && x[0] === S.tool);
   optsEl.appendChild(el('div','tname', t ? t[1] : S.tool));
-  if(S.tool === 'pen' || S.tool === 'line'){
+  if(S.tool === 'curve'){
+    const g = oGroup();
+    oRange(g,'Depth',20,BUILD,5, ()=>S.depth, v=>{S.depth=v;}, v=>v+'mm');
+    g.appendChild(el('label',null,'Degree'));
+    g.appendChild(el('output',null,'3'));
+  } else if(S.tool === 'pen' || S.tool === 'line'){
     const g = oGroup();
     oRange(g,'Depth',20,BUILD,5, ()=>S.depth, v=>{S.depth=v;}, v=>v+'mm');
     oRange(g,'Smooth',0,14,0.5, ()=>S.smooth, v=>{S.smooth=v; rebuildAll(); markAll();}, v=>v.toFixed(1)+'mm');
@@ -2693,7 +2806,7 @@ function frame(t){
 /* ══════════════════════════════════════════════════════════════════
    11 · KEYBOARD
    ══════════════════════════════════════════════════════════════════ */
-const KEYMAP = { v:'select', p:'pen', l:'line', r:'tilt', h:'hand', z:'zoom' };
+const KEYMAP = { v:'select', c:'curve', p:'pen', l:'line', r:'tilt', h:'hand', z:'zoom' };
 // keys a focused range / checkbox / button is entitled to keep for itself
 const WIDGET_KEYS = new Set(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',
                              'Home','End','PageUp','PageDown','Enter',' ','Spacebar']);
@@ -2740,7 +2853,7 @@ document.getElementById('drawer').onclick = () => panel.classList.toggle('open')
    ══════════════════════════════════════════════════════════════════ */
 resize();
 document.documentElement.setAttribute('data-theme','light');
-setTool('pen');
+setTool('curve');
 fitView();
 A.scale = S.scale; A.tx = S.tx; A.ty = S.ty; A.tz = S.tz; A.pitch = S.layer*MM;
 snap(); sync(); buildOpts();
