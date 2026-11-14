@@ -53,6 +53,19 @@ button,input,select{font:inherit;color:inherit}
 @keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
 #opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
 #opts output{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* A slider is a rule with a bead on it - no colour anywhere, the same
+   hairline and the same ink as everything else on the plate. */
+input[type=range]{-webkit-appearance:none;appearance:none;background:none;height:14px;margin:0;
+  accent-color:var(--ink);cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--rule)}
+input[type=range]::-moz-range-track{height:1px;background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:8px;height:8px;border-radius:50%;
+  background:var(--ink);border:0;margin-top:-3.5px;cursor:pointer;transition:transform .12s var(--ease)}
+input[type=range]::-moz-range-thumb{width:8px;height:8px;border:0;border-radius:50%;
+  background:var(--ink);cursor:pointer}
+input[type=range]::-moz-range-progress{height:1px;background:var(--rule)}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.35)}
+input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 #opts input[type=range]{flex:0 0 76px;width:76px;margin:0}
 #opts .seg{flex:0 0 128px;height:24px}
 #opts .seg button{padding:0 2px;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
