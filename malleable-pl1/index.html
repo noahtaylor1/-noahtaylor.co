@@ -47,7 +47,7 @@ button,input,select{font:inherit;color:inherit}
 #opts::-webkit-scrollbar{display:none}
 #opts .tname{font-weight:500;letter-spacing:.18em;text-transform:uppercase;font-size:10px;
   white-space:nowrap;flex:none;padding-right:12px;margin-right:12px;border-right:1px solid var(--rule);min-width:104px}
-#opts .ogrp{display:flex;align-items:center;gap:7px;flex:0 1 auto;min-width:0;padding-right:12px;margin-right:12px;
+#opts .ogrp{display:flex;align-items:center;gap:7px;flex:0 0 auto;min-width:0;padding-right:12px;margin-right:12px;
   border-right:1px solid var(--rule-soft);animation:fadein .18s var(--ease)}
 #opts .ogrp:last-child{border-right:0}
 @keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
@@ -1314,13 +1314,21 @@ function buildOpts(){
   }
   optsEl.appendChild(g0);
   syncOpts();
-  const g1 = el('div','ogrp');
-  g1.append(el('label',null,'Nozzle'), el('output',null, NOZ + 'mm'),
-            el('label',null,'Layer'),  el('output',null, LAYER + 'mm'));
-  optsEl.appendChild(g1);
-  const g2 = el('div','ogrp');
-  g2.append(el('label',null,'Draft'), el('output',null, DRAFT + '°'));
-  optsEl.appendChild(g2);
+  /* Nozzle, layer and draft never change, so on a narrow window they
+     are the first things to go: a control you cannot reach is worse
+     than a fact you already know. They are in the G-code header too. */
+  const room = innerWidth - (S.tool === 'draw' ? 360 : 0);
+  if(room >= 820){
+    const g1 = el('div','ogrp');
+    g1.append(el('label',null,'Nozzle'), el('output',null, NOZ + 'mm'),
+              el('label',null,'Layer'),  el('output',null, LAYER + 'mm'));
+    optsEl.appendChild(g1);
+  }
+  if(room >= 700){
+    const g2 = el('div','ogrp');
+    g2.append(el('label',null,'Draft'), el('output',null, DRAFT + '°'));
+    optsEl.appendChild(g2);
+  }
   if(S.tool === 'draw'){
     /* Which way the wall goes, and how wide the stroke is. The depth
        is not a choice: four millimetres is what the wall can give. */
