@@ -53,6 +53,9 @@ button,input,select{font:inherit;color:inherit}
 @keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
 #opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
 #opts output{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#opts input[type=range]{flex:0 0 76px;width:76px;margin:0}
+#opts .seg{flex:0 0 128px;height:24px}
+#opts .seg button{padding:0 2px;font-size:10px;letter-spacing:.06em;text-transform:uppercase}
 
 #rail{grid-column:1;grid-row:2/4;background:var(--chrome);border-right:1px solid var(--rule);
   display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 0;overflow-y:auto;scrollbar-width:none}
@@ -204,8 +207,9 @@ button,input,select{font:inherit;color:inherit}
 
 const NOZ    = 8;              // mm - the Ginger 8 mm nozzle, one bead is the wall
 const LAYER  = 4;              // mm
-const STROKE = 4;              // mm - the embossing stroke
-const DEPTH  = 4;              // mm - how far into the wall it goes
+const STROKE = 4;              // mm - the relief stroke, to start with
+const SWMIN  = 2, SWMAX = 40;  // mm - and how far it may be taken
+const DEPTH  = 4;              // mm - how far the wall moves. This one is fixed.
 const BLEND  = 4;              // mm - the nozzle cannot turn a corner tighter than this
 const DRAFT  = 7;              // degrees off plumb, and it stays there
 const MAXMM  = 914.4;          // 36 inches, every axis
@@ -233,7 +237,8 @@ const FACES = { F:{az:0,   name:'FRONT'},
 
 const S = {
   L:420, W:200, H:160,          // the base, in mm - the figures on the drawing
-  strokes:[],                   // [{pts:[{u,v}, ...]}] - normalised to the skin
+  strokes:[],                   // [{pts:[{u,v}...], w, sunk}] - normalised to the skin
+  sw:STROKE, sunk:true,         // what the next stroke will be made of
   tool:'orbit',
   face:null,                    // null is free 3D; otherwise 'F' 'R' 'B' 'L'
   az:45*RAD, el:35.264*RAD,     // the isometric is home
@@ -310,20 +315,21 @@ function atArc(s, r){
    stays where you put it when the planter is resized. The metric is
    always millimetres: it is turned back into (s,z) against whatever
    the form is now, and the stroke is 4 mm wide at any size. */
+/* Each stroke carries its own width and its own direction - in for a
+   deboss, out for an emboss - so a drawing can hold both. */
 function segsMM(){
   const out = [];
   for(const st of S.strokes){
-    const p = st.pts;
+    const p = st.pts, w = st.w || STROKE, sg = st.sunk === false ? -1 : 1;
     for(let i=1;i<p.length;i++){
       const z0 = p[i-1].v*S.H, z1 = p[i].v*S.H;
-      out.push([ p[i-1].u*perim(z0), z0, p[i].u*perim(z1), z1 ]);
+      out.push([ p[i-1].u*perim(z0), z0, p[i].u*perim(z1), z1, w, sg ]);
       if(out.length >= MAXSEG) return out;
     }
   }
   return out;
 }
 const smoothstep = (a,b,x) => { const t = Math.min(1, Math.max(0, (x-a)/(b-a))); return t*t*(3-2*t); };
-function embOf(d){ return DEPTH*(1 - smoothstep(STROKE/2, STROKE/2 + BLEND, d)); }
 
 /* ══════════════════════════════════════════════════════════════════
    2 · GL — the skin is solved, the drawing is baked
@@ -343,31 +349,41 @@ precision highp float;
 uniform sampler2D uSeg;
 uniform int uSegN;
 uniform vec2 uRes;
-uniform float uA, uR0, uH, uTan;
+uniform float uA, uR0, uH, uTan, uBlend;
 out vec4 outColor;
 const float PI = 3.141592653589793;
+/* Two numbers come out of here, not one: how much of the wall at this
+   place is being pressed in, and how much of it is being pushed out.
+   Each is the deepest any one stroke takes it, so strokes crossing do
+   not pile up, and a drawing may hold both kinds at once. The profile
+   is worked out here rather than later because every stroke has its
+   own width, and once they are mixed a distance alone cannot say which
+   width it should be read against. */
 void main(){
   vec2 t = gl_FragCoord.xy/uRes;
   float z = t.y*uH;
   float r = uR0 + z*uTan;
   float P = 2.0*PI*r + 4.0*uA;
   float s = t.x*P;
-  float best = 160.0;
+  float din = 0.0, dout = 0.0;
   for(int i=0;i<4096;i++){
     if(i >= uSegN) break;
     vec4 g = texelFetch(uSeg, ivec2(i,0), 0);
+    vec4 k = texelFetch(uSeg, ivec2(i,1), 0);   // x: the stroke's width. y: +1 in, -1 out.
     vec2 a = g.xy, b = g.zw;
     /* the seam is only a seam in the numbering - carry the segment
        round to whichever copy of itself lies nearest this texel */
     float shift = P*floor((s - (a.x+b.x)*0.5)/P + 0.5);
     a.x += shift; b.x += shift;
-    if(s < min(a.x,b.x) - 14.0 || s > max(a.x,b.x) + 14.0) continue;
-    if(z < min(a.y,b.y) - 14.0 || z > max(a.y,b.y) + 14.0) continue;
+    float m = k.x*0.5 + uBlend + 2.0;
+    if(s < min(a.x,b.x) - m || s > max(a.x,b.x) + m) continue;
+    if(z < min(a.y,b.y) - m || z > max(a.y,b.y) + m) continue;
     vec2 pa = vec2(s,z) - a, ba = b - a;
     float h = clamp(dot(pa,ba)/max(dot(ba,ba),1e-6), 0.0, 1.0);
-    best = min(best, length(pa - ba*h));
+    float f = 1.0 - smoothstep(k.x*0.5, k.x*0.5 + uBlend, length(pa - ba*h));
+    if(k.y > 0.0) din = max(din, f); else dout = max(dout, f);
   }
-  outColor = vec4(best, 0.0, 0.0, 1.0);
+  outColor = vec4(din, dout, 0.0, 1.0);
 }`;
 
 const FS = `#version 300 es
@@ -376,7 +392,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale, uPix;
 uniform float uA, uR0, uH, uTan, uCos, uT, uFloor;
-uniform float uG, uSW, uBlend, uPitch, uRelief, uStepK, uStep;
+uniform float uG, uPitch, uRelief, uStepK, uStep;
 uniform int uHasEmb, uSteps;
 uniform sampler2D uEmb;
 uniform vec3 uInk, uPaper;
@@ -407,12 +423,13 @@ vec2 skin(vec3 p){
   }
   return vec2(s/P, z/uH);
 }
-/* how far the path steps inward here - the boolean, taken on the
-   toolpath rather than on the solid, so both faces carry it */
+/* how far the path steps off its line here - the boolean, taken on the
+   toolpath rather than on the solid, so both faces carry it. Positive
+   is into the wall, negative is proud of it. */
 float emboss(vec3 p){
   if(uHasEmb == 0) return 0.0;
-  float d = textureLod(uEmb, skin(p), 0.0).r;
-  return uG*(1.0 - smoothstep(uSW*0.5, uSW*0.5 + uBlend, d));
+  vec2 e = textureLod(uEmb, skin(p), 0.0).rg;
+  return uG*(e.x - e.y);
 }
 float planD(vec3 p){
   float r = rAtZ(p.z) - emboss(p);
@@ -516,7 +533,7 @@ void main(){
 }`;
 
 let prog, bakeProg, uni = {}, bun = {}, embTex, segTex, fbo, ok = true;
-const segData = new Float32Array(MAXSEG*4);
+const segData = new Float32Array(MAXSEG*8);
 
 function compile(type, src){
   const sh = gl.createShader(type);
@@ -539,10 +556,10 @@ function initGL(){
   prog = link(VS, FS);
   bakeProg = link(VS, BAKE_FS);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uA','uR0','uH','uTan',
-                  'uCos','uT','uFloor','uG','uSW','uBlend','uPitch','uRelief','uStepK','uStep',
+                  'uCos','uT','uFloor','uG','uPitch','uRelief','uStepK','uStep',
                   'uHasEmb','uSteps','uEmb','uInk','uPaper'])
     uni[n] = gl.getUniformLocation(prog, n);
-  for(const n of ['uSeg','uSegN','uRes','uA','uR0','uH','uTan'])
+  for(const n of ['uSeg','uSegN','uRes','uA','uR0','uH','uTan','uBlend'])
     bun[n] = gl.getUniformLocation(bakeProg, n);
   gl.bindVertexArray(gl.createVertexArray());
 
@@ -562,7 +579,7 @@ function initGL(){
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, MAXSEG, 1);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, MAXSEG, 2);
 
   fbo = gl.createFramebuffer();
   gl.useProgram(prog);   gl.uniform1i(uni.uEmb, 0);
@@ -578,12 +595,14 @@ function bake(){
   embDirty = false;
   if(!embN) return;
   for(let i=0;i<embN;i++){
-    const g = segs[i];
+    const g = segs[i], q = (MAXSEG+i)*4;
     segData[i*4] = g[0]; segData[i*4+1] = g[1]; segData[i*4+2] = g[2]; segData[i*4+3] = g[3];
+    segData[q] = g[4]; segData[q+1] = g[5]; segData[q+2] = 0; segData[q+3] = 0;
   }
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, segTex);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, embN, 1, gl.RGBA, gl.FLOAT, segData, 0);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 1, embN, 1, gl.RGBA, gl.FLOAT, segData, MAXSEG*4);
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, embTex, 0);
@@ -595,6 +614,7 @@ function bake(){
   gl.uniform1f(bun.uR0, r0Of());
   gl.uniform1f(bun.uH, S.H);
   gl.uniform1f(bun.uTan, SLOPE);
+  gl.uniform1f(bun.uBlend, BLEND);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
@@ -654,8 +674,6 @@ function draw(){
   gl.uniform1f(uni.uT, NOZ);
   gl.uniform1f(uni.uFloor, Math.min(FLOORT, S.H));
   gl.uniform1f(uni.uG, DEPTH);
-  gl.uniform1f(uni.uSW, STROKE);
-  gl.uniform1f(uni.uBlend, BLEND);
   gl.uniform1f(uni.uStep, FSTEP);
   gl.uniform1i(uni.uHasEmb, embN ? 1 : 0);
   /* a rib finer than a couple of pixels is only moire, so the bead
@@ -841,7 +859,9 @@ function surfaceAt(sx, sy){
   const p = h.p, a = aOf();
   const qx = Math.min(Math.max(p[0], -a), a);
   const d = Math.hypot(p[0]-qx, p[1]) - rAt(p[2]);
-  if(Math.abs(d) > 1.6) return null;                 // an inside face, or the rim
+  /* Allow for relief already standing here, or you could not draw over
+     your own work - but not the whole wall, which is the inside face. */
+  if(Math.abs(d) > DEPTH + 2.5) return null;
   const nx = (p[0]-qx), ny = p[1];
   const nl = Math.hypot(nx, ny) || 1;
   const b = basis();
@@ -990,14 +1010,14 @@ addEventListener('pointerup', () => {
   else if(drag.kind === 'pull'){ if(drag.moved > 3) snap(); }
   else if(drag.kind === 'draw' && live){
     if(live.pts.length > 1){
-      S.strokes.push({ pts: simplify(live.pts) });
+      S.strokes.push({ pts: simplify(live.pts), w: S.sw, sunk: S.sunk });
       embDirty = true; bake(); snap(); sync();
       say(S.strokes.length + (S.strokes.length === 1 ? ' stroke' : ' strokes'));
     }
     live = null;
   }
   drag = null; dragging = false;
-  setTool(S.tool); sync();
+  setCursor(); sync();
 });
 
 /* The pointer says what it is over before you press: a wall you can
@@ -1013,7 +1033,10 @@ viewEl.addEventListener('pointermove', e => {
   const g = grabAt(e.clientX - r.left, e.clientY - r.top);
   viewEl.style.cursor = !g ? 'grab' : g.pull ? (g.key === 'H' ? 'ns-resize' : 'move') : 'pointer';
 });
-viewEl.addEventListener('pointerleave', () => { if(!drag) setTool(S.tool); });
+/* Only the cursor goes back. Rebuilding the options bar here would
+   throw away the very button you are on your way to press - the
+   pointer leaves the viewport to get there. */
+viewEl.addEventListener('pointerleave', () => { if(!drag) setCursor(); });
 
 viewEl.addEventListener('wheel', e => {
   e.preventDefault();
@@ -1085,7 +1108,7 @@ function overlay(){
   let s = '';
   if(live && live.px.length > 1){
     const d = 'M' + live.px.map(p => p[0].toFixed(1)+' '+p[1].toFixed(1)).join('L');
-    const w = Math.max(1.5, STROKE/(A.scale/Math.max(vh,1)));
+    const w = Math.max(1.5, S.sw/(A.scale/Math.max(vh,1)));
     s = '<path d="'+d+'" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="'+w.toFixed(1)+'" stroke-linecap="round" stroke-linejoin="round"/>';
   }
   ovEl.innerHTML = s;
@@ -1098,20 +1121,24 @@ function overlay(){
    much as the stroke is deep. The drawing is not cut out of the wall;
    it is in the line the nozzle walks.
    ══════════════════════════════════════════════════════════════════ */
+/* the same two numbers the bake works out, on the processor: how far
+   in, how far out, and the step the path takes is the difference */
 function embJS(s, z, segs, P){
-  let best = 160;
+  let din = 0, dout = 0;
   for(let i=0;i<segs.length;i++){
-    const g = segs[i];
+    const g = segs[i], w = g[4];
     const shift = P*Math.floor((s - (g[0]+g[2])*0.5)/P + 0.5);
     const ax = g[0]+shift, ay = g[1], bx = g[2]+shift, by = g[3];
-    if(s < Math.min(ax,bx)-14 || s > Math.max(ax,bx)+14) continue;
-    if(z < Math.min(ay,by)-14 || z > Math.max(ay,by)+14) continue;
+    const m = w*0.5 + BLEND + 2;
+    if(s < Math.min(ax,bx)-m || s > Math.max(ax,bx)+m) continue;
+    if(z < Math.min(ay,by)-m || z > Math.max(ay,by)+m) continue;
     const vx = bx-ax, vy = by-ay, L2 = vx*vx+vy*vy;
     const t = L2 > 1e-9 ? Math.max(0, Math.min(1, ((s-ax)*vx + (z-ay)*vy)/L2)) : 0;
     const d = Math.hypot(s-ax-vx*t, z-ay-vy*t);
-    if(d < best) best = d;
+    const f = 1 - smoothstep(w/2, w/2 + BLEND, d);
+    if(g[5] > 0){ if(f > din) din = f; } else if(f > dout) dout = f;
   }
-  return embOf(best);
+  return DEPTH*(din - dout);
 }
 function loopAt(z, segs){
   const r = rAt(z), P = 2*Math.PI*r + 4*aOf();
@@ -1160,7 +1187,13 @@ function gcode(){
   L.push('; base ' + S.L + ' x ' + S.W + ' mm, height ' + S.H + ' mm, rim ' +
          Math.round(rimL()) + ' x ' + Math.round(rimW()) + ' mm');
   L.push('; draft ' + DRAFT + ' deg, nozzle ' + NOZ + ' mm, layer ' + LAYER + ' mm, ' + layers() + ' layers');
-  L.push('; emboss ' + S.strokes.length + ' strokes, ' + STROKE + ' mm wide, ' + DEPTH + ' mm deep');
+  {
+    const out = S.strokes.filter(s => s.sunk === false).length;
+    const ws = [...new Set(S.strokes.map(s => s.w || STROKE))].sort((a,b) => a-b);
+    L.push('; relief ' + S.strokes.length + ' strokes (' + (S.strokes.length - out) +
+           ' debossed, ' + out + ' embossed), ' + DEPTH + ' mm off the wall' +
+           (ws.length ? ', stroke ' + ws.join('/') + ' mm' : ''));
+  }
   L.push('; floor: concentric spiral, ' + FSTEP + ' mm step, so each pass lies ' +
          (NOZ - FSTEP) + ' mm over the last');
   L.push('; no retraction anywhere. E is 1.75 mm filament: wall ' + EPMM.toFixed(3) +
@@ -1237,7 +1270,7 @@ const I = {
   orbit:'<path d="M9 2.6l6.4 3.2v6.4L9 15.4 2.6 12.2V5.8z" ' + sw + '/><path d="M2.6 5.8L9 9l6.4-3.2M9 9v6.4" ' + sw + ' opacity=".45"/>',
   draw:'<path d="M3 15l1-3.4L11.6 4a1.6 1.6 0 012.3 2.3L6.4 14z" ' + sw + '/><path d="M10.4 5.2l2.4 2.4" ' + sw + '/>'
 };
-const TOOLS = [['orbit','Turn the planter','V'], null, ['draw','Emboss','D']];
+const TOOLS = [['orbit','Turn the planter','V'], null, ['draw','Relief','D']];
 const railEl = document.getElementById('rail');
 TOOLS.forEach(t => {
   if(!t){ railEl.appendChild(Object.assign(document.createElement('div'), { className:'rail-sep' })); return; }
@@ -1252,14 +1285,18 @@ TOOLS.forEach(t => {
 function setTool(id){
   S.tool = id;
   railEl.querySelectorAll('.tool').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === id)));
-  const drawable = id === 'draw' && S.face;
-  viewEl.style.cursor = drawable ? 'crosshair' : 'grab';
+  setCursor(); buildOpts(); setHint();
+}
+function setCursor(){
+  viewEl.style.cursor = (S.tool === 'draw' && S.face) ? 'crosshair' : 'grab';
+}
+function setHint(){
   document.getElementById('hint').textContent =
-    id === 'draw'
-      ? (S.face ? 'Draw on the wall — the stroke is 4 mm wide and sinks 4 mm into it'
+    S.tool === 'draw'
+      ? (S.face ? 'Draw on the wall — ' + S.sw + ' mm wide, standing ' + DEPTH + ' mm ' +
+                  (S.sunk ? 'into it' : 'proud of it')
                 : 'Click a wall to turn it towards you, then draw on it')
       : 'Pull a wall to resize it — the rim for height — click a wall to square up — drag off the planter to turn it';
-  buildOpts();
 }
 const optsEl = document.getElementById('opts');
 const panel = document.getElementById('panel');
@@ -1285,10 +1322,28 @@ function buildOpts(){
   g2.append(el('label',null,'Draft'), el('output',null, DRAFT + '°'));
   optsEl.appendChild(g2);
   if(S.tool === 'draw'){
+    /* Which way the wall goes, and how wide the stroke is. The depth
+       is not a choice: four millimetres is what the wall can give. */
     const g3 = el('div','ogrp');
-    g3.append(el('label',null,'Stroke'), el('output',null, STROKE + 'mm'),
-              el('label',null,'Depth'),  el('output',null, DEPTH + 'mm'));
+    const seg = el('div','seg');
+    for(const [lbl, sunk] of [['Emboss', false], ['Deboss', true]]){
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = lbl;
+      b.setAttribute('aria-pressed', String(S.sunk === sunk));
+      b.onclick = () => { S.sunk = sunk; buildOpts(); setHint(); };
+      seg.appendChild(b);
+    }
+    g3.appendChild(seg);
     optsEl.appendChild(g3);
+    const g4 = el('div','ogrp');
+    g4.appendChild(el('label',null,'Stroke'));
+    const r = document.createElement('input');
+    r.type = 'range'; r.min = SWMIN; r.max = SWMAX; r.step = 1; r.value = S.sw;
+    r.setAttribute('aria-label','Stroke width');
+    const o = el('output',null, S.sw + 'mm');
+    r.oninput = () => { S.sw = parseFloat(r.value); o.textContent = S.sw + 'mm'; setHint(); };
+    g4.append(r, o, el('label',null,'Depth'), el('output',null, DEPTH + 'mm'));
+    optsEl.appendChild(g4);
   }
 }
 function syncOpts(){
@@ -1358,7 +1413,7 @@ function buildPanel(){
   const r2 = el('div','row'); r2.appendChild(seg); s2.appendChild(r2);
   const h2 = el('p','hint',''); h2.id = 'h-view'; s2.appendChild(h2);
 
-  const s3 = sect('Emboss');
+  const s3 = sect('Relief');
   const g = el('div','grid2');
   button(g,'Undo', undo);
   button(g,'Clear', () => { if(!S.strokes.length) return; S.strokes = []; embDirty = true; bake(); snap(); sync(); say('Cleared'); });
@@ -1387,9 +1442,14 @@ function syncPanel(){
     ? 'Square on to the ' + FACES[S.face].name.toLowerCase() + '. Drawing is on.'
     : 'Click a wall in the view to square up to it.';
   const h3 = document.getElementById('h-emb');
-  if(h3) h3.innerHTML = S.strokes.length
-    ? S.strokes.length + (S.strokes.length === 1 ? ' stroke' : ' strokes') + ' &middot; 4 mm wide, 4 mm deep'
-    : 'Nothing drawn yet.';
+  if(h3){
+    const out = S.strokes.filter(s => s.sunk === false).length;
+    const inn = S.strokes.length - out;
+    h3.innerHTML = S.strokes.length
+      ? [inn ? inn + ' debossed' : '', out ? out + ' embossed' : ''].filter(Boolean).join(' &middot; ') +
+        ' &middot; ' + DEPTH + ' mm'
+      : 'Nothing drawn yet.';
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════
