@@ -1,0 +1,104 @@
+{
+ "note": [
+  "Malleable CT1 -- the coffee table, from 'table ref.3dm'.",
+  "Two pieces: the deck loop (a pill, swept along the length) and the leg loop",
+  "(a tall loop with a return at each level, swept along the depth).",
+  "The design file is one fixed size.  What follows says which of its numbers",
+  "are parameters: the leg's head follows the height, the shelf's return",
+  "follows the shelf level, the deck's ends follow the depth.  Everything else",
+  "is the literal millimetre out of Rhino.",
+  "Frames: the page measures the leg from its outer face inward, with the floor",
+  "at zero, so offset [-8, 5] lands the extracted curve on it; the deck section",
+  "is centred on the piece, so offset [-176, -13].",
+  "A rule shifts {u}/{v} rather than replacing it, so every point of a group",
+  "keeps its own place within that group: the deck depth of 362 in the file",
+  "puts the pill ends at 163, which is LY*0.5 - 18, the bead included.",
+  "The top level is rigid to the head in the page (zTop = H - 23.135), which is",
+  "the relation the design file already has, so one band anchored to H covers",
+  "both the head and the top return."
+ ],
+ "source": "~/Downloads/table ref.3dm",
+ "spec": "specs/ct1.json",
+ "page": "../malleable-ct1/index.html",
+ "consts": {
+  "PIPE": "leg.bead",
+  "LAYER": "leg.pitch",
+  "LEGSP": "leg.gap.u.0",
+  "DECKSP": "deck.gap.v.0"
+ },
+ "pieces": [
+  {
+   "piece": "Default-2",
+   "as": "leg",
+   "offset": [
+    -8.0,
+    5.0
+   ],
+   "args": [
+    "float zs"
+   ],
+   "symbols": {
+    "H": {
+     "glsl": "uH",
+     "js": "S.H"
+    },
+    "ZS": {
+     "glsl": "zs",
+     "js": "zs"
+    }
+   },
+   "rules": [
+    {
+     "axis": "v",
+     "ge": 340.0,
+     "expr": "{v} + H - 390.083"
+    },
+    {
+     "axis": "v",
+     "in": [
+      185.0,
+      225.0
+     ],
+     "expr": "{v} + ZS - 209.861"
+    }
+   ]
+  },
+  {
+   "piece": "Default-1",
+   "as": "deck",
+   "offset": [
+    -176.0,
+    -13.0
+   ],
+   "args": [
+    "float zc"
+   ],
+   "symbols": {
+    "LY": {
+     "glsl": "uLy",
+     "js": "S.Ly"
+    },
+    "ZC": {
+     "glsl": "zc",
+     "js": "zc"
+    }
+   },
+   "rules": [
+    {
+     "axis": "u",
+     "ge": 100.0,
+     "expr": "{u} + LY*0.5 - 181.0"
+    },
+    {
+     "axis": "u",
+     "le": -100.0,
+     "expr": "{u} - LY*0.5 + 181.0"
+    },
+    {
+     "axis": "v",
+     "expr": "{v} + ZC"
+    }
+   ]
+  }
+ ]
+}

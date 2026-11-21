@@ -256,34 +256,30 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
    ══════════════════════════════════════════════════════════════════ */
 
 const IN     = 25.4;
-/* Every figure below is read straight off the toolpath curves in the
-   reference .3dm - not off a drawing, and not inferred from a mesh.
-   The whole table is two curves and a pipe. */
-const PIPE   = 5;              // mm - the radius the bead is swept at, so 10 over
-const LAYER  = 5;              // mm - and the pitch the curves are stacked at
-const LEGSP  = 8;              // mm - between the leg loop's two runs: the 8.00
+/* The bead, the pitch and the two loop spacings are not typed in
+   here: tools/curve_extract.py reads them off the toolpath curves in
+   the design file and tools/build.py writes them between the markers,
+   so the page cannot drift from the .3dm. */
+// @gen:consts  table ref.3dm
+const PIPE   = 5.0;   // leg.bead
+const LAYER  = 5.0;   // leg.pitch
+const LEGSP  = 8.0;   // leg.gap.u.0
+const DECKSP = 26.0;   // deck.gap.v.0
+// @end
 const LEGT   = LEGSP + PIPE*2; // mm - 18 over the outside
-const DECKSP = 26;             // mm - between the deck loop's two runs: the 26.00
 const DECKT  = DECKSP + PIPE*2;// mm - 36 over the outside
 const RLEG   = LEGSP/2;        // mm - the head and foot of the leg's curve are half
                                //      circles on the spacing: 4, which is the 4.00
 const RDECK  = DECKSP/2;       // mm - and the deck's two ends are half circles on
                                //      ITS spacing, 13, which is what makes the
                                //      section a pill rather than a rounded box
-/* The return, in millimetres off the inner run (out) and off the deck's
-   centre (up). Seven segments, straight off curve #204: it leaves the
-   run 28 apart, closes to 9, runs 28 nearly parallel, closes to 2.195
-   and turns. 46.196 is the 46 on the drawing. */
-const RET = [[0,-13.865],[16.196,-4.500],[44.296,-3.095],[46.196,-1.098],
-             [46.196,1.097],[44.296,3.095],[16.196,4.500],[0,14.135]];
+/* The return leaves the inner run, runs out nearly parallel and turns
+   on 2 at the tip. Its path comes out of the design file with the rest
+   of the leg; these two are what the page needs in its own right: how
+   far it reaches, and how high its top sits above the deck's centre,
+   which is what holds the top level under the head. */
 const RETL   = 46.196;
-/* and four of the seven are arcs, not lines - which is the whole
-   character of the joint. Centre, radius, and 1 to say it is an arc;
-   the lines carry zeroes. The big pair sweep the run into the
-   horizontal on about 14.8, tangent at both ends, and the little pair
-   turn the tip on 2. Measured off the curve, sag against chord. */
-const RETSEG = [[13.764,-18.981,14.684,1],[0,0,0,0],[44.196,-1.097,2,1],
-                [0,0,0,0],[44.196,1.097,2,1],[0,0,0,0],[14.045,19.315,14.970,1]];
+const RETTOP = 14.135;
 /* With the deck's ends read as arcs it is 362 deep against the leg's
    345, so the deck is the deeper of the two by 17 and takes the end of
    the leg inside it - which is the reference, not a choice. */
@@ -294,14 +290,6 @@ const LEGDEEP = -17;
    negative runs the deck into the leg. Backed out a further 2 from the
    bake, so the returns sit 2 shallower in the bore. */
 const JOINT  = 5.4;
-/* The return's curve has sharp vertices, and a pipe over a sharp
-   vertex is round on the outside of the bend and creased on the
-   inside. Easing the joins between its segments rounds that crease -
-   the bend reads as one turn rather than two straights meeting. With
-   the arcs in, the path is tangent at every join - including where it
-   leaves the run - so the pipe is smooth of its own accord and there
-   is nothing left to ease. */
-const SOFT   = 0;
 const HMIN   = 12*IN, HMAX = 48*IN;    // the legs
 const LMIN   = 12*IN, LMAX = 48*IN;    // the sheets, both ways
 const DROPMIN = 6*IN;          // the shelf keeps this much under the top's centreline
@@ -327,7 +315,7 @@ const A = { az:S.az, el:S.el, scale:S.scale, tx:0, ty:0, tz:200 };
 /* The leg's curve tops out exactly where its top return rejoins the
    inner run, so the deck's centre follows from the return, not from a
    figure of mine - and the head lands 1.135 clear of the deck. */
-const zTop   = () => S.H - PIPE - RLEG - RET[7][1];
+const zTop   = () => S.H - PIPE - RLEG - RETTOP;
 const zShelf = () => zTop() - S.drop;
 const dropMax = () => Math.max(DROPMIN, zTop() - FOOT);
 const inch = mm => (mm/IN).toFixed(1);
@@ -364,15 +352,9 @@ uniform vec3 uInk, uPaper;
 out vec4 outColor;
 const float PI = 3.141592653589793;
 const float PIPE = ` + PIPE.toFixed(2) + `;
-const float LEGSP = ` + LEGSP.toFixed(2) + `;
-const float DECKSP = ` + DECKSP.toFixed(2) + `;
 const float LEGT = ` + LEGT.toFixed(2) + `;
 const float LEGDEEP = ` + LEGDEEP.toFixed(2) + `;
-const float RLEG = ` + RLEG.toFixed(2) + `;
-const float RDECK = ` + RDECK.toFixed(2) + `;
 const float JOINT = ` + JOINT.toFixed(2) + `;
-const vec4 RETSEG[7] = vec4[7](` + RETSEG.map(q => 'vec4(' + q.map(v => v.toFixed(3)).join(',') + ')').join(',') + `);
-const vec2 RET[8] = vec2[8](` + RET.map(q => 'vec2(' + q[0].toFixed(3) + ',' + q[1].toFixed(3) + ')').join(',') + `);
 const vec3 LDIR  = vec3(-0.4575, -0.5968, 0.6565);
 const vec3 LFILL = vec3( 0.5121,  0.2561, 0.3201);
 bool gSmooth = false;
@@ -391,30 +373,79 @@ float sdRB(vec3 p, vec3 b, float r){
    curve, so there is nothing to hollow, nothing to blend and nothing
    to cap: a wall comes out 10 wherever the line goes, a turn comes out
    round because the pipe is, and the slot down a return is simply
-   what is left of the spacing. */
-float sd2(vec2 p, vec2 a, vec2 b){
+   what is left of the spacing.
+
+   The two curves below are not drawn by hand. tools/curve_extract.py
+   reads the toolpaths out of the design file and tools/sdf_gen.py
+   writes them as distance functions, with tools/rigs/ct1.json saying
+   which of the millimetres are parameters. To change the geometry,
+   change the Rhino file and run
+
+       python3 tools/build.py rigs/ct1.json --extract
+
+   Nothing between the markers survives that, so edit it in Rhino. */
+// @gen:glsl  table ref.3dm -> pathLeg(p, zs), pathDeck(p, zc)
+// distance to a line segment
+float sdSeg(vec2 p, vec2 a, vec2 b){
   vec2 pa = p - a, ba = b - a;
   return length(pa - ba*clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0));
 }
-/* an arc of less than a half turn, between two endpoints lying on it */
-float sdArc(vec2 p, vec2 c, float r, vec2 e0, vec2 e1){
+// distance to the arc from e0 to e1 about c, the short way round
+float sdArcSeg(vec2 p, vec2 c, float r, vec2 e0, vec2 e1){
   vec2 v = p - c, d0 = e0 - c, d1 = e1 - c;
   if(d0.x*d1.y - d0.y*d1.x < 0.0){ vec2 t = d0; d0 = d1; d1 = t; }
   if(d0.x*v.y - d0.y*v.x >= 0.0 && v.x*d1.y - v.y*d1.x >= 0.0)
     return abs(length(v) - r);
   return min(length(p - e0), length(p - e1));
 }
-/* the return: seven segments, four of them arcs */
-float retD(vec2 q, float zc){
-  vec2 p = q - vec2(0.0, zc);
+
+float pathLeg(vec2 p, float zs){
   float d = 1e9;
-  for(int i=0;i<7;i++){
-    vec4 g = RETSEG[i];
-    d = min(d, g.w > 0.5 ? sdArc(p, g.xy, g.z, RET[i], RET[i+1])
-                         : sd2(p, RET[i], RET[i+1]));
-  }
-  return d;
+  d = min(d, sdArcSeg(p, vec2(5.784, (-37.107 + uH)), 5.785, vec2(0.0, (-37.0 + uH)), vec2(1.137, (-33.661 + uH))));
+  d = min(d, sdArcSeg(p, vec2(9.724, (-39.973 + uH)), 10.657, vec2(1.137, (-33.661 + uH)), vec2(4.167, (-30.88 + uH))));
+  d = min(d, sdArcSeg(p, vec2(14.569, (-47.726 + uH)), 19.799, vec2(4.167, (-30.88 + uH)), vec2(9.862, (-28.495 + uH))));
+  d = min(d, sdArcSeg(p, vec2(16.74, (-55.414 + uH)), 27.784, vec2(9.862, (-28.495 + uH)), vec2(16.196, (-27.635 + uH))));
+  d = min(d, sdSeg(p, vec2(16.196, (-27.635 + uH)), vec2(44.296, (-26.23 + uH))));
+  d = min(d, sdArcSeg(p, vec2(44.196, (-24.233 + uH)), 2.0, vec2(44.296, (-26.23 + uH)), vec2(46.196, (-24.233 + uH))));
+  d = min(d, sdSeg(p, vec2(46.196, (-24.233 + uH)), vec2(46.196, (-22.038 + uH))));
+  d = min(d, sdArcSeg(p, vec2(44.196, (-22.038 + uH)), 2.0, vec2(46.196, (-22.038 + uH)), vec2(44.296, (-20.04 + uH))));
+  d = min(d, sdSeg(p, vec2(44.296, (-20.04 + uH)), vec2(16.196, (-18.635 + uH))));
+  d = min(d, sdArcSeg(p, vec2(17.022, (7.891 + uH)), 26.539, vec2(16.196, (-18.635 + uH)), vec2(6.989, (-16.678 + uH))));
+  d = min(d, sdArcSeg(p, vec2(12.787, (-2.299 + uH)), 15.504, vec2(6.989, (-16.678 + uH)), vec2(2.418, (-13.825 + uH))));
+  d = min(d, sdArcSeg(p, vec2(7.699, (-7.926 + uH)), 7.918, vec2(2.418, (-13.825 + uH)), vec2(0.345, (-10.86 + uH))));
+  d = min(d, sdArcSeg(p, vec2(5.333, (-8.974 + uH)), 5.333, vec2(0.345, (-10.86 + uH)), vec2(0.0, (-9.0 + uH))));
+  d = min(d, sdArcSeg(p, vec2(-4.0, (-9.0 + uH)), 4.0, vec2(0.0, (-9.0 + uH)), vec2(-4.0, (-5.0 + uH))));
+  d = min(d, sdArcSeg(p, vec2(-4.0, (-9.0 + uH)), 4.0, vec2(-4.0, (-5.0 + uH)), vec2(-8.0, (-9.0 + uH))));
+  d = min(d, sdSeg(p, vec2(-8.0, (-9.0 + uH)), vec2(-8.0, 9.0)));
+  d = min(d, sdArcSeg(p, vec2(-4.0, 9.0), 4.0, vec2(-8.0, 9.0), vec2(-4.0, 5.0)));
+  d = min(d, sdArcSeg(p, vec2(-4.0, 9.0), 4.0, vec2(-4.0, 5.0), vec2(0.0, 9.0)));
+  d = min(d, sdSeg(p, vec2(0.0, 9.0), vec2(0.0, (-13.865 + zs))));
+  d = min(d, sdArcSeg(p, vec2(8.135, (-13.976 + zs)), 8.136, vec2(0.0, (-13.865 + zs)), vec2(1.808, (-8.862 + zs))));
+  d = min(d, sdArcSeg(p, vec2(10.83, (-16.137 + zs)), 11.589, vec2(1.808, (-8.862 + zs)), vec2(7.007, (-5.196 + zs))));
+  d = min(d, sdArcSeg(p, vec2(11.666, (-18.031 + zs)), 13.655, vec2(7.007, (-5.196 + zs)), vec2(11.089, (-4.388 + zs))));
+  d = min(d, sdSeg(p, vec2(11.089, (-4.388 + zs)), vec2(39.189, (-2.983 + zs))));
+  d = min(d, sdArcSeg(p, vec2(39.089, (-0.986 + zs)), 2.0, vec2(39.189, (-2.983 + zs)), vec2(41.089, (-0.986 + zs))));
+  d = min(d, sdSeg(p, vec2(41.089, (-0.986 + zs)), vec2(41.089, (1.209 + zs))));
+  d = min(d, sdArcSeg(p, vec2(39.089, (1.209 + zs)), 2.0, vec2(41.089, (1.209 + zs)), vec2(39.189, (3.207 + zs))));
+  d = min(d, sdSeg(p, vec2(39.189, (3.207 + zs)), vec2(11.089, (4.612 + zs))));
+  d = min(d, sdArcSeg(p, vec2(11.605, (17.706 + zs)), 13.104, vec2(11.089, (4.612 + zs)), vec2(3.453, (7.446 + zs))));
+  d = min(d, sdArcSeg(p, vec2(9.296, (14.842 + zs)), 9.426, vec2(3.453, (7.446 + zs)), vec2(0.357, (11.852 + zs))));
+  d = min(d, sdArcSeg(p, vec2(7.58, (14.152 + zs)), 7.58, vec2(0.357, (11.852 + zs)), vec2(0.0, (14.135 + zs))));
+  d = min(d, sdSeg(p, vec2(0.0, (14.135 + zs)), vec2(0.0, (-37.0 + uH))));
+  return d - 5.0;
 }
+
+float pathDeck(vec2 p, float zc){
+  float d = 1e9;
+  d = min(d, sdArcSeg(p, vec2((18.0 - uLy*0.5), (zc)), 13.0, vec2((18.0 - uLy*0.5), (13.0 + zc)), vec2((5.0 - uLy*0.5), (zc))));
+  d = min(d, sdArcSeg(p, vec2((18.0 - uLy*0.5), (zc)), 13.0, vec2((5.0 - uLy*0.5), (zc)), vec2((18.0 - uLy*0.5), (-13.0 + zc))));
+  d = min(d, sdSeg(p, vec2((18.0 - uLy*0.5), (-13.0 + zc)), vec2((-18.0 + uLy*0.5), (-13.0 + zc))));
+  d = min(d, sdArcSeg(p, vec2((-18.0 + uLy*0.5), (zc)), 13.0, vec2((-18.0 + uLy*0.5), (-13.0 + zc)), vec2((-5.0 + uLy*0.5), (zc))));
+  d = min(d, sdArcSeg(p, vec2((-18.0 + uLy*0.5), (zc)), 13.0, vec2((-5.0 + uLy*0.5), (zc)), vec2((-18.0 + uLy*0.5), (13.0 + zc))));
+  d = min(d, sdSeg(p, vec2((-18.0 + uLy*0.5), (13.0 + zc)), vec2((18.0 - uLy*0.5), (13.0 + zc))));
+  return d - 5.0;
+}
+// @end
 /* an open end is where the pipe turns over the rim */
 float sweep(float solid, float along, float halfLen){
   vec2 w = vec2(solid + PIPE, along - max(halfLen - PIPE, 0.0));
@@ -426,38 +457,16 @@ float sweep(float solid, float along, float halfLen){
    section comes out a pill and not a rounded box. Stacked along the
    length at 5 and open at both ends. */
 float deckD(vec3 p, float zc){
-  float hy = max(uLy*0.5 - RDECK - PIPE, 0.0);          // the straight run
-  float core = length(vec2(max(abs(p.y) - hy, 0.0), p.z - zc));
-  return sweep(abs(core - RDECK) - PIPE, abs(p.x), uLx*0.5);
+  return sweep(pathDeck(vec2(p.y, p.z), zc), abs(p.x), uLx*0.5);
 }
 
 /* THE LEG. One closed curve in the x-z plane: up the inner run, out
    and back on a return at either level, across the head, down the
    outer run 8 away, across the foot. The inner run is NOT there
    where a return is - the line leaves it and comes back. */
-/* half a circle, and nothing of the other half: the head and foot of
-   the leg's curve turn on the spacing, so the straight runs stop at
-   the arc's centre height and the arc carries over the top */
-float arcEnd(vec2 q, vec2 c, float r, float up){
-  vec2 v = q - c;
-  if(v.y*up >= 0.0) return abs(length(v) - r);
-  return min(length(v - vec2(-r, 0.0)), length(v - vec2(r, 0.0)));
-}
-float legPath(vec2 q, float zcT, float zcS){
-  float zb = PIPE + RLEG, zt = uH - PIPE - RLEG;
-  float d = sd2(q, vec2(-LEGSP, zb), vec2(-LEGSP, zt));      // the outer run
-  d = min(d, arcEnd(q, vec2(-RLEG, zt), RLEG,  1.0));        // the head
-  d = min(d, arcEnd(q, vec2(-RLEG, zb), RLEG, -1.0));        // the foot
-  float run = min(sd2(q, vec2(0.0, zb), vec2(0.0, zcS + RET[0].y)),
-                  sd2(q, vec2(0.0, zcS + RET[7].y), vec2(0.0, zcT + RET[0].y)));
-  /* and the returns ease into the run they leave, the same way */
-  run = min(run, retD(q, zcT));
-  run = min(run, retD(q, zcS));
-  return min(d, run);
-}
 float legsD(vec3 p){
   vec2 q = vec2((uLx*0.5 + JOINT + PIPE) - abs(p.x), p.z);   // + JOINT stands the leg off
-  float d = legPath(q, uZt, uZs) - PIPE;
+  float d = pathLeg(q, uZs);                                 // bead already off
   return sweep(d, abs(p.y), max(uLy*0.5 + LEGDEEP*0.5, 0.0));
 }
 /* Each piece is laid down standing on edge, and the two stand the
@@ -605,57 +614,81 @@ function uniR(a, b, r){
 }
 /* the same paths again, on the processor, for picking and for the
    elevation */
-/* the same curve again, on the processor, for picking */
-function sd2(px,py, ax,ay, bx,by){
-  const pax=px-ax, pay=py-ay, bax=bx-ax, bay=by-ay;
-  const h = clamp((pax*bax + pay*bay)/(bax*bax + bay*bay || 1e-9), 0, 1);
-  return Math.hypot(pax - bax*h, pay - bay*h);
+/* the same two curves again, on the processor, for picking and for
+   the elevation -- generated from the same file, between the same
+   kind of markers */
+// @gen:js  table ref.3dm -> pathLeg(px, py, zs), pathDeck(px, py, zc)
+function sdSeg(px, py, ax, ay, bx, by){
+  const pax = px-ax, pay = py-ay, bax = bx-ax, bay = by-ay;
+  const t = Math.min(1, Math.max(0, (pax*bax + pay*bay)/(bax*bax + bay*bay)));
+  return Math.hypot(pax - bax*t, pay - bay*t);
 }
+function sdArcSeg(px, py, cx, cy, r, e0x, e0y, e1x, e1y){
+  let vx = px-cx, vy = py-cy;
+  let d0x = e0x-cx, d0y = e0y-cy, d1x = e1x-cx, d1y = e1y-cy;
+  if(d0x*d1y - d0y*d1x < 0){ [d0x,d1x] = [d1x,d0x]; [d0y,d1y] = [d1y,d0y]; }
+  if(d0x*vy - d0y*vx >= 0 && vx*d1y - vy*d1x >= 0)
+    return Math.abs(Math.hypot(vx,vy) - r);
+  return Math.min(Math.hypot(px-e0x, py-e0y), Math.hypot(px-e1x, py-e1y));
+}
+
+function pathLeg(px, py, zs){
+  let d = 1e9;
+  d = Math.min(d, sdArcSeg(px, py, 5.784, (-37.107 + S.H), 5.785, 0.0, (-37.0 + S.H), 1.137, (-33.661 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 9.724, (-39.973 + S.H), 10.657, 1.137, (-33.661 + S.H), 4.167, (-30.88 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 14.569, (-47.726 + S.H), 19.799, 4.167, (-30.88 + S.H), 9.862, (-28.495 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 16.74, (-55.414 + S.H), 27.784, 9.862, (-28.495 + S.H), 16.196, (-27.635 + S.H)));
+  d = Math.min(d, sdSeg(px, py, 16.196, (-27.635 + S.H), 44.296, (-26.23 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 44.196, (-24.233 + S.H), 2.0, 44.296, (-26.23 + S.H), 46.196, (-24.233 + S.H)));
+  d = Math.min(d, sdSeg(px, py, 46.196, (-24.233 + S.H), 46.196, (-22.038 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 44.196, (-22.038 + S.H), 2.0, 46.196, (-22.038 + S.H), 44.296, (-20.04 + S.H)));
+  d = Math.min(d, sdSeg(px, py, 44.296, (-20.04 + S.H), 16.196, (-18.635 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 17.022, (7.891 + S.H), 26.539, 16.196, (-18.635 + S.H), 6.989, (-16.678 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 12.787, (-2.299 + S.H), 15.504, 6.989, (-16.678 + S.H), 2.418, (-13.825 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 7.699, (-7.926 + S.H), 7.918, 2.418, (-13.825 + S.H), 0.345, (-10.86 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, 5.333, (-8.974 + S.H), 5.333, 0.345, (-10.86 + S.H), 0.0, (-9.0 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, -4.0, (-9.0 + S.H), 4.0, 0.0, (-9.0 + S.H), -4.0, (-5.0 + S.H)));
+  d = Math.min(d, sdArcSeg(px, py, -4.0, (-9.0 + S.H), 4.0, -4.0, (-5.0 + S.H), -8.0, (-9.0 + S.H)));
+  d = Math.min(d, sdSeg(px, py, -8.0, (-9.0 + S.H), -8.0, 9.0));
+  d = Math.min(d, sdArcSeg(px, py, -4.0, 9.0, 4.0, -8.0, 9.0, -4.0, 5.0));
+  d = Math.min(d, sdArcSeg(px, py, -4.0, 9.0, 4.0, -4.0, 5.0, 0.0, 9.0));
+  d = Math.min(d, sdSeg(px, py, 0.0, 9.0, 0.0, (-13.865 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 8.135, (-13.976 + zs), 8.136, 0.0, (-13.865 + zs), 1.808, (-8.862 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 10.83, (-16.137 + zs), 11.589, 1.808, (-8.862 + zs), 7.007, (-5.196 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 11.666, (-18.031 + zs), 13.655, 7.007, (-5.196 + zs), 11.089, (-4.388 + zs)));
+  d = Math.min(d, sdSeg(px, py, 11.089, (-4.388 + zs), 39.189, (-2.983 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 39.089, (-0.986 + zs), 2.0, 39.189, (-2.983 + zs), 41.089, (-0.986 + zs)));
+  d = Math.min(d, sdSeg(px, py, 41.089, (-0.986 + zs), 41.089, (1.209 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 39.089, (1.209 + zs), 2.0, 41.089, (1.209 + zs), 39.189, (3.207 + zs)));
+  d = Math.min(d, sdSeg(px, py, 39.189, (3.207 + zs), 11.089, (4.612 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 11.605, (17.706 + zs), 13.104, 11.089, (4.612 + zs), 3.453, (7.446 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 9.296, (14.842 + zs), 9.426, 3.453, (7.446 + zs), 0.357, (11.852 + zs)));
+  d = Math.min(d, sdArcSeg(px, py, 7.58, (14.152 + zs), 7.58, 0.357, (11.852 + zs), 0.0, (14.135 + zs)));
+  d = Math.min(d, sdSeg(px, py, 0.0, (14.135 + zs), 0.0, (-37.0 + S.H)));
+  return d - 5.0;
+}
+
+function pathDeck(px, py, zc){
+  let d = 1e9;
+  d = Math.min(d, sdArcSeg(px, py, (18.0 - S.Ly*0.5), (zc), 13.0, (18.0 - S.Ly*0.5), (13.0 + zc), (5.0 - S.Ly*0.5), (zc)));
+  d = Math.min(d, sdArcSeg(px, py, (18.0 - S.Ly*0.5), (zc), 13.0, (5.0 - S.Ly*0.5), (zc), (18.0 - S.Ly*0.5), (-13.0 + zc)));
+  d = Math.min(d, sdSeg(px, py, (18.0 - S.Ly*0.5), (-13.0 + zc), (-18.0 + S.Ly*0.5), (-13.0 + zc)));
+  d = Math.min(d, sdArcSeg(px, py, (-18.0 + S.Ly*0.5), (zc), 13.0, (-18.0 + S.Ly*0.5), (-13.0 + zc), (-5.0 + S.Ly*0.5), (zc)));
+  d = Math.min(d, sdArcSeg(px, py, (-18.0 + S.Ly*0.5), (zc), 13.0, (-5.0 + S.Ly*0.5), (zc), (-18.0 + S.Ly*0.5), (13.0 + zc)));
+  d = Math.min(d, sdSeg(px, py, (-18.0 + S.Ly*0.5), (13.0 + zc), (18.0 - S.Ly*0.5), (13.0 + zc)));
+  return d - 5.0;
+}
+// @end
 function sweep(solid, along, halfLen){
   const wx = solid + PIPE, wy = along - Math.max(halfLen - PIPE, 0);
   return Math.min(Math.max(wx, wy), 0) + Math.hypot(Math.max(wx,0), Math.max(wy,0)) - PIPE;
 }
 function deckJS(p, zc){
-  const hy = Math.max(S.Ly*0.5 - RDECK - PIPE, 0);
-  const core = Math.hypot(Math.max(Math.abs(p[1]) - hy, 0), p[2] - zc);
-  return sweep(Math.abs(core - RDECK) - PIPE, Math.abs(p[0]), S.Lx*0.5);
-}
-function arcEnd(qx, qz, cx, cz, r, up){
-  const vx = qx - cx, vy = qz - cz;
-  if(vy*up >= 0) return Math.abs(Math.hypot(vx,vy) - r);
-  return Math.min(Math.hypot(vx + r, vy), Math.hypot(vx - r, vy));
-}
-function sdArcJS(px,pz, cx,cz, r, e0, e1){
-  let vx=px-cx, vz=pz-cz;
-  let d0x=e0[0]-cx, d0z=e0[1]-cz, d1x=e1[0]-cx, d1z=e1[1]-cz;
-  if(d0x*d1z - d0z*d1x < 0){ const tx=d0x,tz=d0z; d0x=d1x; d0z=d1z; d1x=tx; d1z=tz; }
-  if(d0x*vz - d0z*vx >= 0 && vx*d1z - vz*d1x >= 0) return Math.abs(Math.hypot(vx,vz) - r);
-  return Math.min(Math.hypot(px-e0[0],pz-e0[1]), Math.hypot(px-e1[0],pz-e1[1]));
-}
-function retDJS(qx, qz, zc){
-  const pz = qz - zc;
-  let d = 1e9;
-  for(let i=0;i<7;i++){
-    const g = RETSEG[i];
-    d = Math.min(d, g[3] > 0.5 ? sdArcJS(qx,pz, g[0],g[1], g[2], RET[i], RET[i+1])
-                               : sd2(qx,pz, RET[i][0],RET[i][1], RET[i+1][0],RET[i+1][1]));
-  }
-  return d;
-}
-function legPathJS(qx, qz, zcT, zcS){
-  const zb = PIPE + RLEG, zt = S.H - PIPE - RLEG;
-  let d = sd2(qx,qz, -LEGSP,zb, -LEGSP,zt);
-  d = Math.min(d, arcEnd(qx,qz, -RLEG,zt, RLEG,  1));
-  d = Math.min(d, arcEnd(qx,qz, -RLEG,zb, RLEG, -1));
-  let run = Math.min(sd2(qx,qz, 0,zb, 0,zcS + RET[0][1]),
-                     sd2(qx,qz, 0,zcS + RET[7][1], 0,zcT + RET[0][1]));
-  run = Math.min(run, retDJS(qx,qz,zcT));
-  run = Math.min(run, retDJS(qx,qz,zcS));
-  return Math.min(d, run);
+  return sweep(pathDeck(p[1], p[2], zc), Math.abs(p[0]), S.Lx*0.5);
 }
 function legsJS(p){
   const qx = (S.Lx*0.5 + JOINT + PIPE) - Math.abs(p[0]);
-  const d = legPathJS(qx, p[2], zTop(), zShelf()) - PIPE;
+  const d = pathLeg(qx, p[2], zShelf());
   return sweep(d, Math.abs(p[1]), Math.max(S.Ly*0.5 + LEGDEEP*0.5, 0));
 }
 function sdJS(p){
