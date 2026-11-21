@@ -228,6 +228,13 @@ const RDECK  = DECKSP/2;       // mm - and the deck's two ends are half circles 
 const RET = [[0,-13.865],[16.196,-4.500],[44.296,-3.095],[46.196,-1.098],
              [46.196,1.097],[44.296,3.095],[16.196,4.500],[0,14.135]];
 const RETL   = 46.196;
+/* and four of the seven are arcs, not lines - which is the whole
+   character of the joint. Centre, radius, and 1 to say it is an arc;
+   the lines carry zeroes. The big pair sweep the run into the
+   horizontal on about 14.8, tangent at both ends, and the little pair
+   turn the tip on 2. Measured off the curve, sag against chord. */
+const RETSEG = [[13.764,-18.981,14.684,1],[0,0,0,0],[44.196,-1.097,2,1],
+                [0,0,0,0],[44.196,1.097,2,1],[0,0,0,0],[14.045,19.315,14.970,1]];
 /* With the deck's ends read as arcs it is 362 deep against the leg's
    345, so the deck is the deeper of the two by 17 and takes the end of
    the leg inside it - which is the reference, not a choice. */
@@ -241,8 +248,11 @@ const JOINT  = 5.4;
 /* The return's curve has sharp vertices, and a pipe over a sharp
    vertex is round on the outside of the bend and creased on the
    inside. Easing the joins between its segments rounds that crease -
-   the bend reads as one turn rather than two straights meeting. */
-const SOFT   = 3;
+   the bend reads as one turn rather than two straights meeting. With
+   the arcs in, the path is tangent at every join - including where it
+   leaves the run - so the pipe is smooth of its own accord and there
+   is nothing left to ease. */
+const SOFT   = 0;
 const HMIN   = 12*IN, HMAX = 48*IN;    // the legs
 const LMIN   = 12*IN, LMAX = 48*IN;    // the sheets, both ways
 const DROPMIN = 6*IN;          // the shelf keeps this much under the top's centreline
@@ -312,7 +322,7 @@ const float LEGDEEP = ` + LEGDEEP.toFixed(2) + `;
 const float RLEG = ` + RLEG.toFixed(2) + `;
 const float RDECK = ` + RDECK.toFixed(2) + `;
 const float JOINT = ` + JOINT.toFixed(2) + `;
-const float SOFT = ` + SOFT.toFixed(2) + `;
+const vec4 RETSEG[7] = vec4[7](` + RETSEG.map(q => 'vec4(' + q.map(v => v.toFixed(3)).join(',') + ')').join(',') + `);
 const vec2 RET[8] = vec2[8](` + RET.map(q => 'vec2(' + q[0].toFixed(3) + ',' + q[1].toFixed(3) + ')').join(',') + `);
 const vec3 LDIR  = vec3(-0.4575, -0.5968, 0.6565);
 const vec3 LFILL = vec3( 0.5121,  0.2561, 0.3201);
@@ -337,17 +347,23 @@ float sd2(vec2 p, vec2 a, vec2 b){
   vec2 pa = p - a, ba = b - a;
   return length(pa - ba*clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0));
 }
-/* easing one segment into the next, which is what rounds the inside
-   of a bend; k is how far either side of the vertex it reaches */
-float smin(float a, float b, float k){
-  float h = max(k - abs(a - b), 0.0)/k;
-  return min(a, b) - h*h*k*0.25;
+/* an arc of less than a half turn, between two endpoints lying on it */
+float sdArc(vec2 p, vec2 c, float r, vec2 e0, vec2 e1){
+  vec2 v = p - c, d0 = e0 - c, d1 = e1 - c;
+  if(d0.x*d1.y - d0.y*d1.x < 0.0){ vec2 t = d0; d0 = d1; d1 = t; }
+  if(d0.x*v.y - d0.y*v.x >= 0.0 && v.x*d1.y - v.y*d1.x >= 0.0)
+    return abs(length(v) - r);
+  return min(length(p - e0), length(p - e1));
 }
-/* the whole return as one eased chain */
+/* the return: seven segments, four of them arcs */
 float retD(vec2 q, float zc){
-  vec2 o = vec2(0.0, zc);
-  float d = sd2(q - o, RET[0], RET[1]);
-  for(int i=1;i<7;i++) d = smin(d, sd2(q - o, RET[i], RET[i+1]), SOFT);
+  vec2 p = q - vec2(0.0, zc);
+  float d = 1e9;
+  for(int i=0;i<7;i++){
+    vec4 g = RETSEG[i];
+    d = min(d, g.w > 0.5 ? sdArc(p, g.xy, g.z, RET[i], RET[i+1])
+                         : sd2(p, RET[i], RET[i+1]));
+  }
   return d;
 }
 /* an open end is where the pipe turns over the rim */
@@ -386,8 +402,8 @@ float legPath(vec2 q, float zcT, float zcS){
   float run = min(sd2(q, vec2(0.0, zb), vec2(0.0, zcS + RET[0].y)),
                   sd2(q, vec2(0.0, zcS + RET[7].y), vec2(0.0, zcT + RET[0].y)));
   /* and the returns ease into the run they leave, the same way */
-  run = smin(run, retD(q, zcT), SOFT);
-  run = smin(run, retD(q, zcS), SOFT);
+  run = min(run, retD(q, zcT));
+  run = min(run, retD(q, zcS));
   return min(d, run);
 }
 float legsD(vec3 p){
@@ -560,10 +576,21 @@ function arcEnd(qx, qz, cx, cz, r, up){
   if(vy*up >= 0) return Math.abs(Math.hypot(vx,vy) - r);
   return Math.min(Math.hypot(vx + r, vy), Math.hypot(vx - r, vy));
 }
-function sminJS(a,b,k){ const h=Math.max(k-Math.abs(a-b),0)/k; return Math.min(a,b) - h*h*k*0.25; }
+function sdArcJS(px,pz, cx,cz, r, e0, e1){
+  let vx=px-cx, vz=pz-cz;
+  let d0x=e0[0]-cx, d0z=e0[1]-cz, d1x=e1[0]-cx, d1z=e1[1]-cz;
+  if(d0x*d1z - d0z*d1x < 0){ const tx=d0x,tz=d0z; d0x=d1x; d0z=d1z; d1x=tx; d1z=tz; }
+  if(d0x*vz - d0z*vx >= 0 && vx*d1z - vz*d1x >= 0) return Math.abs(Math.hypot(vx,vz) - r);
+  return Math.min(Math.hypot(px-e0[0],pz-e0[1]), Math.hypot(px-e1[0],pz-e1[1]));
+}
 function retDJS(qx, qz, zc){
-  let d = sd2(qx,qz - zc, RET[0][0],RET[0][1], RET[1][0],RET[1][1]);
-  for(let i=1;i<7;i++) d = sminJS(d, sd2(qx,qz - zc, RET[i][0],RET[i][1], RET[i+1][0],RET[i+1][1]), SOFT);
+  const pz = qz - zc;
+  let d = 1e9;
+  for(let i=0;i<7;i++){
+    const g = RETSEG[i];
+    d = Math.min(d, g[3] > 0.5 ? sdArcJS(qx,pz, g[0],g[1], g[2], RET[i], RET[i+1])
+                               : sd2(qx,pz, RET[i][0],RET[i][1], RET[i+1][0],RET[i+1][1]));
+  }
   return d;
 }
 function legPathJS(qx, qz, zcT, zcS){
@@ -573,8 +600,8 @@ function legPathJS(qx, qz, zcT, zcS){
   d = Math.min(d, arcEnd(qx,qz, -RLEG,zb, RLEG, -1));
   let run = Math.min(sd2(qx,qz, 0,zb, 0,zcS + RET[0][1]),
                      sd2(qx,qz, 0,zcS + RET[7][1], 0,zcT + RET[0][1]));
-  run = sminJS(run, retDJS(qx,qz,zcT), SOFT);
-  run = sminJS(run, retDJS(qx,qz,zcS), SOFT);
+  run = Math.min(run, retDJS(qx,qz,zcT));
+  run = Math.min(run, retDJS(qx,qz,zcS));
   return Math.min(d, run);
 }
 function legsJS(p){
