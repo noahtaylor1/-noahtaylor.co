@@ -124,16 +124,42 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
   #opts{grid-column:1;grid-row:1}
   #stage{grid-column:1;grid-row:2;min-height:0}
   #panel{position:static;grid-column:1;grid-row:3;width:auto;
-    border-left:0;border-top:1px solid var(--rule);max-height:46vh}
+    border-left:0;border-top:1px solid var(--rule);max-height:40vh}
   #status{grid-column:1;grid-row:4}
   #drawer{display:none}
+  /* the rulers are no use on a phone and they cost 18px twice over.
+     Hiding them takes them out of the grid, so the canvas has to be
+     told where to sit or it lands in the cell they vacated. */
+  #stage{grid-template-columns:1fr;grid-template-rows:1fr}
+  #corner,#rulerH,#rulerV{display:none}
+  #view{grid-column:1;grid-row:1}
+  /* the bar carries the four figures and nothing else - the name is
+     already at the top of the page, and the figures must not run off
+     the right-hand edge */
+  #opts{padding:0 11px}
+  #opts .tname{display:none}
+  #opts .ogrp{gap:5px;padding-right:0;margin-right:0;border-right:0}
+  #opts label{font-size:9px;letter-spacing:.1em}
+  #opts output{font-size:11.5px}
+  #hint{left:10px;bottom:7px;max-width:94%;font-size:11px;line-height:1.45}
+  #status{gap:11px;padding:0 11px;font-size:10px}
+  #status .wide{display:none}
   .sect.wide{display:none}
-  .sect{padding:8px 12px 10px}
-  .row label{font-size:13px}
-  .num{flex:0 0 62px;font-size:13px}
-  input[type=range]{height:26px}
-  input[type=range]::-webkit-slider-thumb{width:15px;height:15px;margin-top:-7px}
-  input[type=range]::-moz-range-thumb{width:15px;height:15px}
+  .sect{padding:7px 12px 9px}
+  .sect h2{margin-bottom:6px}
+  .row{margin-bottom:2px}
+  .row label{font-size:12.5px}
+  .num{flex:0 0 56px;font-size:12.5px}
+  .hint{font-size:11px;line-height:1.5}
+  .slrow{margin:0 0 7px}
+  input[type=range]{height:18px}
+  input[type=range]::-webkit-slider-thumb{width:11px;height:11px;margin-top:-5px}
+  input[type=range]::-moz-range-thumb{width:11px;height:11px}
+}
+@media (max-width:420px){
+  #opts label{font-size:8.5px;letter-spacing:.06em}
+  #opts .ogrp{gap:4px}
+  #status{gap:9px;font-size:9.5px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -172,9 +198,9 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 
   <div id="status">
     <span><b id="st-in">—</b></span>
-    <span><b id="st-mm">—</b></span>
+    <span class="wide"><b id="st-mm">—</b></span>
     <span>SHELF <b id="st-shelf">—</b></span>
-    <span id="st-view">ISOMETRIC</span>
+    <span id="st-view" class="wide">ISOMETRIC</span>
     <span id="st-msg"></span>
   </div>
 </div>
@@ -745,7 +771,13 @@ function pxPer(axis){
 /* ══════════════════════════════════════════════════════════════════
    4 · VIEW
    ══════════════════════════════════════════════════════════════════ */
+/* Whether the view is where the person put it or where we last put
+   it. Turning the phone, or the address bar sliding away, changes the
+   paper under a framing we chose - so re-frame it, unless they have
+   zoomed or panned since, in which case leave their view alone. */
+let userFramed = false;
 function fitView(){
+  userFramed = false;
   const b = basisOf(S.az, S.el);
   const hx = S.Lx/2 + JOINT + LEGT, hy = S.Ly/2;
   const cz = S.H*0.52;
@@ -902,6 +934,7 @@ addEventListener('pointermove', e => {
     return;
   }
   if(drag.kind === 'pan'){
+    userFramed = true;
     const b = basis();
     const k = A.scale/Math.max(vh,1);
     const dx = -(e.clientX - drag.sx)*k, dy = (e.clientY - drag.sy)*k;
@@ -947,6 +980,7 @@ viewEl.addEventListener('pointermove', e => {
 viewEl.addEventListener('pointerleave', () => { if(!drag) setCursor(); });
 viewEl.addEventListener('wheel', e => {
   e.preventDefault();
+  userFramed = true;
   S.scale = clamp(S.scale*Math.exp(e.deltaY*0.0014), 120, 9000);
 }, { passive:false });
 /* The pointer should say which way a face will travel, not just that
@@ -1236,6 +1270,11 @@ const clearUnder = () => (zTop() - DECKT*0.5) - (zShelf() + DECKT*0.5);
 function setHint(){
   if(glErr){ document.getElementById('hint').textContent =
     'The view could not be built here: ' + glErr; return; }
+  if(innerWidth <= 880){
+    document.getElementById('hint').textContent =
+      'Pull the table to resize it — drag off it to turn.';
+    return;
+  }
   document.getElementById('hint').textContent =
     'Pull a leg to make it longer — a sheet\'s edge to make it deeper — the top to raise the table — the shelf to move it. Drag off the table to turn it.';
 }
@@ -1295,7 +1334,12 @@ addEventListener('click', e => {
   if(b) b.blur();
 });
 document.getElementById('drawer').onclick = () => panel.classList.toggle('open');
-addEventListener('resize', () => { buildOpts(); });
+let reflow = 0;
+addEventListener('resize', () => {
+  buildOpts(); setHint();
+  clearTimeout(reflow);
+  reflow = setTimeout(() => { resize(); if(!userFramed) fitView(); sync(); }, 140);
+});
 
 /* ══════════════════════════════════════════════════════════════════
    13 · BOOT
