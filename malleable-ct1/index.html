@@ -1,0 +1,1237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Malleable CT1 — Noah Taylor</title>
+<style>
+/* Same plate-and-chrome identity as the rest of Malleable: achromatic,
+   Helvetica, an options bar over [ruled viewport | inspector], a status
+   strip beneath. There is no tool rail here - the table has only one
+   thing you do to it, which is take hold of it. */
+:root{
+  --paper:#ffffff;
+  --ink:#000000;
+  --chrome:#ffffff;
+  --chrome-2:#f4f4f4;
+  --chrome-3:#e9e9e9;
+  --rule:rgba(0,0,0,.16);
+  --rule-soft:rgba(0,0,0,.08);
+  --t1:rgba(0,0,0,.92);
+  --t2:rgba(0,0,0,.56);
+  --t3:rgba(0,0,0,.34);
+  --font:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --nav-h:56px;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;padding-top:var(--nav-h);background:var(--chrome);color:var(--t1);
+  font:13px/1.5 var(--font);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+
+.site-nav{position:fixed;top:0;left:0;right:0;height:var(--nav-h);z-index:30;
+  display:flex;align-items:center;justify-content:space-between;padding:0 48px;
+  background:var(--chrome);border-bottom:1px solid var(--rule);font-family:var(--font)}
+.site-nav a{color:var(--t1);text-decoration:none;transition:color .15s var(--ease)}
+.site-nav a:hover{color:var(--t3)}
+.nav-logo{font-size:14px;font-weight:500;letter-spacing:.03em}
+.nav-links{display:flex;gap:32px;list-style:none;margin:0;padding:0;font-size:13px;letter-spacing:.02em}
+@media (max-width:900px) and (min-width:701px){.site-nav{padding:0 24px}.nav-links{gap:22px}}
+@media (max-width:700px){.site-nav{padding:0 20px}.nav-links li:not(.keep){display:none}}
+
+#app{display:grid;grid-template-columns:1fr 264px;grid-template-rows:34px 1fr 24px;height:100%}
+
+#opts{grid-column:1/3;grid-row:1;background:var(--chrome);border-bottom:1px solid var(--rule);
+  display:flex;align-items:center;padding:0 10px 0 12px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+#opts::-webkit-scrollbar{display:none}
+#opts .tname{font-weight:500;letter-spacing:.18em;text-transform:uppercase;font-size:10px;
+  white-space:nowrap;flex:none;padding-right:12px;margin-right:12px;border-right:1px solid var(--rule)}
+#opts .ogrp{display:flex;align-items:center;gap:7px;flex:0 0 auto;min-width:0;padding-right:12px;margin-right:12px;
+  border-right:1px solid var(--rule-soft);animation:fadein .18s var(--ease)}
+#opts .ogrp:last-child{border-right:0}
+@keyframes fadein{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:none}}
+#opts label{font-size:10px;color:var(--t3);white-space:nowrap;text-transform:uppercase;letter-spacing:.18em}
+#opts output{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+#stage{grid-column:1;grid-row:2;display:grid;grid-template-columns:18px 1fr;grid-template-rows:18px 1fr;
+  background:var(--chrome);min-width:0;min-height:0}
+#corner{background:var(--chrome-2);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+#rulerH{border-bottom:1px solid var(--rule);background:var(--chrome-2);display:block;width:100%;height:100%}
+#rulerV{border-right:1px solid var(--rule);background:var(--chrome-2);display:block;width:100%;height:100%}
+#view{position:relative;overflow:hidden;touch-action:none;background:var(--paper);min-width:0;min-height:0}
+#gl,#ov{position:absolute;inset:0;width:100%;height:100%;display:block}
+#ov{pointer-events:none}
+#hint{position:absolute;left:12px;bottom:9px;font-size:11.5px;color:var(--t3);pointer-events:none;
+  user-select:none;max-width:74%}
+
+#panel{grid-column:2;grid-row:2/4;background:var(--chrome);border-left:1px solid var(--rule);
+  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.sect{border-bottom:1px solid var(--rule);padding:9px 11px}
+.sect h2{margin:0 0 9px;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);font-weight:400}
+.row{display:flex;align-items:center;gap:7px;margin-bottom:5px;min-width:0}
+.row:last-child{margin-bottom:0}
+.row label{flex:1 1 auto;font-size:12px;color:var(--t2);min-width:0}
+.num{flex:0 0 66px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;
+  background:none;border:0;border-bottom:1px solid var(--rule-soft);padding:3px 0;
+  -moz-appearance:textfield;cursor:ew-resize;transition:border-color .14s var(--ease)}
+.num::-webkit-outer-spin-button,.num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.num:focus{outline:none;border-bottom-color:var(--ink);cursor:text}
+.unit{flex:0 0 20px;font-size:11px;color:var(--t3)}
+.seg{display:flex;flex:1;border:1px solid var(--rule);border-radius:2px;overflow:hidden;min-width:0}
+.seg button{flex:1;min-width:0;padding:4px 2px;background:none;border:0;border-right:1px solid var(--rule);
+  cursor:pointer;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--t2);white-space:nowrap;
+  transition:background .14s var(--ease),color .14s var(--ease)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.seg button:hover:not([aria-pressed="true"]){background:var(--chrome-3);color:var(--t1)}
+.btn{padding:5px 7px;background:none;border:1px solid var(--rule);border-radius:2px;cursor:pointer;
+  font-size:12px;font-weight:500;letter-spacing:.02em;flex:1;min-width:0;white-space:nowrap;
+  transition:background .14s var(--ease),color .14s var(--ease),border-color .14s var(--ease)}
+.btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn:focus-visible,.seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
+.grid2{display:flex;gap:4px}
+.hint{font-size:11.5px;line-height:1.6;color:var(--t3);margin:7px 0 0}
+
+#status{grid-column:1;grid-row:3;border-top:1px solid var(--rule);background:var(--chrome);
+  display:flex;align-items:center;gap:15px;padding:0 12px;font-size:11px;color:var(--t2);
+  letter-spacing:.02em;overflow:hidden;white-space:nowrap}
+#status b{font-weight:500;color:var(--t1)}
+#status span{font-variant-numeric:tabular-nums}
+#st-msg{color:var(--t1);transition:opacity .3s var(--ease);margin-left:auto}
+#drawer{display:none}
+
+@media (max-width:880px){
+  #app{grid-template-columns:1fr;grid-template-rows:34px 1fr 24px}
+  #opts{grid-column:1;grid-row:1}
+  #stage{grid-column:1;grid-row:2}
+  #status{grid-column:1;grid-row:3}
+  #panel{position:fixed;right:0;bottom:24px;top:calc(34px + var(--nav-h));width:min(248px,86vw);z-index:5;
+    transform:translateX(102%);transition:transform .22s var(--ease);box-shadow:-8px 0 26px rgba(0,0,0,.18)}
+  #panel.open{transform:none}
+  #drawer{display:grid;place-items:center;position:fixed;right:10px;bottom:34px;z-index:6;
+    width:36px;height:36px;border-radius:50%;background:var(--ink);color:var(--paper);border:0;cursor:pointer;
+    box-shadow:0 2px 10px rgba(0,0,0,.3)}
+  #drawer svg{width:17px;height:17px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="/index.html" class="nav-logo">Noah Taylor</a>
+  <ul class="nav-links">
+    <li class="keep"><a href="/work.html">Work</a></li>
+    <li><a href="/shop.html">Shop</a></li>
+    <li><a href="/index.html">Concepts</a></li>
+    <li><a href="/resume.html">Resume</a></li>
+    <li><a href="/malleable/">Malleable</a></li>
+    <li><a href="/malleable-cl1/">CL1</a></li>
+    <li><a href="/malleable-s1/">S1</a></li>
+    <li><a href="/malleable-pl1/">PL1</a></li>
+  </ul>
+</nav>
+
+<div id="app">
+  <div id="opts"></div>
+
+  <div id="stage">
+    <div id="corner"></div>
+    <svg id="rulerH" aria-hidden="true"></svg>
+    <svg id="rulerV" aria-hidden="true"></svg>
+    <div id="view">
+      <canvas id="gl"></canvas>
+      <svg id="ov"></svg>
+      <div id="hint"></div>
+    </div>
+  </div>
+
+  <aside id="panel" aria-label="Inspector"></aside>
+
+  <div id="status">
+    <span><b id="st-in">—</b></span>
+    <span><b id="st-mm">—</b></span>
+    <span>SHELF <b id="st-shelf">—</b></span>
+    <span id="st-view">ISOMETRIC</span>
+    <span id="st-msg"></span>
+  </div>
+</div>
+
+<button id="drawer" aria-label="Inspector">
+  <svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h12M3 9h12M3 13.5h12"/></svg>
+</button>
+
+<script>
+"use strict";
+(() => {
+
+/* ══════════════════════════════════════════════════════════════════
+   MALLEABLE CT1 — coffee table
+   ------------------------------------------------------------------
+   Four pieces, and every one of them is a tube: one bead of the 8 mm
+   nozzle, hollow, printed vertically and open at both ends, because
+   a loop closed at every layer is the only thing an 8 mm bead wants
+   to be. The 8.00 on the drawing is that wall, and the 4.00 is the
+   half round a wall makes where it ends.
+
+   The two decks are tubes laid across: the section is a stadium as
+   long as the table is deep and 42 mm over the outside, lying on its
+   side so the half rounds are the front and back edges. They run leg
+   to leg and are open at each end, which is where they were printed
+   up from. Inside, the bore is 26 mm - the 26.00.
+
+   The legs are the same thing stood on end and turned a quarter: a
+   stadium 26 mm over the outside, open at the front and the back.
+   Each carries a little return at either level, a rib off its inner
+   wall reaching 46 mm into the deck's bore, 10.64 mm where it leaves
+   the wall and tapering to 5 - the arm on the drawing. That return is
+   what the deck indexes on, and it is the only taper on the table.
+
+   So the two pieces are printed the opposite way to each other. A
+   deck stands on one of its open ends, so its bead climbs the LENGTH
+   of the table; a leg stands on one of its, so its bead climbs the
+   DEPTH. That is why the ribs run across a deck and up a leg, and why
+   a leg goes blank in the front elevation - square on to the axis a
+   piece was printed up, you are looking at a layer rather than the
+   side of one.
+
+   Nothing here is a slider you hunt for. The table is its own set of
+   handles: pull a leg and it gets longer, pull the end of a loop and
+   it gets deeper, lift the top and the legs grow under it, lift the
+   shelf and it rides up the legs. Press without pulling and the view
+   squares up to whatever you pressed.
+
+   One scene unit is one millimetre.
+   ══════════════════════════════════════════════════════════════════ */
+
+const IN     = 25.4;
+/* Every figure below is read straight off the toolpath curves in the
+   reference .3dm - not off a drawing, and not inferred from a mesh.
+   The whole table is two curves and a pipe. */
+const PIPE   = 5;              // mm - the radius the bead is swept at, so 10 over
+const LAYER  = 5;              // mm - and the pitch the curves are stacked at
+const LEGSP  = 8;              // mm - between the leg loop's two runs: the 8.00
+const LEGT   = LEGSP + PIPE*2; // mm - 18 over the outside
+const DECKSP = 26;             // mm - between the deck loop's two runs: the 26.00
+const DECKT  = DECKSP + PIPE*2;// mm - 36 over the outside
+const RLEG   = LEGSP/2;        // mm - the head and foot of the leg's curve are half
+                               //      circles on the spacing: 4, which is the 4.00
+const RDECK  = DECKSP/2;       // mm - and the deck's two ends are half circles on
+                               //      ITS spacing, 13, which is what makes the
+                               //      section a pill rather than a rounded box
+/* The return, in millimetres off the inner run (out) and off the deck's
+   centre (up). Seven segments, straight off curve #204: it leaves the
+   run 28 apart, closes to 9, runs 28 nearly parallel, closes to 2.195
+   and turns. 46.196 is the 46 on the drawing. */
+const RET = [[0,-13.865],[16.196,-4.500],[44.296,-3.095],[46.196,-1.098],
+             [46.196,1.097],[44.296,3.095],[16.196,4.500],[0,14.135]];
+const RETL   = 46.196;
+/* With the deck's ends read as arcs it is 362 deep against the leg's
+   345, so the deck is the deeper of the two by 17 and takes the end of
+   the leg inside it - which is the reference, not a choice. */
+const LEGDEEP = -17;
+/* The reveal between the leg's inner face and the end of the deck.
+   Positive stands the deck off the leg, which is the way the file has
+   it: 3.381 clear at one end of the bake. Nought has them touching,
+   negative runs the deck into the leg. Backed out a further 2 from the
+   bake, so the returns sit 2 shallower in the bore. */
+const JOINT  = 5.4;
+/* The return's curve has sharp vertices, and a pipe over a sharp
+   vertex is round on the outside of the bend and creased on the
+   inside. Easing the joins between its segments rounds that crease -
+   the bend reads as one turn rather than two straights meeting. */
+const SOFT   = 3;
+const HMIN   = 12*IN, HMAX = 48*IN;    // the legs
+const LMIN   = 12*IN, LMAX = 48*IN;    // the sheets, both ways
+const DROPMIN = 6*IN;          // the shelf keeps this much under the top's centreline
+const FOOT    = 2*IN;          // and stops this far above the foot
+
+const RAD = Math.PI/180;
+const FACES = { F:{az:0,   name:'FRONT'},
+                R:{az:90,  name:'RIGHT END'},
+                B:{az:180, name:'BACK'},
+                L:{az:270, name:'LEFT END'} };
+
+const S = {
+  H:15*IN, Lx:24*IN, Ly:24*IN,   // leg height, and the loop, length by depth
+  drop:12*IN,                    // the shelf, measured down from the top's centreline
+  face:null, plan:false,
+  az:45*RAD, el:35.264*RAD,
+  scale:1400, tx:0, ty:0, tz:200
+};
+const A = { az:S.az, el:S.el, scale:S.scale, tx:0, ty:0, tz:200 };
+
+/* The top's centreline sits a round-over and half a tube below the
+   head of the leg - the 4.00 and the 26.00, read off the drawing. */
+/* The leg's curve tops out exactly where its top return rejoins the
+   inner run, so the deck's centre follows from the return, not from a
+   figure of mine - and the head lands 1.135 clear of the deck. */
+const zTop   = () => S.H - PIPE - RLEG - RET[7][1];
+const zShelf = () => zTop() - S.drop;
+const dropMax = () => Math.max(DROPMIN, zTop() - FOOT);
+const inch = mm => (mm/IN).toFixed(1);
+const layers = () => Math.max(1, Math.round(S.H/LAYER));
+
+let msgTimer = 0;
+function say(t){
+  const e = document.getElementById('st-msg');
+  e.textContent = t; e.style.opacity = '1';
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { e.style.opacity = '0'; }, 2400);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   1 · GL
+   Orthographic, ray marched. The form is a handful of primitives, so
+   it is solved straight in the shader - nothing to bake.
+   ══════════════════════════════════════════════════════════════════ */
+const cvs = document.getElementById('gl');
+const gl = cvs.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
+
+const VS = `#version 300 es
+void main(){ vec2 p = vec2((gl_VertexID<<1)&2, gl_VertexID&2); gl_Position = vec4(p*2.0-1.0,0.0,1.0); }`;
+
+const FS = `#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform vec3 uRight, uUp, uFwd, uTarget;
+uniform float uScale, uPix;
+uniform float uLx, uLy, uH, uZt, uZs;
+uniform float uPitch, uRelief, uStepK;
+uniform int uSteps;
+uniform vec3 uInk, uPaper;
+out vec4 outColor;
+const float PI = 3.141592653589793;
+const float PIPE = ` + PIPE.toFixed(2) + `;
+const float LEGSP = ` + LEGSP.toFixed(2) + `;
+const float DECKSP = ` + DECKSP.toFixed(2) + `;
+const float LEGT = ` + LEGT.toFixed(2) + `;
+const float LEGDEEP = ` + LEGDEEP.toFixed(2) + `;
+const float RLEG = ` + RLEG.toFixed(2) + `;
+const float RDECK = ` + RDECK.toFixed(2) + `;
+const float JOINT = ` + JOINT.toFixed(2) + `;
+const float SOFT = ` + SOFT.toFixed(2) + `;
+const vec2 RET[8] = vec2[8](` + RET.map(q => 'vec2(' + q[0].toFixed(3) + ',' + q[1].toFixed(3) + ')').join(',') + `);
+const vec3 LDIR  = vec3(-0.4575, -0.5968, 0.6565);
+const vec3 LFILL = vec3( 0.5121,  0.2561, 0.3201);
+bool gSmooth = false;
+
+/* a true radius on a union - it only reaches where both pieces are
+   already inside the radius, so the leg does not swell elsewhere */
+float uni(float a, float b, float r){
+  vec2 u = max(vec2(r-a, r-b), 0.0);
+  return max(r, min(a,b)) - length(u);
+}
+float sdRB(vec3 p, vec3 b, float r){
+  vec3 q = abs(p) - b;
+  return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0) - r;
+}
+/* One line, one pipe. The solid is everything within PIPE of the
+   curve, so there is nothing to hollow, nothing to blend and nothing
+   to cap: a wall comes out 10 wherever the line goes, a turn comes out
+   round because the pipe is, and the slot down a return is simply
+   what is left of the spacing. */
+float sd2(vec2 p, vec2 a, vec2 b){
+  vec2 pa = p - a, ba = b - a;
+  return length(pa - ba*clamp(dot(pa,ba)/dot(ba,ba), 0.0, 1.0));
+}
+/* easing one segment into the next, which is what rounds the inside
+   of a bend; k is how far either side of the vertex it reaches */
+float smin(float a, float b, float k){
+  float h = max(k - abs(a - b), 0.0)/k;
+  return min(a, b) - h*h*k*0.25;
+}
+/* the whole return as one eased chain */
+float retD(vec2 q, float zc){
+  vec2 o = vec2(0.0, zc);
+  float d = sd2(q - o, RET[0], RET[1]);
+  for(int i=1;i<7;i++) d = smin(d, sd2(q - o, RET[i], RET[i+1]), SOFT);
+  return d;
+}
+/* an open end is where the pipe turns over the rim */
+float sweep(float solid, float along, float halfLen){
+  vec2 w = vec2(solid + PIPE, along - max(halfLen - PIPE, 0.0));
+  return min(max(w.x, w.y), 0.0) + length(max(w, 0.0)) - PIPE;
+}
+
+/* THE DECK. Its curve is a pill in the y-z plane: two runs 26 apart
+   closed at either end by a half circle on that same 26, so the
+   section comes out a pill and not a rounded box. Stacked along the
+   length at 5 and open at both ends. */
+float deckD(vec3 p, float zc){
+  float hy = max(uLy*0.5 - RDECK - PIPE, 0.0);          // the straight run
+  float core = length(vec2(max(abs(p.y) - hy, 0.0), p.z - zc));
+  return sweep(abs(core - RDECK) - PIPE, abs(p.x), uLx*0.5);
+}
+
+/* THE LEG. One closed curve in the x-z plane: up the inner run, out
+   and back on a return at either level, across the head, down the
+   outer run 8 away, across the foot. The inner run is NOT there
+   where a return is - the line leaves it and comes back. */
+/* half a circle, and nothing of the other half: the head and foot of
+   the leg's curve turn on the spacing, so the straight runs stop at
+   the arc's centre height and the arc carries over the top */
+float arcEnd(vec2 q, vec2 c, float r, float up){
+  vec2 v = q - c;
+  if(v.y*up >= 0.0) return abs(length(v) - r);
+  return min(length(v - vec2(-r, 0.0)), length(v - vec2(r, 0.0)));
+}
+float legPath(vec2 q, float zcT, float zcS){
+  float zb = PIPE + RLEG, zt = uH - PIPE - RLEG;
+  float d = sd2(q, vec2(-LEGSP, zb), vec2(-LEGSP, zt));      // the outer run
+  d = min(d, arcEnd(q, vec2(-RLEG, zt), RLEG,  1.0));        // the head
+  d = min(d, arcEnd(q, vec2(-RLEG, zb), RLEG, -1.0));        // the foot
+  float run = min(sd2(q, vec2(0.0, zb), vec2(0.0, zcS + RET[0].y)),
+                  sd2(q, vec2(0.0, zcS + RET[7].y), vec2(0.0, zcT + RET[0].y)));
+  /* and the returns ease into the run they leave, the same way */
+  run = smin(run, retD(q, zcT), SOFT);
+  run = smin(run, retD(q, zcS), SOFT);
+  return min(d, run);
+}
+float legsD(vec3 p){
+  vec2 q = vec2((uLx*0.5 + JOINT + PIPE) - abs(p.x), p.z);   // + JOINT stands the leg off
+  float d = legPath(q, uZt, uZs) - PIPE;
+  return sweep(d, abs(p.y), max(uLy*0.5 + LEGDEEP*0.5, 0.0));
+}
+/* Each piece is laid down standing on edge, and the two stand the
+   opposite way to one another: a leg on one of its ends, so the bead
+   climbs through the DEPTH, and a loop on one of its, so the bead
+   climbs along the LENGTH. That is why the ribs run up a leg and
+   across a tube, and why the joint between them is the place where
+   the two directions meet. */
+float sdForm(vec3 p){
+  float L = legsD(p);
+  float D = min(deckD(p, uZt), deckD(p, uZs));
+  // every layer stands a little proud, the way a laid bead does
+  if(!gSmooth && uRelief > 1e-5){
+    L -= uRelief*sin(PI*fract(p.y/max(uPitch, 1e-4)));
+    D -= uRelief*sin(PI*fract(p.x/max(uPitch, 1e-4)));
+  }
+  /* a plain union: the legs are pieces of their own and meet the
+     sheets, they do not run into them */
+  return min(L, D);
+}
+/* the laid bead, read along one axis. A face square on to the axis a
+   piece was printed up IS a layer, so it carries no lines at all -
+   which is why a leg goes blank in the front elevation. */
+float beadLines(float a, float nAxis){
+  float ly = a/max(uPitch, 1e-4);
+  float w = fwidth(ly);
+  float g = abs(fract(ly) - 0.5)/max(w, 1e-5);
+  float sharp = 1.0 - smoothstep(0.18, 0.80, g);
+  float cov = mix(sharp, 0.22, smoothstep(0.20, 0.55, w));
+  return cov*(1.0 - abs(nAxis));
+}
+float occlusion(vec3 p, vec3 n){
+  gSmooth = true;
+  float occ = 0.0, sca = 1.0;
+  for(int i=0;i<3;i++){
+    float h = 2.0 + 16.0*float(i)/2.0;
+    occ += (h - sdForm(p + n*h))*sca/h;
+    sca *= 0.72;
+  }
+  gSmooth = false;
+  return clamp(1.0 - 0.55*occ, 0.0, 1.0);
+}
+vec3 normalAt(vec3 p, float e){
+  gSmooth = true;
+  vec2 h = vec2(1.0,-1.0)*0.5773*e;
+  vec3 n = normalize(h.xyy*sdForm(p+h.xyy) + h.yyx*sdForm(p+h.yyx)
+                   + h.yxy*sdForm(p+h.yxy) + h.xxx*sdForm(p+h.xxx));
+  gSmooth = false;
+  return n;
+}
+void main(){
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  vec3 ro = uTarget + uRight*(uv.x*uScale) + uUp*(uv.y*uScale) - uFwd*4000.0;
+  vec3 rd = uFwd;
+  float px = uPix;
+  float t = 0.0;
+  bool hit = false;
+  vec3 pos = ro;
+  for(int i=0;i<320;i++){
+    if(i >= uSteps) break;
+    pos = ro + rd*t;
+    float d = sdForm(pos);
+    if(d < px*0.45){ hit = true; break; }
+    t += max(d*uStepK, px*0.35);
+    if(t > 12000.0) break;
+  }
+  float tg = rd.z < -1e-6 ? (0.0 - ro.z)/rd.z : -1.0;
+  bool onGround = tg > 0.0 && (!hit || tg < t);
+
+  vec3 col = mix(uPaper, uInk, 0.075);
+  if(onGround){
+    vec3 g = ro + rd*tg;
+    // the shadow of the whole table, and the darker print of the feet
+    vec2 q = abs(g.xy) - vec2(uLx*0.5 + JOINT + LEGT, uLy*0.5);
+    float dd = length(max(q,0.0)) + min(max(q.x,q.y),0.0);
+    float dl = abs(abs(g.x) - (uLx*0.5 + JOINT + LEGT*0.5)) - LEGT*0.5;
+    float dy = abs(g.y) - max(uLy*0.5 + LEGDEEP*0.5, 0.0);
+    float df = length(max(vec2(dl,dy),0.0)) + min(max(dl,dy),0.0);
+    col = mix(uPaper, uInk, 0.115);
+    col = mix(col, mix(uPaper, uInk, 0.215), 1.0 - smoothstep(0.0, 150.0, max(dd, 0.0)));
+    col = mix(col, mix(uPaper, uInk, 0.36),  1.0 - smoothstep(0.0, 34.0, max(df, 0.0)));
+    float fade = smoothstep(3200.0, 6400.0, length(g.xy));
+    col = mix(col, mix(uPaper, uInk, 0.075), fade);
+  } else if(hit){
+    vec3 n = normalAt(pos, max(px*1.3, 0.55));
+    float key  = clamp(dot(n, LDIR)*0.62 + 0.38, 0.0, 1.0);
+    float fill = clamp(dot(n, LFILL)*0.5 + 0.5, 0.0, 1.0);
+    float f = key*0.80 + fill*0.20;
+    f *= mix(1.0, occlusion(pos, n), 0.55);
+    f = clamp(0.20 + 0.80*f, 0.0, 1.0);
+    col = mix(uPaper, uInk, (1.0 - f)*0.56);
+    /* whose bead is this - the leg's, which runs in y, or the loop's,
+       which runs in x. Across the fillet the one hands over to the
+       other, which is what the joint looks like. */
+    float dL = legsD(pos);
+    float dD = min(deckD(pos, uZt), deckD(pos, uZs));
+    float wLeg = step(dL, dD);
+    float cov = mix(beadLines(pos.x, n.x), beadLines(pos.y, n.y), wLeg);
+    if(uPitch > 0.001) col = mix(col, uInk, cov*0.17);
+  }
+  outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+let prog, uni = {}, ok = true;
+function compile(type, src){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+function initGL(){
+  if(!gl){ ok = false; return; }
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  prog = p;
+  for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uLx','uLy','uH',
+                  'uZt','uZs','uPitch','uRelief','uStepK','uSteps','uInk','uPaper'])
+    uni[n] = gl.getUniformLocation(prog, n);
+  gl.bindVertexArray(gl.createVertexArray());
+}
+let glErr = '';
+try { initGL(); } catch(e){
+  ok = false; console.error(e);
+  glErr = String(e.message || e);
+  cvs.style.display = 'none';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   2 · THE SAME FORM AGAIN, ON THE PROCESSOR
+   For picking, and for the elevation that comes out of it.
+   ══════════════════════════════════════════════════════════════════ */
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const mix = (a,b,t) => a + (b-a)*t;
+const smoothstep = (a,b,x) => { const t = clamp((x-a)/(b-a), 0, 1); return t*t*(3-2*t); };
+function sdRB(px, py, pz, bx, by, bz, r){
+  const qx = Math.abs(px)-bx, qy = Math.abs(py)-by, qz = Math.abs(pz)-bz;
+  return Math.hypot(Math.max(qx,0), Math.max(qy,0), Math.max(qz,0))
+       + Math.min(Math.max(qx, Math.max(qy,qz)), 0) - r;
+}
+function uniR(a, b, r){
+  return Math.max(r, Math.min(a,b)) - Math.hypot(Math.max(r-a,0), Math.max(r-b,0));
+}
+/* the same paths again, on the processor, for picking and for the
+   elevation */
+/* the same curve again, on the processor, for picking */
+function sd2(px,py, ax,ay, bx,by){
+  const pax=px-ax, pay=py-ay, bax=bx-ax, bay=by-ay;
+  const h = clamp((pax*bax + pay*bay)/(bax*bax + bay*bay || 1e-9), 0, 1);
+  return Math.hypot(pax - bax*h, pay - bay*h);
+}
+function sweep(solid, along, halfLen){
+  const wx = solid + PIPE, wy = along - Math.max(halfLen - PIPE, 0);
+  return Math.min(Math.max(wx, wy), 0) + Math.hypot(Math.max(wx,0), Math.max(wy,0)) - PIPE;
+}
+function deckJS(p, zc){
+  const hy = Math.max(S.Ly*0.5 - RDECK - PIPE, 0);
+  const core = Math.hypot(Math.max(Math.abs(p[1]) - hy, 0), p[2] - zc);
+  return sweep(Math.abs(core - RDECK) - PIPE, Math.abs(p[0]), S.Lx*0.5);
+}
+function arcEnd(qx, qz, cx, cz, r, up){
+  const vx = qx - cx, vy = qz - cz;
+  if(vy*up >= 0) return Math.abs(Math.hypot(vx,vy) - r);
+  return Math.min(Math.hypot(vx + r, vy), Math.hypot(vx - r, vy));
+}
+function sminJS(a,b,k){ const h=Math.max(k-Math.abs(a-b),0)/k; return Math.min(a,b) - h*h*k*0.25; }
+function retDJS(qx, qz, zc){
+  let d = sd2(qx,qz - zc, RET[0][0],RET[0][1], RET[1][0],RET[1][1]);
+  for(let i=1;i<7;i++) d = sminJS(d, sd2(qx,qz - zc, RET[i][0],RET[i][1], RET[i+1][0],RET[i+1][1]), SOFT);
+  return d;
+}
+function legPathJS(qx, qz, zcT, zcS){
+  const zb = PIPE + RLEG, zt = S.H - PIPE - RLEG;
+  let d = sd2(qx,qz, -LEGSP,zb, -LEGSP,zt);
+  d = Math.min(d, arcEnd(qx,qz, -RLEG,zt, RLEG,  1));
+  d = Math.min(d, arcEnd(qx,qz, -RLEG,zb, RLEG, -1));
+  let run = Math.min(sd2(qx,qz, 0,zb, 0,zcS + RET[0][1]),
+                     sd2(qx,qz, 0,zcS + RET[7][1], 0,zcT + RET[0][1]));
+  run = sminJS(run, retDJS(qx,qz,zcT), SOFT);
+  run = sminJS(run, retDJS(qx,qz,zcS), SOFT);
+  return Math.min(d, run);
+}
+function legsJS(p){
+  const qx = (S.Lx*0.5 + JOINT + PIPE) - Math.abs(p[0]);
+  const d = legPathJS(qx, p[2], zTop(), zShelf()) - PIPE;
+  return sweep(d, Math.abs(p[1]), Math.max(S.Ly*0.5 + LEGDEEP*0.5, 0));
+}
+function sdJS(p){
+  return Math.min(legsJS(p), Math.min(deckJS(p, zTop()), deckJS(p, zShelf())));
+}
+function normalJS(p){
+  const e = 0.6;
+  const dx = sdJS([p[0]+e,p[1],p[2]]) - sdJS([p[0]-e,p[1],p[2]]);
+  const dy = sdJS([p[0],p[1]+e,p[2]]) - sdJS([p[0],p[1]-e,p[2]]);
+  const dz = sdJS([p[0],p[1],p[2]+e]) - sdJS([p[0],p[1],p[2]-e]);
+  const l = Math.hypot(dx,dy,dz) || 1;
+  return [dx/l, dy/l, dz/l];
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   3 · CAMERA
+   ══════════════════════════════════════════════════════════════════ */
+function basisOf(az, el){
+  const ce = Math.cos(el), se = Math.sin(el);
+  const eye = [ce*Math.sin(az), -ce*Math.cos(az), se];
+  const fwd = [-eye[0], -eye[1], -eye[2]];
+  let rx = fwd[1], ry = -fwd[0], rz = 0;
+  const L = Math.hypot(rx,ry,rz) || 1; rx/=L; ry/=L; rz/=L;
+  const ux = ry*fwd[2] - rz*fwd[1], uy = rz*fwd[0] - rx*fwd[2], uz = rx*fwd[1] - ry*fwd[0];
+  return { right:[rx,ry,rz], up:[ux,uy,uz], fwd, eye };
+}
+const basis = () => basisOf(A.az, A.el);
+const viewEl = document.getElementById('view');
+const ovEl = document.getElementById('ov');
+let vw = 0, vh = 0, fitted = false;
+function resize(){
+  const r = viewEl.getBoundingClientRect();
+  const dpr = Math.min(devicePixelRatio || 1, 1.75);
+  vw = r.width; vh = r.height;
+  const w = Math.max(1, Math.round(r.width*dpr)), h = Math.max(1, Math.round(r.height*dpr));
+  if(cvs.width !== w || cvs.height !== h){ cvs.width = w; cvs.height = h; }
+  ovEl.setAttribute('viewBox', '0 0 ' + vw + ' ' + vh);
+  /* The first fit has to wait for the viewport to have a size. Opened
+     into a pane that is still laying itself out - or a narrow one on a
+     phone - the figures are there but the paper is not, and the table
+     is framed against nothing. Frame it again the moment there is
+     something to frame it in. */
+  if(!fitted && vw > 1 && vh > 1){
+    fitted = true;
+    fitView();
+    A.scale = S.scale; A.tx = S.tx; A.ty = S.ty; A.tz = S.tz;
+  }
+}
+function themeColors(){
+  const cs = getComputedStyle(document.documentElement);
+  const toRGB = v => { v = v.trim();
+    return v.startsWith('#') ? [parseInt(v.slice(1,3),16)/255, parseInt(v.slice(3,5),16)/255, parseInt(v.slice(5,7),16)/255] : [0,0,0]; };
+  return { ink: toRGB(cs.getPropertyValue('--ink')), paper: toRGB(cs.getPropertyValue('--paper')) };
+}
+function draw(){
+  if(!ok) return;
+  const b = basis(), c = themeColors();
+  gl.viewport(0,0,cvs.width,cvs.height);
+  gl.useProgram(prog);
+  gl.uniform2f(uni.uRes, cvs.width, cvs.height);
+  gl.uniform3fv(uni.uRight, b.right);
+  gl.uniform3fv(uni.uUp, b.up);
+  gl.uniform3fv(uni.uFwd, b.fwd);
+  gl.uniform3f(uni.uTarget, A.tx, A.ty, A.tz);
+  gl.uniform1f(uni.uScale, A.scale);
+  const px = A.scale/Math.max(1, cvs.height);
+  gl.uniform1f(uni.uPix, px);
+  gl.uniform1f(uni.uLx, S.Lx);
+  gl.uniform1f(uni.uLy, S.Ly);
+  gl.uniform1f(uni.uH, S.H);
+  gl.uniform1f(uni.uZt, zTop());
+  gl.uniform1f(uni.uZs, zShelf());
+  /* a rib finer than a couple of pixels is only moire, so the bead
+     fades out as the layer approaches the pixel */
+  const pitchPx = LAYER/Math.max(px, 1e-6);
+  const fade = clamp((pitchPx - 1.6)/3, 0, 1);
+  const relief = 0.34*fade;
+  gl.uniform1f(uni.uPitch, LAYER);
+  gl.uniform1f(uni.uRelief, relief);
+  const stride = relief > 1e-5 ? 0.72 : 0.88;
+  gl.uniform1f(uni.uStepK, stride);
+  gl.uniform1i(uni.uSteps, Math.max(64, Math.min(320, Math.round((dragging ? 170 : 240)/stride))));
+  gl.uniform3fv(uni.uInk, c.ink);
+  gl.uniform3fv(uni.uPaper, c.paper);
+  gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+function rayFor(sx, sy){
+  const b = basis();
+  const ux = (sx - vw/2)/vh, uy = -(sy - vh/2)/vh;
+  return { o:[ A.tx + b.right[0]*ux*A.scale + b.up[0]*uy*A.scale - b.fwd[0]*4000,
+               A.ty + b.right[1]*ux*A.scale + b.up[1]*uy*A.scale - b.fwd[1]*4000,
+               A.tz + b.right[2]*ux*A.scale + b.up[2]*uy*A.scale - b.fwd[2]*4000 ],
+           d: b.fwd };
+}
+function cast(sx, sy){
+  const r = rayFor(sx, sy);
+  let t = 0;
+  for(let i=0;i<200;i++){
+    const p = [r.o[0]+r.d[0]*t, r.o[1]+r.d[1]*t, r.o[2]+r.d[2]*t];
+    const d = sdJS(p);
+    if(d < 0.4) return { p, t };
+    t += Math.max(d*0.85, 0.4);
+    if(t > 12000) break;
+  }
+  return null;
+}
+function pxPer(axis){
+  const b = basis();
+  const u = (axis[0]*b.right[0] + axis[1]*b.right[1] + axis[2]*b.right[2])/A.scale*vh;
+  const v = -(axis[0]*b.up[0] + axis[1]*b.up[1] + axis[2]*b.up[2])/A.scale*vh;
+  return { x:u, y:v, n:u*u + v*v };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   4 · VIEW
+   ══════════════════════════════════════════════════════════════════ */
+function fitView(){
+  const b = basisOf(S.az, S.el);
+  const hx = S.Lx/2 + JOINT + LEGT, hy = S.Ly/2;
+  const cz = S.H*0.52;
+  S.tx = 0; S.ty = 0; S.tz = cz;
+  let mu = 1, mv = 1;
+  for(const sx of [-1,1]) for(const sy of [-1,1]) for(const z of [0, S.H]){
+    const rx = sx*hx, ry = sy*hy, rz = z - cz;
+    mu = Math.max(mu, Math.abs(rx*b.right[0] + ry*b.right[1] + rz*b.right[2]));
+    mv = Math.max(mv, Math.abs(rx*b.up[0] + ry*b.up[1] + rz*b.up[2]));
+  }
+  const aspect = Math.max(0.4, vw/Math.max(vh,1));
+  S.scale = Math.max(2*mv, 2*mu/aspect)*1.34 + 90;
+}
+function turnTo(az, el){
+  let want = az;
+  while(want - S.az >  Math.PI) want -= 2*Math.PI;
+  while(want - S.az < -Math.PI) want += 2*Math.PI;
+  S.az = want; S.el = el;
+  fitView(); sync();
+}
+function goFace(f){ S.face = f; S.plan = false; turnTo(FACES[f].az*RAD, 0); }
+function goPlan(){ S.face = null; S.plan = true; turnTo(S.az, 89*RAD); }
+function atIso(){
+  let d = S.az - 45*RAD;
+  d -= Math.round(d/(2*Math.PI))*2*Math.PI;
+  return Math.abs(d) < 0.02 && Math.abs(S.el - 35.264*RAD) < 0.02;
+}
+function goIso(){ S.face = null; S.plan = false; turnTo(45*RAD, 35.264*RAD); }
+
+/* ══════════════════════════════════════════════════════════════════
+   5 · HISTORY
+   ══════════════════════════════════════════════════════════════════ */
+let hist = [], hi = -1;
+const stateNow = () => JSON.stringify({ H:S.H, Lx:S.Lx, Ly:S.Ly, drop:S.drop });
+function snap(){
+  const s = stateNow();
+  if(hi >= 0 && hist[hi] === s) return;
+  hist = hist.slice(0, hi+1); hist.push(s);
+  if(hist.length > 60) hist.shift();
+  hi = hist.length-1;
+}
+function restore(i){
+  if(i < 0 || i >= hist.length) return;
+  const o = JSON.parse(hist[i]);
+  S.H = o.H; S.Lx = o.Lx; S.Ly = o.Ly; S.drop = o.drop;
+  hi = i; sync();
+}
+const undo = () => { if(hi > 0){ restore(hi-1); say('Undo'); } };
+const redo = () => { if(hi < hist.length-1){ restore(hi+1); say('Redo'); } };
+
+/* ══════════════════════════════════════════════════════════════════
+   6 · THE TABLE IS THE HANDLE
+   Four figures, each of them a surface you can take hold of. The
+   loops stop at 12 and 48 inches both ways, the legs the same, and
+   the shelf runs in a window: never closer than six inches under the
+   top's centreline, never lower than two inches off the floor.
+   ══════════════════════════════════════════════════════════════════ */
+const DIMS = {
+  H:  { label:'Height' },
+  Lx: { label:'Length' },
+  Ly: { label:'Depth'  },
+  Z:  { label:'Shelf'  }
+};
+function setDim(k, v){
+  if(k === 'H'){
+    S.H = clamp(v, HMIN, HMAX);
+    if(v > S.H + 0.5) say('48 in');
+    else if(v < S.H - 0.5) say('12 in');
+    /* the legs got shorter under the shelf; it cannot stay where it was */
+    const d = clamp(S.drop, DROPMIN, dropMax());
+    if(Math.abs(d - S.drop) > 0.01){ S.drop = d; say('the shelf came up with the top'); }
+  } else if(k === 'Lx' || k === 'Ly'){
+    S[k] = clamp(v, LMIN, LMAX);
+    if(v > S[k] + 0.5) say('48 in');
+    else if(v < S[k] - 0.5) say('12 in');
+  } else {
+    /* the shelf is given as a height off the floor and kept as a drop
+       below the top, so raising the table lifts the shelf with it */
+    const want = zTop() - v;
+    S.drop = clamp(want, DROPMIN, dropMax());
+    if(want < DROPMIN - 0.5) say('the shelf keeps 6 in under the top');
+    else if(want > dropMax() + 0.5) say('the shelf stops 2 in off the floor');
+  }
+}
+const dimVal = k => k === 'Z' ? zShelf() : S[k];
+
+/* ══════════════════════════════════════════════════════════════════
+   7 · POINTER
+   ══════════════════════════════════════════════════════════════════ */
+let drag = null, dragging = false, spaceDown = false;
+
+/* which piece the hand is on, and so which figure comes with it: a
+   face that looks sideways belongs to the loop it is the edge of, a
+   face that looks up or down belongs to whatever is resting on it -
+   the top carries the legs, the shelf only carries itself. */
+function grabAt(sx, sy){
+  const h = cast(sx, sy);
+  if(!h) return null;
+  const p = h.p, n = normalJS(p);
+  const dLeg = legsJS(p), dTop = deckJS(p, zTop()), dShelf = deckJS(p, zShelf());
+  const part = (dShelf < dTop && dShelf < dLeg) ? 'shelf' : (dTop < dLeg ? 'top' : 'leg');
+  const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+  let g;
+  if(az >= ax && az >= ay){
+    g = part === 'shelf'
+      ? { key:'Z',  axis:[0,0,1], gain:1, faceKey:null }
+      : { key:'H',  axis:[0,0,1], gain:1, faceKey:null };
+  } else if(ax >= ay){
+    g = { key:'Lx', axis:[p[0] >= 0 ? 1 : -1, 0, 0], gain:2, faceKey:p[0] >= 0 ? 'R' : 'L' };
+  } else {
+    g = { key:'Ly', axis:[0, p[1] >= 0 ? 1 : -1, 0], gain:2, faceKey:p[1] >= 0 ? 'B' : 'F' };
+  }
+  /* a face pointing straight at the camera has nowhere on the paper
+     to be pulled to, so it is not a handle from here - turn first */
+  const b = basis();
+  const head = Math.abs(g.axis[0]*b.fwd[0] + g.axis[1]*b.fwd[1] + g.axis[2]*b.fwd[2]);
+  g.pull = head < 0.90;
+  g.part = part;
+  g.p = p;
+  return g;
+}
+
+viewEl.addEventListener('pointerdown', e => {
+  if(e.button === 1 || spaceDown){
+    drag = { kind:'pan', sx:e.clientX, sy:e.clientY, tx:S.tx, ty:S.ty, tz:S.tz };
+    dragging = true; viewEl.setPointerCapture(e.pointerId); return;
+  }
+  if(e.button !== 0) return;
+  const r = viewEl.getBoundingClientRect();
+  const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  viewEl.setPointerCapture(e.pointerId);
+  const g = grabAt(sx, sy);
+  if(g && g.pull){
+    drag = { kind:'pull', key:g.key, gain:g.gain, faceKey:g.faceKey, part:g.part,
+             sx:e.clientX, sy:e.clientY, v0:dimVal(g.key), pp:pxPer(g.axis), moved:0 };
+  } else {
+    drag = { kind:'orbit', sx:e.clientX, sy:e.clientY, az:S.az, el:S.el, moved:0,
+             on:!!g, faceKey:g ? g.faceKey : null };
+  }
+  dragging = true;
+});
+
+addEventListener('pointermove', e => {
+  if(!drag) return;
+  if(drag.kind === 'pull'){
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    drag.moved = Math.max(drag.moved, Math.hypot(dx,dy));
+    if(drag.moved > 3){
+      const pp = drag.pp;
+      const world = pp.n > 1e-9 ? (dx*pp.x + dy*pp.y)/pp.n : 0;
+      setDim(drag.key, drag.v0 + world*drag.gain);
+      sync();
+    }
+    return;
+  }
+  if(drag.kind === 'pan'){
+    const b = basis();
+    const k = A.scale/Math.max(vh,1);
+    const dx = -(e.clientX - drag.sx)*k, dy = (e.clientY - drag.sy)*k;
+    S.tx = drag.tx + b.right[0]*dx + b.up[0]*dy;
+    S.ty = drag.ty + b.right[1]*dx + b.up[1]*dy;
+    S.tz = drag.tz + b.right[2]*dx + b.up[2]*dy;
+    return;
+  }
+  if(drag.kind === 'orbit'){
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    drag.moved = Math.max(drag.moved, Math.hypot(dx,dy));
+    if(drag.moved > 3){
+      if(S.face || S.plan){ S.face = null; S.plan = false; sync(); }
+      S.az = drag.az + dx*0.008;
+      S.el = clamp(drag.el + dy*0.006, -8*RAD, 88*RAD);
+    }
+    return;
+  }
+});
+
+addEventListener('pointerup', () => {
+  if(!drag){ dragging = false; return; }
+  /* a press that did not travel is not a pull - it is you saying you
+     want to look at that face square on */
+  if(drag.moved !== undefined && drag.moved <= 3 && (drag.kind === 'pull' ? true : drag.on)){
+    if(drag.faceKey) goFace(drag.faceKey); else goPlan();
+  }
+  else if(drag.kind === 'pull'){ if(drag.moved > 3) snap(); }
+  drag = null; dragging = false;
+  setCursor(); sync();
+});
+
+let hoverAt = 0;
+viewEl.addEventListener('pointermove', e => {
+  if(drag || spaceDown) return;
+  const now = performance.now();
+  if(now - hoverAt < 55) return;
+  hoverAt = now;
+  const r = viewEl.getBoundingClientRect();
+  const g = grabAt(e.clientX - r.left, e.clientY - r.top);
+  viewEl.style.cursor = !g ? 'grab'
+    : g.pull ? ((g.key === 'H' || g.key === 'Z') ? 'ns-resize' : 'move')
+    : 'pointer';
+});
+viewEl.addEventListener('pointerleave', () => { if(!drag) setCursor(); });
+viewEl.addEventListener('wheel', e => {
+  e.preventDefault();
+  S.scale = clamp(S.scale*Math.exp(e.deltaY*0.0014), 120, 9000);
+}, { passive:false });
+function setCursor(){ viewEl.style.cursor = 'grab'; }
+
+/* ══════════════════════════════════════════════════════════════════
+   8 · RULERS
+   ══════════════════════════════════════════════════════════════════ */
+const LADDER = [1,2,5,10,20,25,50,100,200,250,500,1000,2000,5000];
+function rulers(){
+  const rh = document.getElementById('rulerH'), rv = document.getElementById('rulerV');
+  const b = basis();
+  const wpp = A.scale/Math.max(vh,1);
+  let step = LADDER[LADDER.length-1];
+  for(const s of LADDER) if(s/wpp >= 56){ step = s; break; }
+  const ppu = 1/wpp;
+  const o0 = A.tx*b.right[0] + A.ty*b.right[1] + A.tz*b.right[2];
+  const o1 = A.tx*b.up[0]    + A.ty*b.up[1]    + A.tz*b.up[2];
+  let h = '', k0 = Math.floor((o0 - vw/2*wpp)/step), k1 = Math.ceil((o0 + vw/2*wpp)/step);
+  for(let k=k0;k<=k1;k++){
+    const x = vw/2 + (k*step - o0)*ppu;
+    if(x < -40 || x > vw + 40) continue;
+    h += '<line x1="'+x.toFixed(1)+'" y1="11" x2="'+x.toFixed(1)+'" y2="18" stroke="rgba(0,0,0,.34)" stroke-width="1"/>';
+    h += '<text x="'+(x+2.5).toFixed(1)+'" y="9" font-size="8.5" font-family="var(--font)" fill="rgba(0,0,0,.34)">'+(k*step)+'</text>';
+  }
+  rh.innerHTML = h;
+  let v = '', m0 = Math.floor((o1 - vh/2*wpp)/step), m1 = Math.ceil((o1 + vh/2*wpp)/step);
+  for(let k=m0;k<=m1;k++){
+    const y = vh/2 - (k*step - o1)*ppu;
+    if(y < -40 || y > vh + 40) continue;
+    v += '<line x1="11" y1="'+y.toFixed(1)+'" x2="18" y2="'+y.toFixed(1)+'" stroke="rgba(0,0,0,.34)" stroke-width="1"/>';
+    v += '<text x="9" y="'+(y-2.5).toFixed(1)+'" font-size="8.5" font-family="var(--font)" fill="rgba(0,0,0,.34)" text-anchor="end" transform="rotate(-90 9 '+(y-2.5).toFixed(1)+')">'+(k*step)+'</text>';
+  }
+  rv.innerHTML = v;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   9 · OUT
+   A front elevation, drawn the way the part was drawn: the two legs,
+   the two tubes between them, and the figures off to the side.
+   ══════════════════════════════════════════════════════════════════ */
+function download(name, blob){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function savePNG(){
+  draw();
+  cvs.toBlob(b => { if(b){ download('malleable-ct1.png', b); say('PNG out'); } }, 'image/png');
+}
+function elevationSVG(){
+  const OA = S.Lx + (JOINT + LEGT)*2;                  // over the legs
+  const M = 150, W = OA + M*2, H = S.H + M*2;
+  const X = x => (M + OA/2 + x).toFixed(2);            // model x -> paper x
+  const Y = z => (M + S.H - z).toFixed(2);             // model z -> paper y
+  const ln = 'stroke="#000" fill="none" stroke-width="2"';
+  const th = 'stroke="#000" fill="none" stroke-width="1"';
+  const tx = 'font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#000"';
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W.toFixed(0)+' '+H.toFixed(0)+'" width="'+W.toFixed(0)+'" height="'+H.toFixed(0)+'">';
+  s += '<rect width="100%" height="100%" fill="#fff"/>';
+  // the ground
+  s += '<line x1="'+X(-S.Lx/2-70)+'" y1="'+Y(0)+'" x2="'+X(S.Lx/2+70)+'" y2="'+Y(0)+'" '+th+'/>';
+  // the legs, panels of their own, standing outboard with every edge round
+  for(const sgn of [-1,1]){
+    const x0 = sgn > 0 ? S.Lx/2 + JOINT : -(S.Lx/2 + JOINT + LEGT);
+    s += '<rect x="'+X(x0)+'" y="'+Y(S.H)+'" width="'+LEGT.toFixed(2)+'" height="'+S.H.toFixed(2)+
+         '" rx="'+(RLEG + PIPE)+'" '+ln+'/>';
+  }
+  // the leg's bore, which you look straight into from the front
+  for(const sgn of [-1,1]){
+    const x0 = (sgn > 0 ? S.Lx/2 + JOINT : -(S.Lx/2 + JOINT + LEGT)) + PIPE*2;
+    s += '<rect x="'+X(x0)+'" y="'+Y(S.H - PIPE*2)+'" width="'+(LEGT - PIPE*4).toFixed(2)+
+         '" height="'+(S.H - PIPE*4).toFixed(2)+'" rx="0.5" '+th+'/>';
+  }
+  // the two deck tubes, seen on their long side, end to end
+  for(const zc of [zTop(), zShelf()]){
+    s += '<rect x="'+X(-S.Lx/2)+'" y="'+Y(zc + DECKT*0.5)+'" width="'+S.Lx.toFixed(2)+
+         '" height="'+DECKT.toFixed(2)+'" rx="'+PIPE+'" '+ln+'/>';
+  }
+  // the figures
+  const dim = (x1,y1,x2,y2,label,off,vert) => {
+    let d = '<g '+th+'>';
+    d += '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"/>';
+    const a = 9;
+    if(vert){
+      d += '<path d="M'+x1+' '+y1+' l-'+a/2+' '+a+' h'+a+' z" fill="#000"/>';
+      d += '<path d="M'+x2+' '+y2+' l-'+a/2+' -'+a+' h'+a+' z" fill="#000"/>';
+    } else {
+      d += '<path d="M'+x1+' '+y1+' l'+a+' -'+a/2+' v'+a+' z" fill="#000"/>';
+      d += '<path d="M'+x2+' '+y2+' l-'+a+' -'+a/2+' v'+a+' z" fill="#000"/>';
+    }
+    d += '</g>';
+    d += '<text '+tx+' x="'+off[0]+'" y="'+off[1]+'"'+(vert?' transform="rotate(-90 '+off[0]+' '+off[1]+')"':'')+' text-anchor="middle">'+label+'</text>';
+    return d;
+  };
+  const lx = (M - 60).toFixed(2), rx = (M + S.Lx + 60).toFixed(2);
+  s += dim(lx, Y(S.H), lx, Y(0), inch(S.H) + ' in', [(+lx - 10).toFixed(2), (M + S.H/2).toFixed(2)], true);
+  s += dim(rx, Y(zShelf()), rx, Y(0), inch(zShelf()) + ' in', [(+rx + 26).toFixed(2), (M + S.H - zShelf()/2).toFixed(2)], true);
+  const by = (M + S.H + 70).toFixed(2);
+  s += dim(X(-S.Lx/2), by, X(S.Lx/2), by, inch(S.Lx) + ' in', [X(0), (+by + 30).toFixed(2)], false);
+  s += '<text '+tx+' x="'+M+'" y="'+(M-70)+'">MALLEABLE CT1 &#183; front elevation &#183; sheet ' +
+       inch(S.Lx) + ' &#215; ' + inch(S.Ly) + ' in, ' + inch(OA) + ' in over the legs &#183; mm ' +
+       Math.round(S.H) + ' / ' + Math.round(S.Lx) + ' / ' + Math.round(S.Ly) + '</text>';
+  s += '</svg>';
+  return s;
+}
+function saveSVG(){
+  download('malleable-ct1-elevation.svg', new Blob([elevationSVG()], { type:'image/svg+xml' }));
+  say('Elevation out');
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   10 · OPTIONS + INSPECTOR
+   ══════════════════════════════════════════════════════════════════ */
+const optsEl = document.getElementById('opts');
+const panel = document.getElementById('panel');
+const el = (tag,cls,html) => { const e = document.createElement(tag); if(cls) e.className = cls; if(html != null) e.innerHTML = html; return e; };
+
+function buildOpts(){
+  optsEl.innerHTML = '';
+  optsEl.appendChild(el('div','tname','Malleable CT1'));
+  /* the figures come first, because while a leg is moving under your
+     hand this is the only place they are */
+  const g0 = el('div','ogrp');
+  for(const k of ['H','Lx','Ly','Z']){
+    g0.appendChild(el('label',null, DIMS[k].label));
+    const o = el('output',null,''); o.id = 'o-'+k; g0.appendChild(o);
+  }
+  optsEl.appendChild(g0);
+  syncOpts();
+  if(innerWidth >= 860){
+    const g1 = el('div','ogrp');
+    g1.append(el('label',null,'Bead'), el('output',null, LAYER + 'mm'),
+              el('label',null,'Layer'), el('output',null, LAYER + 'mm'));
+    optsEl.appendChild(g1);
+  }
+  if(innerWidth >= 1040){
+    const g2 = el('div','ogrp');
+    g2.append(el('label',null,'Deck'), el('output',null, DECKT + 'mm'),
+              el('label',null,'Leg'), el('output',null, LEGT + 'mm'),
+              el('label',null,'Pipe'), el('output',null, (PIPE*2) + 'mm'));
+    optsEl.appendChild(g2);
+  }
+}
+function syncOpts(){
+  for(const k of ['H','Lx','Ly','Z']){
+    const o = document.getElementById('o-'+k);
+    if(o) o.textContent = inch(dimVal(k)) + '"';
+  }
+}
+function numRow(parent, key){
+  const row = el('div','row');
+  row.appendChild(el('label',null, DIMS[key].label));
+  const i = document.createElement('input');
+  i.type = 'number'; i.className = 'num'; i.step = '0.1'; i.id = 'n-' + key;
+  i.value = inch(dimVal(key));
+  i.setAttribute('aria-label', DIMS[key].label);
+  let nd = null;
+  i.addEventListener('pointerdown', e => {
+    if(document.activeElement === i) return;
+    e.preventDefault();
+    nd = { x:e.clientX, v:dimVal(key) };
+    i.setPointerCapture(e.pointerId);
+  });
+  i.addEventListener('pointermove', e => {
+    if(!nd) return;
+    const dx = e.clientX - nd.x;
+    if(Math.abs(dx) > 1){ nd.moved = true; setDim(key, nd.v + dx*1.27); sync(); }
+  });
+  i.addEventListener('pointerup', () => {
+    if(nd && !nd.moved){ i.focus(); i.select(); } else if(nd){ snap(); fitView(); }
+    nd = null;
+  });
+  const commit = () => { const v = parseFloat(i.value); if(isFinite(v)){ setDim(key, v*IN); snap(); fitView(); } sync(); };
+  i.addEventListener('change', commit);
+  i.addEventListener('blur', commit);
+  i.addEventListener('keydown', e => { if(e.key === 'Enter') i.blur(); });
+  row.append(i, el('span','unit','in'));
+  parent.appendChild(row);
+}
+function sect(title){
+  const s = el('div','sect');
+  if(title) s.appendChild(el('h2',null,title));
+  panel.appendChild(s);
+  return s;
+}
+function button(parent, label, fn){
+  const b = document.createElement('button');
+  b.type='button'; b.className='btn'; b.textContent=label; b.onclick=fn;
+  parent.appendChild(b);
+}
+function buildPanel(){
+  panel.innerHTML = '';
+  const s1 = sect('Size');
+  numRow(s1,'H'); numRow(s1,'Lx'); numRow(s1,'Ly'); numRow(s1,'Z');
+  const h1 = el('p','hint',''); h1.id = 'h-size'; s1.appendChild(h1);
+
+  const s2 = sect('View');
+  const seg = el('div','seg'); seg.id = 'seg-view';
+  const mk = (lbl, fn, tag) => {
+    const b = document.createElement('button');
+    b.type='button'; b.textContent=lbl; b.dataset.tag = tag; b.onclick = fn;
+    seg.appendChild(b);
+  };
+  mk('Iso', goIso, 'iso');
+  mk('Front', () => goFace('F'), 'F');
+  mk('End', () => goFace('R'), 'R');
+  mk('Plan', goPlan, 'plan');
+  const r2 = el('div','row'); r2.appendChild(seg); s2.appendChild(r2);
+  const h2 = el('p','hint',''); h2.id = 'h-view'; s2.appendChild(h2);
+
+  const s3 = sect('Out');
+  const g2 = el('div','grid2');
+  button(g2,'Elevation', saveSVG);
+  button(g2,'PNG', savePNG);
+  s3.appendChild(g2);
+  s3.appendChild(el('p','hint','Read off the reference toolpath. A ' + (PIPE*2) +
+    ' mm pipe on every curve, stacked at ' + LAYER + ' mm. Deck loop ' + DECKSP +
+    ' mm across (' + DECKT + ' over), leg loop ' + LEGSP + ' mm (' + LEGT +
+    ' over). Return ' + RETL + ' mm off the run.<br><br>' +
+    'Each piece prints as a wall on edge, and the legs stand the opposite way to the sheets: ' +
+    'the bead climbs through the depth of a leg and along the length of a sheet.'));
+  syncPanel();
+}
+function syncPanel(){
+  for(const k of ['H','Lx','Ly','Z']){
+    const i = document.getElementById('n-'+k);
+    if(i && document.activeElement !== i) i.value = inch(dimVal(k));
+  }
+  const h1 = document.getElementById('h-size');
+  if(h1) h1.innerHTML = Math.round(S.H) + ' &times; ' + Math.round(S.Lx) + ' &times; ' + Math.round(S.Ly) +
+    ' mm &middot; ' + inch(S.Lx + (JOINT + LEGT)*2) + ' in over the legs<br>' + inch(clearUnder()) +
+    ' in clear under the top &middot; shelf ' + inch(S.drop) + ' in down &middot; ' + layers() + ' layers';
+  const seg = document.getElementById('seg-view');
+  if(seg) seg.querySelectorAll('button').forEach(b => {
+    const t = b.dataset.tag;
+    b.setAttribute('aria-pressed', String(
+      t === 'iso' ? (!S.face && !S.plan && atIso()) : t === 'plan' ? S.plan : S.face === t));
+  });
+  const h2 = document.getElementById('h-view');
+  if(h2) h2.textContent = S.plan ? 'Looking down on the loops.'
+    : S.face ? 'Square on to the ' + FACES[S.face].name.toLowerCase() + '.'
+    : 'Click any face in the view to square up to it.';
+}
+/* how much room there is between the shelf and the underside of the top */
+const clearUnder = () => (zTop() - DECKT*0.5) - (zShelf() + DECKT*0.5);
+
+/* ══════════════════════════════════════════════════════════════════
+   11 · SYNC + FRAME
+   ══════════════════════════════════════════════════════════════════ */
+function setHint(){
+  if(glErr){ document.getElementById('hint').textContent =
+    'The view could not be built here: ' + glErr; return; }
+  document.getElementById('hint').textContent =
+    'Pull a leg to make it longer — a sheet\'s edge to make it deeper — the top to raise the table — the shelf to move it. Drag off the table to turn it.';
+}
+function sync(){
+  syncOpts();
+  document.getElementById('st-in').textContent =
+    inch(S.H) + ' × ' + inch(S.Lx) + ' × ' + inch(S.Ly) + ' in';
+  document.getElementById('st-mm').textContent =
+    Math.round(S.H) + ' × ' + Math.round(S.Lx) + ' × ' + Math.round(S.Ly) + ' mm';
+  document.getElementById('st-shelf').textContent =
+    inch(zShelf()) + ' in up, ' + inch(clearUnder()) + ' in clear';
+  document.getElementById('st-view').textContent =
+    S.plan ? 'PLAN' : S.face ? FACES[S.face].name + ' ELEVATION' : atIso() ? 'ISOMETRIC' : 'FREE';
+  syncPanel();
+}
+let prev = performance.now();
+const ease = (c,t,dt,tau) => c + (t-c)*(1 - Math.exp(-dt/tau));
+function frame(t){
+  const dt = Math.min(0.05, (t-prev)/1000) || 0.016;
+  prev = t;
+  resize();
+  const tau = (drag && drag.kind === 'orbit') ? 0.05 : 0.17;
+  A.az = ease(A.az, S.az, dt, tau);
+  A.el = ease(A.el, S.el, dt, tau);
+  A.scale = ease(A.scale, S.scale, dt, 0.08);
+  A.tx = ease(A.tx, S.tx, dt, 0.08);
+  A.ty = ease(A.ty, S.ty, dt, 0.08);
+  A.tz = ease(A.tz, S.tz, dt, 0.08);
+  try{ draw(); rulers(); }
+  catch(err){ if(!frame.cried){ frame.cried = true; console.error(err); say('Something went wrong drawing that frame'); } }
+  requestAnimationFrame(frame);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   12 · KEYBOARD
+   ══════════════════════════════════════════════════════════════════ */
+addEventListener('keydown', e => {
+  const t = e.target || document.body;
+  const tag = (t.tagName||'').toLowerCase();
+  if(t.isContentEditable || tag === 'textarea' || (tag === 'input' && t.type !== 'checkbox' && t.type !== 'range')){
+    if(e.key === 'Escape') t.blur();
+    return;
+  }
+  if(e.code === 'Space'){ spaceDown = true; viewEl.style.cursor = 'grab'; e.preventDefault(); return; }
+  if(e.metaKey || e.ctrlKey){
+    if(e.key.toLowerCase() === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); }
+    return;
+  }
+  const k = e.key.toLowerCase();
+  if(k === 'f'){ fitView(); say('Fit'); return; }
+  if(k === 'p'){ goPlan(); return; }
+  if(e.key === 'Escape'){ goIso(); return; }
+});
+addEventListener('keyup', e => { if(e.code === 'Space'){ spaceDown = false; setCursor(); } });
+addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button');
+  if(b) b.blur();
+});
+document.getElementById('drawer').onclick = () => panel.classList.toggle('open');
+addEventListener('resize', () => { buildOpts(); });
+
+/* ══════════════════════════════════════════════════════════════════
+   13 · BOOT
+   ══════════════════════════════════════════════════════════════════ */
+resize();
+document.documentElement.setAttribute('data-theme','light');
+fitView();
+A.scale = S.scale; A.tx = S.tx; A.ty = S.ty; A.tz = S.tz;
+buildOpts();
+buildPanel();
+setHint(); setCursor();
+snap(); sync();
+requestAnimationFrame(frame);
+
+})();
+</script>
+
+</body>
+</html>
