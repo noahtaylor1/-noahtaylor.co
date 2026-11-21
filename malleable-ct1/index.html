@@ -79,6 +79,20 @@ button,input,select{font:inherit;color:inherit}
 .num::-webkit-outer-spin-button,.num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .num:focus{outline:none;border-bottom-color:var(--ink);cursor:text}
 .unit{flex:0 0 20px;font-size:11px;color:var(--t3)}
+/* A slider is a rule with a bead on it - the same hairline and the
+   same ink as everything else on the plate, no colour anywhere. */
+.slrow{margin:1px 0 9px}
+.slrow:last-child{margin-bottom:0}
+input[type=range]{-webkit-appearance:none;appearance:none;background:none;width:100%;height:14px;
+  margin:0;display:block;accent-color:var(--ink);cursor:ew-resize}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--rule)}
+input[type=range]::-moz-range-track{height:1px;background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:9px;height:9px;border-radius:50%;
+  background:var(--ink);border:0;margin-top:-4px;transition:transform .12s var(--ease)}
+input[type=range]::-moz-range-thumb{width:9px;height:9px;border:0;border-radius:50%;background:var(--ink)}
+input[type=range]::-moz-range-progress{height:1px;background:var(--rule)}
+input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.3)}
+input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 .seg{display:flex;flex:1;border:1px solid var(--rule);border-radius:2px;overflow:hidden;min-width:0}
 .seg button{flex:1;min-width:0;padding:4px 2px;background:none;border:0;border-right:1px solid var(--rule);
   cursor:pointer;font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--t2);white-space:nowrap;
@@ -102,18 +116,24 @@ button,input,select{font:inherit;color:inherit}
 #st-msg{color:var(--t1);transition:opacity .3s var(--ease);margin-left:auto}
 #drawer{display:none}
 
+/* On a phone the inspector is not a drawer over the table - it lies
+   below it, and it is only the sliders. The table itself is still the
+   handle: pulling works the same under a thumb. */
 @media (max-width:880px){
-  #app{grid-template-columns:1fr;grid-template-rows:34px 1fr 24px}
+  #app{grid-template-columns:1fr;grid-template-rows:34px 1fr auto 24px}
   #opts{grid-column:1;grid-row:1}
-  #stage{grid-column:1;grid-row:2}
-  #status{grid-column:1;grid-row:3}
-  #panel{position:fixed;right:0;bottom:24px;top:calc(34px + var(--nav-h));width:min(248px,86vw);z-index:5;
-    transform:translateX(102%);transition:transform .22s var(--ease);box-shadow:-8px 0 26px rgba(0,0,0,.18)}
-  #panel.open{transform:none}
-  #drawer{display:grid;place-items:center;position:fixed;right:10px;bottom:34px;z-index:6;
-    width:36px;height:36px;border-radius:50%;background:var(--ink);color:var(--paper);border:0;cursor:pointer;
-    box-shadow:0 2px 10px rgba(0,0,0,.3)}
-  #drawer svg{width:17px;height:17px}
+  #stage{grid-column:1;grid-row:2;min-height:0}
+  #panel{position:static;grid-column:1;grid-row:3;width:auto;
+    border-left:0;border-top:1px solid var(--rule);max-height:46vh}
+  #status{grid-column:1;grid-row:4}
+  #drawer{display:none}
+  .sect.wide{display:none}
+  .sect{padding:8px 12px 10px}
+  .row label{font-size:13px}
+  .num{flex:0 0 62px;font-size:13px}
+  input[type=range]{height:26px}
+  input[type=range]::-webkit-slider-thumb{width:15px;height:15px;margin-top:-7px}
+  input[type=range]::-moz-range-thumb{width:15px;height:15px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -922,15 +942,39 @@ viewEl.addEventListener('pointermove', e => {
   hoverAt = now;
   const r = viewEl.getBoundingClientRect();
   const g = grabAt(e.clientX - r.left, e.clientY - r.top);
-  viewEl.style.cursor = !g ? 'grab'
-    : g.pull ? ((g.key === 'H' || g.key === 'Z') ? 'ns-resize' : 'move')
-    : 'pointer';
+  viewEl.style.cursor = !g ? 'grab' : g.pull ? pullCursor(g.axis) : 'pointer';
 });
 viewEl.addEventListener('pointerleave', () => { if(!drag) setCursor(); });
 viewEl.addEventListener('wheel', e => {
   e.preventDefault();
   S.scale = clamp(S.scale*Math.exp(e.deltaY*0.0014), 120, 9000);
 }, { passive:false });
+/* The pointer should say which way a face will travel, not just that
+   it travels. One glyph - a bar for the face with the axis drawn
+   through it - turned to lie along the way that face actually moves on
+   the paper, which depends on where the table is turned to. Carries a
+   white backing so it reads on the plate and on the shadow alike. */
+const curves = new Map();
+function pullCursor(axis){
+  const pp = pxPer(axis);
+  if(pp.n < 1e-9) return 'pointer';
+  let a = Math.atan2(pp.y, pp.x)*180/Math.PI;
+  a = ((a % 180) + 180) % 180;                 // the glyph reads the same both ways
+  const key = Math.round(a/5)*5;
+  let c = curves.get(key);
+  if(!c){
+    const g = '<path d="M16 5v22"/>' +
+              '<path d="M10 16H3.4M6.4 12.8 3.2 16l3.2 3.2"/>' +
+              '<path d="M22 16h6.6M25.6 12.8 28.8 16l-3.2 3.2"/>';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">' +
+      '<g transform="rotate(' + key + ' 16 16)" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+      '<g stroke="#fff" stroke-width="3.6" opacity=".9">' + g + '</g>' +
+      '<g stroke="#000" stroke-width="1.5">' + g + '</g></g></svg>';
+    c = 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") 16 16, move';
+    curves.set(key, c);
+  }
+  return c;
+}
 function setCursor(){ viewEl.style.cursor = 'grab'; }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1060,19 +1104,6 @@ function buildOpts(){
   }
   optsEl.appendChild(g0);
   syncOpts();
-  if(innerWidth >= 860){
-    const g1 = el('div','ogrp');
-    g1.append(el('label',null,'Bead'), el('output',null, LAYER + 'mm'),
-              el('label',null,'Layer'), el('output',null, LAYER + 'mm'));
-    optsEl.appendChild(g1);
-  }
-  if(innerWidth >= 1040){
-    const g2 = el('div','ogrp');
-    g2.append(el('label',null,'Deck'), el('output',null, DECKT + 'mm'),
-              el('label',null,'Leg'), el('output',null, LEGT + 'mm'),
-              el('label',null,'Pipe'), el('output',null, (PIPE*2) + 'mm'));
-    optsEl.appendChild(g2);
-  }
 }
 function syncOpts(){
   for(const k of ['H','Lx','Ly','Z']){
@@ -1109,6 +1140,22 @@ function numRow(parent, key){
   i.addEventListener('keydown', e => { if(e.key === 'Enter') i.blur(); });
   row.append(i, el('span','unit','in'));
   parent.appendChild(row);
+  /* and the same figure as a rule with a bead on it, for a thumb or a
+     mouse that would rather sweep than type */
+  const sl = document.createElement('input');
+  sl.type = 'range'; sl.step = '1'; sl.id = 's-' + key;
+  sl.setAttribute('aria-label', DIMS[key].label);
+  sl.addEventListener('input', () => { setDim(key, parseFloat(sl.value)); sync(); });
+  sl.addEventListener('change', () => { snap(); fitView(); });
+  const sr = el('div','slrow'); sr.appendChild(sl);
+  parent.appendChild(sr);
+}
+/* what each slider may run between - the shelf's window moves with the
+   height, so it is set every time rather than once */
+function slRange(key){
+  if(key === 'H')  return [HMIN, HMAX];
+  if(key === 'Z')  return [FOOT, Math.max(FOOT, zTop() - DROPMIN)];
+  return [LMIN, LMAX];
 }
 function sect(title){
   const s = el('div','sect');
@@ -1127,7 +1174,7 @@ function buildPanel(){
   numRow(s1,'H'); numRow(s1,'Lx'); numRow(s1,'Ly'); numRow(s1,'Z');
   const h1 = el('p','hint',''); h1.id = 'h-size'; s1.appendChild(h1);
 
-  const s2 = sect('View');
+  const s2 = sect('View'); s2.classList.add('wide');
   const seg = el('div','seg'); seg.id = 'seg-view';
   const mk = (lbl, fn, tag) => {
     const b = document.createElement('button');
@@ -1141,7 +1188,7 @@ function buildPanel(){
   const r2 = el('div','row'); r2.appendChild(seg); s2.appendChild(r2);
   const h2 = el('p','hint',''); h2.id = 'h-view'; s2.appendChild(h2);
 
-  const s3 = sect('Out');
+  const s3 = sect('Out'); s3.classList.add('wide');
   const g2 = el('div','grid2');
   button(g2,'Elevation', saveSVG);
   button(g2,'PNG', savePNG);
@@ -1158,6 +1205,12 @@ function syncPanel(){
   for(const k of ['H','Lx','Ly','Z']){
     const i = document.getElementById('n-'+k);
     if(i && document.activeElement !== i) i.value = inch(dimVal(k));
+    const sl = document.getElementById('s-'+k);
+    if(sl){
+      const [lo, hi] = slRange(k);
+      sl.min = lo.toFixed(1); sl.max = hi.toFixed(1);
+      if(document.activeElement !== sl) sl.value = dimVal(k).toFixed(1);
+    }
   }
   const h1 = document.getElementById('h-size');
   if(h1) h1.innerHTML = Math.round(S.H) + ' &times; ' + Math.round(S.Lx) + ' &times; ' + Math.round(S.Ly) +
