@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="/tint.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Malleable CT1 — Noah Taylor</title>
 <style>
@@ -108,6 +109,21 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 .grid2{display:flex;gap:4px}
 .gridw{display:flex;flex-wrap:wrap;gap:4px}
 .gridw .btn{flex:1 1 30%}
+/* THE FINISH. Twelve pigments and the raw print, as a grid of
+   swatches. The plate itself stays achromatic - whatever colour is
+   on the page is a wash of the chosen pigment, never the pigment. */
+.swg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:6px}
+.sw{aspect-ratio:1;border:1px solid var(--rule);border-radius:2px;padding:0;background:var(--paper);
+  cursor:pointer;transition:transform .12s var(--ease),box-shadow .12s var(--ease)}
+.sw:hover{transform:scale(1.1)}
+.sw[aria-pressed="true"]{box-shadow:0 0 0 1.5px var(--ink);border-color:var(--ink)}
+.sw:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}
+.chip{display:inline-block;width:9px;height:9px;border-radius:50%;vertical-align:-1px;
+  margin-left:4px;box-shadow:0 0 0 1px rgba(128,128,128,.62)}
+/* no pigment, struck through on the diagonal */
+.sw.raw,.chip.raw{background:var(--paper);
+  background-image:linear-gradient(to top right,transparent calc(50% - .55px),
+    var(--t3) calc(50% - .55px),var(--t3) calc(50% + .55px),transparent calc(50% + .55px))}
 .btn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .hint{font-size:11.5px;line-height:1.6;color:var(--t3);margin:7px 0 0}
 
@@ -305,9 +321,44 @@ const S = {
   H:15*IN, Lx:24*IN, Ly:24*IN,   // leg height, and the loop, length by depth
   drop:12*IN,                    // the shelf, measured down from the top's centreline
   face:null, plan:false,
+  cTop:null, cLeg:null,          // the finish on each, a hex or raw
   az:45*RAD, el:35.264*RAD,
   scale:1400, tx:0, ty:0, tz:200
 };
+/* The twelve pigments come from tint.js, which every page on the site
+   loads, so the colour chosen here is the colour the site is wearing
+   when you leave this page. */
+const FIN = (window.Finish && window.Finish.list) || [{ name:'Raw', hex:null }];
+const finName = h => (FIN.find(c => c.hex === h) || FIN[0]).name;
+const finRGB = h => [parseInt(h.slice(1,3),16)/255, parseInt(h.slice(3,5),16)/255,
+                     parseInt(h.slice(5,7),16)/255, 1];
+const finMat = h => h ? finRGB(h) : [0,0,0,0];
+/* which of the two the swatches are painting */
+let paintOn = 'top';
+(function(){
+  const f = window.Finish ? window.Finish.get() : { top:null, leg:null };
+  S.cTop = f.top; S.cLeg = f.leg;
+})();
+function setFinish(which, hex){
+  if(which === 'leg'){
+    S.cLeg = hex;
+  } else {
+    /* the legs come along with the top until they are set on their
+       own, which is what anyone means by picking a colour once */
+    if(S.cLeg === S.cTop) S.cLeg = hex;
+    S.cTop = hex;
+  }
+  if(window.Finish) window.Finish.set({ top:S.cTop, leg:S.cLeg });
+  snap(); sync();
+  say((which === 'leg' ? 'Legs' : 'Top & shelf') + ' \u00b7 ' + finName(hex));
+}
+/* the same choice made in another tab */
+window.addEventListener('finishchange', e => {
+  const d = e.detail || {};
+  if(d.top === S.cTop && d.leg === S.cLeg) return;
+  S.cTop = d.top || null; S.cLeg = d.leg || null;
+  sync();
+});
 const A = { az:S.az, el:S.el, scale:S.scale, tx:0, ty:0, tz:200 };
 
 /* The top's centreline sits a round-over and half a tube below the
@@ -349,6 +400,8 @@ uniform float uLx, uLy, uH, uZt, uZs;
 uniform float uPitch, uRelief, uStepK;
 uniform int uSteps;
 uniform vec3 uInk, uPaper;
+/* rgb is the pigment, a says whether there is one at all */
+uniform vec4 uMatTop, uMatLeg;
 out vec4 outColor;
 const float PI = 3.141592653589793;
 const float PIPE = ` + PIPE.toFixed(2) + `;
@@ -517,6 +570,15 @@ vec3 normalAt(vec3 p, float e){
   gSmooth = false;
   return n;
 }
+/* No pigment and the part takes the drawing's own wash, paper into
+   ink. With one it is the pigment that is lit: it drops most of the
+   way to black in the shade and lifts a little toward the paper where
+   the key strikes it square on, which is how a matte print reads. */
+vec3 finish(vec4 m, float f){
+  vec3 raw = mix(uPaper, uInk, (1.0 - f)*0.56);
+  vec3 lit = m.rgb*(0.28 + 0.78*f) + uPaper*pow(f, 8.0)*0.12;
+  return mix(raw, min(lit, vec3(1.0)), m.a);
+}
 void main(){
   vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
   vec3 ro = uTarget + uRight*(uv.x*uScale) + uUp*(uv.y*uScale) - uFwd*4000.0;
@@ -557,15 +619,20 @@ void main(){
     float f = key*0.80 + fill*0.20;
     f *= mix(1.0, occlusion(pos, n), 0.55);
     f = clamp(0.20 + 0.80*f, 0.0, 1.0);
-    col = mix(uPaper, uInk, (1.0 - f)*0.56);
     /* whose bead is this - the leg's, which runs in y, or the loop's,
        which runs in x. Across the fillet the one hands over to the
-       other, which is what the joint looks like. */
+       other, which is what the joint looks like. The same question
+       settles which of the two finishes the point is wearing. */
     float dL = legsD(pos);
     float dD = min(deckD(pos, uZt), deckD(pos, uZs));
     float wLeg = step(dL, dD);
+    vec4 m = mix(uMatTop, uMatLeg, wLeg);
+    col = finish(m, f);
     float cov = mix(beadLines(pos.x, n.x), beadLines(pos.y, n.y), wLeg);
-    if(uPitch > 0.001) col = mix(col, uInk, cov*0.17);
+    /* the ribs are ink on a raw part and the pigment's own shadow on a
+       finished one - ink laid over oxblood only reads as dirt */
+    if(uPitch > 0.001)
+      col = mix(col, mix(uInk, col*0.44, m.a), cov*mix(0.17, 0.46, m.a));
   }
   outColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`;
@@ -586,7 +653,8 @@ function initGL(){
   if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
   prog = p;
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uLx','uLy','uH',
-                  'uZt','uZs','uPitch','uRelief','uStepK','uSteps','uInk','uPaper'])
+                  'uZt','uZs','uPitch','uRelief','uStepK','uSteps','uInk','uPaper',
+                  'uMatTop','uMatLeg'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
 }
@@ -773,6 +841,8 @@ function draw(){
   gl.uniform1i(uni.uSteps, Math.max(64, Math.min(320, Math.round((dragging ? 170 : 240)/stride))));
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
+  gl.uniform4fv(uni.uMatTop, finMat(S.cTop));
+  gl.uniform4fv(uni.uMatLeg, finMat(S.cLeg));
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -847,7 +917,8 @@ function goIso(){ S.face = null; S.plan = false; turnTo(45*RAD, 35.264*RAD); }
    5 · HISTORY
    ══════════════════════════════════════════════════════════════════ */
 let hist = [], hi = -1;
-const stateNow = () => JSON.stringify({ H:S.H, Lx:S.Lx, Ly:S.Ly, drop:S.drop });
+const stateNow = () =>
+  JSON.stringify({ H:S.H, Lx:S.Lx, Ly:S.Ly, drop:S.drop, cTop:S.cTop, cLeg:S.cLeg });
 function snap(){
   const s = stateNow();
   if(hi >= 0 && hist[hi] === s) return;
@@ -859,6 +930,10 @@ function restore(i){
   if(i < 0 || i >= hist.length) return;
   const o = JSON.parse(hist[i]);
   S.H = o.H; S.Lx = o.Lx; S.Ly = o.Ly; S.drop = o.drop;
+  if(o.cTop !== S.cTop || o.cLeg !== S.cLeg){
+    S.cTop = o.cTop || null; S.cLeg = o.cLeg || null;
+    if(window.Finish) window.Finish.set({ top:S.cTop, leg:S.cLeg });
+  }
   hi = i; sync();
 }
 const undo = () => { if(hi > 0){ restore(hi-1); say('Undo'); } };
@@ -1284,6 +1359,29 @@ function buildPanel(){
   numRow(s1,'H'); numRow(s1,'Lx'); numRow(s1,'Ly'); numRow(s1,'Z');
   const h1 = el('p','hint',''); h1.id = 'h-size'; s1.appendChild(h1);
 
+  const sf = sect('Finish');
+  const sg = el('div','seg'); sg.id = 'seg-mat';
+  for(const [tag, lbl] of [['top','Top & shelf'], ['leg','Legs']]){
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.tag = tag;
+    b.innerHTML = lbl + ' <i class="chip"></i>';
+    b.onclick = () => { paintOn = tag; syncPanel(); };
+    sg.appendChild(b);
+  }
+  const rf = el('div','row'); rf.appendChild(sg); sf.appendChild(rf);
+  const swg = el('div','swg'); swg.id = 'swatches';
+  FIN.forEach((c, i) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sw' + (c.hex ? '' : ' raw');
+    b.dataset.i = i; b.title = c.name;
+    b.setAttribute('aria-label', c.name);
+    if(c.hex) b.style.background = c.hex;
+    b.onclick = () => setFinish(paintOn, c.hex);
+    swg.appendChild(b);
+  });
+  sf.appendChild(swg);
+  const hf = el('p','hint',''); hf.id = 'h-fin'; sf.appendChild(hf);
+
   const s2 = sect('View'); s2.classList.add('wide');
   const seg = el('div','seg'); seg.id = 'seg-view';
   const mk = (lbl, fn, tag) => {
@@ -1329,6 +1427,22 @@ function syncPanel(){
   if(h1) h1.innerHTML = Math.round(S.H) + ' &times; ' + Math.round(S.Lx) + ' &times; ' + Math.round(S.Ly) +
     ' mm &middot; ' + inch(S.Lx + (JOINT + LEGT)*2) + ' in over the legs<br>' + inch(clearUnder()) +
     ' in clear under the top &middot; shelf ' + inch(S.drop) + ' in down &middot; ' + layers() + ' layers';
+  const sm = document.getElementById('seg-mat');
+  if(sm) sm.querySelectorAll('button').forEach(b => {
+    b.setAttribute('aria-pressed', String(b.dataset.tag === paintOn));
+    const chip = b.querySelector('.chip');
+    const hx = b.dataset.tag === 'leg' ? S.cLeg : S.cTop;
+    chip.classList.toggle('raw', !hx);
+    chip.style.background = hx || '';
+  });
+  const swg = document.getElementById('swatches');
+  const on = paintOn === 'leg' ? S.cLeg : S.cTop;
+  if(swg) swg.querySelectorAll('button').forEach(b =>
+    b.setAttribute('aria-pressed', String(FIN[+b.dataset.i].hex === on)));
+  const hf = document.getElementById('h-fin');
+  if(hf) hf.textContent = S.cTop === S.cLeg
+    ? finName(S.cTop) + ' throughout. Set the legs on their own and they stop following the top.'
+    : finName(S.cTop) + ' top and shelf, ' + finName(S.cLeg) + ' legs.';
   const seg = document.getElementById('seg-view');
   if(seg) seg.querySelectorAll('button').forEach(b => {
     const t = b.dataset.tag;
