@@ -841,27 +841,33 @@ const redo = () => { if(hi < hist.length-1){ restore(hi+1); say('Redo'); } };
 /* What the trade settles on, in inches. A coffee table sits a couple
    under the seat beside it; a side table comes up level with the arm;
    a desk is the 29-30 everything is built to; dining is 30; a console
-   is hall height and shallow. The last figure is the shelf as a
-   height off the floor, which is how anyone thinks about it - it is
-   turned into the drop the table actually keeps. */
+   is hall height and shallow.
+
+   The shelf is given as a height off the floor, which is how anyone
+   thinks about it - except where a chair has to go under, and then it
+   is given as a drop below the top instead ('top'), because what
+   matters there is that it is tucked up out of the way. A shelf four
+   inches off the floor stops a chair ever reaching the table. */
 const PRESETS = [
   ['Coffee',  17,   48, 24,  5],
   ['Side',    24,   20, 20,  8],
-  ['Desk',    29.5, 48, 24,  4],
-  ['Dining',  30,   48, 36,  4],
+  ['Desk',    29.5, 48, 24,  6, 'top'],
+  ['Dining',  30,   48, 36,  6, 'top'],
   ['Console', 31,   48, 14, 12]
 ];
+/* where the preset wants the shelf, as a height off the floor */
+const presetShelf = p => p[5] === 'top' ? zTop() - p[4]*IN : p[4]*IN;
 function applyPreset(p){
   S.H  = clamp(p[1]*IN, HMIN, HMAX);
   S.Lx = clamp(p[2]*IN, LMIN, LMAX);
   S.Ly = clamp(p[3]*IN, LMIN, LMAX);
-  S.drop = clamp(zTop() - p[4]*IN, DROPMIN, dropMax());
+  S.drop = clamp(zTop() - presetShelf(p), DROPMIN, dropMax());
   snap(); fitView(); sync();
   say(p[0] + ' · ' + p[1] + ' × ' + p[2] + ' × ' + p[3] + ' in');
 }
 const presetOn = p =>
   Math.abs(S.H - p[1]*IN) < 0.7 && Math.abs(S.Lx - p[2]*IN) < 0.7 &&
-  Math.abs(S.Ly - p[3]*IN) < 0.7 && Math.abs(zShelf() - p[4]*IN) < 0.7;
+  Math.abs(S.Ly - p[3]*IN) < 0.7 && Math.abs(zShelf() - presetShelf(p)) < 0.7;
 
 const DIMS = {
   H:  { label:'Height' },
