@@ -106,6 +106,9 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
 .btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .btn:focus-visible,.seg button:focus-visible{outline:1.5px solid var(--ink);outline-offset:1px}
 .grid2{display:flex;gap:4px}
+.gridw{display:flex;flex-wrap:wrap;gap:4px}
+.gridw .btn{flex:1 1 30%}
+.btn[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .hint{font-size:11.5px;line-height:1.6;color:var(--t3);margin:7px 0 0}
 
 #status{grid-column:1;grid-row:3;border-top:1px solid var(--rule);background:var(--chrome);
@@ -835,6 +838,31 @@ const redo = () => { if(hi < hist.length-1){ restore(hi+1); say('Redo'); } };
    the shelf runs in a window: never closer than six inches under the
    top's centreline, never lower than two inches off the floor.
    ══════════════════════════════════════════════════════════════════ */
+/* What the trade settles on, in inches. A coffee table sits a couple
+   under the seat beside it; a side table comes up level with the arm;
+   a desk is the 29-30 everything is built to; dining is 30; a console
+   is hall height and shallow. The last figure is the shelf as a
+   height off the floor, which is how anyone thinks about it - it is
+   turned into the drop the table actually keeps. */
+const PRESETS = [
+  ['Coffee',  17,   48, 24,  5],
+  ['Side',    24,   20, 20,  8],
+  ['Desk',    29.5, 48, 24,  4],
+  ['Dining',  30,   48, 36,  4],
+  ['Console', 31,   48, 14, 12]
+];
+function applyPreset(p){
+  S.H  = clamp(p[1]*IN, HMIN, HMAX);
+  S.Lx = clamp(p[2]*IN, LMIN, LMAX);
+  S.Ly = clamp(p[3]*IN, LMIN, LMAX);
+  S.drop = clamp(zTop() - p[4]*IN, DROPMIN, dropMax());
+  snap(); fitView(); sync();
+  say(p[0] + ' · ' + p[1] + ' × ' + p[2] + ' × ' + p[3] + ' in');
+}
+const presetOn = p =>
+  Math.abs(S.H - p[1]*IN) < 0.7 && Math.abs(S.Lx - p[2]*IN) < 0.7 &&
+  Math.abs(S.Ly - p[3]*IN) < 0.7 && Math.abs(zShelf() - p[4]*IN) < 0.7;
+
 const DIMS = {
   H:  { label:'Height' },
   Lx: { label:'Length' },
@@ -1204,6 +1232,15 @@ function button(parent, label, fn){
 }
 function buildPanel(){
   panel.innerHTML = '';
+  const s0 = sect('Type');
+  const gp = el('div','gridw'); gp.id = 'seg-preset';
+  for(const p of PRESETS){
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'btn'; b.textContent = p[0]; b.dataset.name = p[0];
+    b.onclick = () => applyPreset(p);
+    gp.appendChild(b);
+  }
+  s0.appendChild(gp);
   const s1 = sect('Size');
   numRow(s1,'H'); numRow(s1,'Lx'); numRow(s1,'Ly'); numRow(s1,'Z');
   const h1 = el('p','hint',''); h1.id = 'h-size'; s1.appendChild(h1);
@@ -1246,6 +1283,9 @@ function syncPanel(){
       if(document.activeElement !== sl) sl.value = dimVal(k).toFixed(1);
     }
   }
+  const gp = document.getElementById('seg-preset');
+  if(gp) gp.querySelectorAll('button').forEach(b =>
+    b.setAttribute('aria-pressed', String(presetOn(PRESETS.find(p => p[0] === b.dataset.name)))));
   const h1 = document.getElementById('h-size');
   if(h1) h1.innerHTML = Math.round(S.H) + ' &times; ' + Math.round(S.Lx) + ' &times; ' + Math.round(S.Ly) +
     ' mm &middot; ' + inch(S.Lx + (JOINT + LEGT)*2) + ' in over the legs<br>' + inch(clearUnder()) +
