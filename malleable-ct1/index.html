@@ -841,7 +841,7 @@ const redo = () => { if(hi < hist.length-1){ restore(hi+1); say('Redo'); } };
 /* What the trade settles on, in inches. A coffee table sits a couple
    under the seat beside it; a side table comes up level with the arm;
    a desk is the 29-30 everything is built to; dining is 30; a console
-   is hall height and shallow.
+   is hall height and shallow at 18 deep.
 
    The shelf is given as a height off the floor, which is how anyone
    thinks about it - except where a chair has to go under, and then it
@@ -853,7 +853,7 @@ const PRESETS = [
   ['Side',    24,   20, 20,  8],
   ['Desk',    29.5, 48, 24,  6, 'top'],
   ['Dining',  30,   48, 36,  6, 'top'],
-  ['Console', 31,   48, 14, 12]
+  ['Console', 31,   48, 18, 12]
 ];
 /* where the preset wants the shelf, as a height off the floor */
 const presetShelf = p => p[5] === 'top' ? zTop() - p[4]*IN : p[4]*IN;
