@@ -132,26 +132,29 @@ function bar(){
 if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bar);
 else bar();
 
+/* One finish for the whole object, held as a hex or as nothing at all. */
 function read(){
   try {
     var o = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if(o && typeof o === 'object') return { top: o.top || null, leg: o.leg || null };
+    if(typeof o === 'string') return o;
+    if(o && typeof o === 'object') return o.color || o.top || null;
   } catch(e){}
-  return { top:null, leg:null };
+  return null;
 }
-function write(f){
-  try { localStorage.setItem(KEY, JSON.stringify({ top:f.top || null, leg:f.leg || null })); } catch(e){}
-  apply(f.top);
-  window.dispatchEvent(new CustomEvent('finishchange', { detail:{ top:f.top || null, leg:f.leg || null } }));
+function write(c){
+  c = c || null;
+  try { localStorage.setItem(KEY, JSON.stringify({ color:c })); } catch(e){}
+  apply(c);
+  window.dispatchEvent(new CustomEvent('finishchange', { detail:{ color:c } }));
 }
 
-apply(read().top);
+apply(read());
 /* a second tab, or the page the choice was made on, left open behind */
 window.addEventListener('storage', function(e){
   if(e.key !== KEY) return;
-  var f = read();
-  apply(f.top);
-  window.dispatchEvent(new CustomEvent('finishchange', { detail:f }));
+  var c = read();
+  apply(c);
+  window.dispatchEvent(new CustomEvent('finishchange', { detail:{ color:c } }));
 });
 
 window.Finish = { list:FINISH, get:read, set:write, apply:apply, key:KEY };
