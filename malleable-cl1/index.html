@@ -535,6 +535,14 @@ uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
 uniform sampler2D uData;
 uniform vec3 uInk, uPaper;
+/* A soft box high on the left and forward, a couple of metres off (the
+   model is in centimetres). It is a place, not a direction, so its
+   bearing and its strength both drift across a face - which means the
+   bands follow the form instead of sitting flat on each plane. Up is y
+   here, so the sky term reads off y. */
+const vec3  LDIR  = vec3(-0.5800, 0.5400, 0.6100);
+const float LDIST = 230.0;
+const vec3  LFILL = vec3( 0.7000, -0.2600, 0.4000);
 out vec4 outColor;
 bool gNoBead;          // occlusion reads the smooth form, not the ribs
 
@@ -728,13 +736,13 @@ float occlusion(vec3 p, vec3 n){
      on a different rib and come back as speckle. */
   gNoBead = true;
   float occ = 0.0, sca = 1.0;
-  for(int i=0;i<3;i++){
-    float h = 0.12 + 1.15*float(i)/2.0;
-    occ += (h - scene(p + n*h))*sca;
-    sca *= 0.7;
+  for(int i=0;i<5;i++){
+    float h = 0.15 + 1.1*float(i);
+    occ += (h - scene(p + n*h))*sca/h;
+    sca *= 0.78;
   }
   gNoBead = false;
-  return clamp(1.0 - 1.1*occ, 0.0, 1.0);
+  return clamp(1.0 - 0.34*occ, 0.0, 1.0);
 }
 vec3 normalAt(vec3 p, float e){
   // smooth form only: a normal that follows every rib makes posterised
@@ -785,9 +793,20 @@ void main(){
        a fixed number of flat steps from one side light, darkened where the
        form closes in on itself. Banding keeps it a drawing, not a render. */
     if(uShade > 0 && uTone > 0.001){
-      float ndl = dot(n, normalize(vec3(-0.58, 0.54, 0.61)));
-      float f = clamp(ndl, 0.0, 1.0);
-      f *= mix(1.0, occlusion(pos, n), 0.55);
+      vec3 lv = (uTarget + LDIR*LDIST) - pos;
+      float ldist = length(lv);
+      vec3 lgt = lv/ldist;
+      float fall = clamp((LDIST*LDIST)/(ldist*ldist), 0.74, 1.26);
+      /* wrapped well past the terminator, because a box that size does
+         not end its light on a line */
+      float key  = clamp(dot(n, lgt)*0.44 + 0.56, 0.0, 1.0)*fall;
+      float fill = clamp(dot(n, LFILL)*0.40 + 0.60, 0.0, 1.0);
+      float sky  = clamp(n.y*0.5 + 0.5, 0.0, 1.0);
+      float f = key*0.66 + fill*0.12 + sky*0.22;
+      f *= mix(1.0, occlusion(pos, n), 0.40);
+      /* a matte print catches the room at a grazing angle */
+      f += pow(1.0 - clamp(dot(n, -rd), 0.0, 1.0), 3.5)*0.06;
+      f = clamp(f, 0.0, 1.0);
       /* The beads are lit analytically rather than through the normal, so
          they stay clean at any zoom: crown bright, seam dark, flattening to
          the mean once a bead is smaller than a pixel. */
@@ -796,6 +815,11 @@ void main(){
         float crown = 0.5 + 0.5*cos(6.2831853*fract(ph));
         crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
         f *= 0.82 + 0.26*crown;
+        /* and which side of each crest the lamp is on, which is what
+           stops the ribbing reading as corduroy */
+        float ty = fract(ph)*2.0 - 1.0;
+        float fade = 1.0 - smoothstep(0.16, 0.50, fwidth(ph));
+        f = clamp(f + ty*lgt.y*(1.0 - abs(n.y))*fade*0.10, 0.0, 1.0);
       }
       // an ambient floor, so the deepest tone is shadow and not a void
       f = uAmb + (1.0 - uAmb)*f;
@@ -817,7 +841,7 @@ void main(){
       bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
       // the join between two beads sits in shadow; drawing it toward the
       // paper lit every seam white, which is what made overhangs glare
-      if(!onCut) col = mix(col, uInk, cov*0.45);
+      if(!onCut) col = mix(col, uInk, cov*0.38);
     }
     // crease line where the surface folds — the rim, and where forms meet
     if(uEdges == 1){
