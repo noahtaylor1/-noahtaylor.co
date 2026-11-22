@@ -821,7 +821,13 @@ function themeColors(){
   const cs = getComputedStyle(document.documentElement);
   const toRGB = v => { v = v.trim();
     return v.startsWith('#') ? [parseInt(v.slice(1,3),16)/255, parseInt(v.slice(3,5),16)/255, parseInt(v.slice(5,7),16)/255] : [0,0,0]; };
-  return { ink: toRGB(cs.getPropertyValue('--ink')), paper: toRGB(cs.getPropertyValue('--paper')) };
+  /* The page's ink is whatever a mark is made in, which goes pale the
+     moment a finish floods the plate. The render's ink is the far end
+     of the light and has to stay the dark one, or the shadow under the
+     part comes out brighter than the floor. When a finish is on, tint.js
+     hands us a second pair for exactly that. */
+  const pick = (a, b) => { const v = cs.getPropertyValue(a).trim(); return v || cs.getPropertyValue(b); };
+  return { ink: toRGB(pick('--render-ink', '--ink')), paper: toRGB(pick('--render-paper', '--paper')) };
 }
 function draw(){
   if(!ok) return;
@@ -1211,65 +1217,302 @@ function savePNG(){
   draw();
   cvs.toBlob(b => { if(b){ download('malleable-ct1.png', b); say('PNG out'); } }, 'image/png');
 }
+/* ── The sheet's palette ────────────────────────────────────────────
+   The page goes a muted wash of the chosen pigment; the sheet goes the
+   other way and floods the whole thing with the room that pigment is
+   sitting in - a deep, nearly black version of the same hue, so the
+   part is the only thing on the page at full strength. Raw gets the
+   same sheet in grey, because a drawing with no finish on it still
+   needs a ground to sit on. */
+function sheetPal(hex){
+  if(!hex) return {
+    bg:'#121214', pool:'#1c1c20', part:'#d8d8dc', top:'#ececf0', side:'#b4b4bb',
+    end:'#90909a', line:'#f4f4f6', dim:'#a2a2ab', text:'#f4f4f6', faint:'#6a6a74',
+    name:'Raw' };
+  const r = parseInt(hex.slice(1,3),16)/255,
+        g = parseInt(hex.slice(3,5),16)/255,
+        b = parseInt(hex.slice(5,7),16)/255;
+  const mx = Math.max(r,g,b), mn = Math.min(r,g,b), l = (mx+mn)/2, d = mx - mn;
+  let h = 0, sa = 0;
+  if(d > 1e-6){
+    sa = d/(1 - Math.abs(2*l - 1));
+    h = mx === r ? ((g-b)/d + (g < b ? 6 : 0)) : mx === g ? (b-r)/d + 2 : (r-g)/d + 4;
+    h *= 60;
+  }
+  const S0 = sa*100;                       // the pigment's own saturation
+  const SC = Math.min(S0, 72);             // and a cooled one, for the chrome
+  const hsl = (sv, lv) => 'hsl(' + h.toFixed(1) + ',' + Math.max(sv,0).toFixed(1) +
+                          '%,' + Math.min(Math.max(lv,0),100).toFixed(1) + '%)';
+  /* Very dark and very light pigments both need pulling toward the
+     middle before they will read as a lit object rather than a hole or
+     a blank, so the faces are spread around a display lightness. */
+  const DL = Math.min(Math.max(l*100, 25), 85);
+  return {
+    bg:   hsl(SC*0.70,  6.5),
+    pool: hsl(SC*0.62, 13.0),
+    part: hsl(S0, DL),
+    top:  hsl(S0*0.94, DL + 10),
+    side: hsl(S0, DL - 2),
+    end:  hsl(S0*1.00, DL - 14),
+    line: hsl(SC*0.30, Math.min(DL + 34, 93)),
+    dim:  hsl(SC*0.26, 64),
+    text: hsl(SC*0.18, 93),
+    faint:hsl(SC*0.24, 44)
+  };
+}
+
+/* ── The sheet ──────────────────────────────────────────────────────
+   A photograph of the part, the front elevation with its figures, and
+   an isometric - each centred in its own panel, and the figures given
+   room to stand off the drawing instead of crowding it.
+   ══════════════════════════════════════════════════════════════════ */
 function elevationSVG(){
-  const OA = S.Lx + (JOINT + LEGT)*2;                  // over the legs
-  const M = 150, W = OA + M*2, H = S.H + M*2;
-  const X = x => (M + OA/2 + x).toFixed(2);            // model x -> paper x
-  const Y = z => (M + S.H - z).toFixed(2);             // model z -> paper y
-  const ln = 'stroke="#000" fill="none" stroke-width="2"';
-  const th = 'stroke="#000" fill="none" stroke-width="1"';
-  const tx = 'font-family="Helvetica,Arial,sans-serif" font-size="22" fill="#000"';
-  let s = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W.toFixed(0)+' '+H.toFixed(0)+'" width="'+W.toFixed(0)+'" height="'+H.toFixed(0)+'">';
-  s += '<rect width="100%" height="100%" fill="#fff"/>';
+  const pal  = sheetPal(S.col);
+  const name = (typeof finName === 'function') ? finName(S.col) : 'Raw';
+  const OA   = S.Lx + (JOINT + LEGT)*2;                 // over the legs
+  const legD = Math.max(S.Ly + LEGDEEP, 10);            // the leg is set in
+
+  const W = 2200, M = 110, GAP = 84;
+  const rowA = { y:176, h:700 };
+  const rowB = { y:rowA.y + rowA.h + 96, h:560 };
+  const H    = rowB.y + rowB.h + 118;
+  const cw   = (W - M*2 - GAP)/2;
+
+  const F  = 'font-family="Helvetica Neue,Helvetica,Arial,sans-serif"';
+  const esc = t => String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const text = (x, y, t, size, fill, opt) =>
+    '<text ' + F + ' x="' + (+x).toFixed(1) + '" y="' + (+y).toFixed(1) + '" font-size="' + size +
+    '" fill="' + fill + '"' + (opt || '') + '>' + t + '</text>';
+
+  let s = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
+          'viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">';
+  // the flood
+  s += '<rect width="100%" height="100%" fill="' + pal.bg + '"/>';
+
+  /* ── the heading ── */
+  s += text(M, 92, 'MALLEABLE CT1', 46, pal.text, ' letter-spacing="5" font-weight="500"');
+  s += text(M, 132, esc(name.toUpperCase()), 24, pal.faint, ' letter-spacing="7"');
+
+  /* ── 1 · the photograph ──────────────────────────────────────────
+     The canvas as it stands, pasted on the sheet. It brings its own
+     light ground with it, which is the point: a print sitting on a
+     table, not a cut-out. */
+  const sx = W - M - 470;                  // the figures keep the right margin
+  const cardW = sx - M - 92;               // and the photograph takes the rest
+  try {
+    draw();
+    /* A canvas can be a retina one and the sheet does not need that
+       many pixels. It goes out as a photograph rather than a PNG
+       because the render is dithered at the last step, and dither is
+       exactly the thing lossless compression cannot do anything with -
+       the same picture costs five megabytes one way and three hundred
+       kilobytes the other. */
+    const MAXPX = 1600;
+    let src = cvs;
+    if(cvs.width > MAXPX){
+      src = document.createElement('canvas');
+      src.width = MAXPX;
+      src.height = Math.max(1, Math.round(cvs.height*MAXPX/cvs.width));
+      const g2 = src.getContext('2d');
+      g2.imageSmoothingQuality = 'high';
+      g2.drawImage(cvs, 0, 0, src.width, src.height);
+    }
+    const url = src.toDataURL('image/jpeg', 0.92);
+    /* The card is the same size whatever shape the viewport is, and the
+       picture sits inside it - the ground it brings with it is the same
+       dark room the sheet is, so the two meet without a seam. */
+    /* The card is cut to the picture's own proportions rather than the
+       picture being letterboxed into the card: a band of flat colour
+       beside a photograph is a seam however carefully it is matched,
+       because the encoder will not hand back the exact tone it was
+       given. No band, no seam. */
+    const ar = cvs.width/Math.max(cvs.height, 1);
+    let iw = cardW, ih = cardW/ar;
+    if(ih > rowA.h){ ih = rowA.h; iw = rowA.h*ar; }
+    const iy = rowA.y + (rowA.h - ih)/2;
+    const box = ' x="' + M + '" y="' + iy.toFixed(1) + '" width="' + iw.toFixed(1) +
+                '" height="' + ih.toFixed(1) + '"';
+    s += '<image' + box + ' preserveAspectRatio="none" href="' + url + '" xlink:href="' + url + '"/>';
+    s += '<rect' + box + ' rx="10" fill="none" stroke="' + pal.faint + '" stroke-width="1"/>';
+  } catch(e){}
+
+  /* ── the figures, alongside ── */
+  let sy = rowA.y + 54;
+  const spec = [
+    ['HEIGHT',          inch(S.H) + ' in',        Math.round(S.H) + ' mm'],
+    ['WIDTH',           inch(S.Lx) + ' in',       Math.round(S.Lx) + ' mm'],
+    ['DEPTH',           inch(S.Ly) + ' in',       Math.round(S.Ly) + ' mm'],
+    ['OVER THE LEGS',   inch(OA) + ' in',         Math.round(OA) + ' mm'],
+    ['CLEAR UNDER TOP', inch(clearUnder()) + ' in', Math.round(clearUnder()) + ' mm'],
+    ['SHELF DROP',      inch(S.drop) + ' in',     Math.round(S.drop) + ' mm'],
+    ['LAYERS',          layers() + '',            LAYER.toFixed(1) + ' mm pitch']
+  ];
+  for(const [k, v, m] of spec){
+    s += text(sx, sy, k, 19, pal.faint, ' letter-spacing="3"');
+    s += text(sx, sy + 38, v, 34, pal.text);
+    s += text(sx + 190, sy + 38, m, 22, pal.dim);
+    s += '<line x1="' + sx + '" y1="' + (sy + 62) + '" x2="' + (sx + 420) + '" y2="' + (sy + 62) +
+         '" stroke="' + pal.faint + '" stroke-width="1" opacity="0.45"/>';
+    sy += 92;
+  }
+
+  /* ── the two panels ── */
+  const cellL = { x:M, y:rowB.y, w:cw, h:rowB.h };
+  const cellR = { x:M + cw + GAP, y:rowB.y, w:cw, h:rowB.h };
+  for(const c of [cellL, cellR])
+    s += '<rect x="' + c.x + '" y="' + c.y + '" width="' + c.w + '" height="' + c.h +
+         '" rx="10" fill="' + pal.pool + '"/>';
+
+  /* Centre a drawing in its panel: the extent handed in is everything
+     that has to fit, the figures included, so nothing can run off. */
+  const fit = (ext, c, pad) => {
+    const k = Math.min((c.w - pad*2)/Math.max(ext[2]-ext[0], 1e-6),
+                       (c.h - pad*2)/Math.max(ext[3]-ext[1], 1e-6));
+    return { k, ox:c.x + c.w/2 - (ext[0]+ext[2])/2*k, oy:c.y + c.h/2 - (ext[1]+ext[3])/2*k };
+  };
+
+  /* ── 2 · the front elevation ─────────────────────────────────────
+     Model x across, model z up. The figures stand a good way off the
+     part - a dimension crowding the thing it measures is the quickest
+     way to make a drawing look careless. */
+  const big  = Math.max(S.H, OA);
+  const DIMG = big*0.125;                // part to witness line
+  const TXTG = big*0.085;                // witness line to its figure
+  const eExt = [-OA/2 - DIMG - TXTG, -big*0.05, OA/2 + DIMG + TXTG, S.H + DIMG + TXTG];
+  const LBL = 40;                        // the strip the view's name sits in
+  const ef = fit(eExt, { x:cellL.x, y:cellL.y, w:cellL.w, h:cellL.h - LBL }, 38);
+  const EX = x => ef.ox + ef.k*x;
+  const EY = z => ef.oy + ef.k*(S.H - z);
+
+  const ln = 'fill="' + pal.part + '" stroke="' + pal.line + '" stroke-width="' + (1.9).toFixed(2) + '"';
+  const hair = 'fill="none" stroke="' + pal.line + '" stroke-width="1" opacity="0.5"';
+  const box = (x0, z0, x1, z1, rx, attr) =>
+    '<rect x="' + EX(x0).toFixed(2) + '" y="' + EY(z1).toFixed(2) +
+    '" width="' + ((x1-x0)*ef.k).toFixed(2) + '" height="' + ((z1-z0)*ef.k).toFixed(2) +
+    '" rx="' + (rx*ef.k).toFixed(2) + '" ' + attr + '/>';
+
   // the ground
-  s += '<line x1="'+X(-S.Lx/2-70)+'" y1="'+Y(0)+'" x2="'+X(S.Lx/2+70)+'" y2="'+Y(0)+'" '+th+'/>';
-  // the legs, panels of their own, standing outboard with every edge round
-  for(const sgn of [-1,1]){
+  s += '<line x1="' + EX(-OA/2 - DIMG*0.3).toFixed(2) + '" y1="' + EY(0).toFixed(2) +
+       '" x2="' + EX(OA/2 + DIMG*0.3).toFixed(2) + '" y2="' + EY(0).toFixed(2) +
+       '" stroke="' + pal.faint + '" stroke-width="1.5"/>';
+  // the two deck tubes, seen on their long side
+  for(const zc of [zTop(), zShelf()])
+    s += box(-S.Lx/2, zc - DECKT*0.5, S.Lx/2, zc + DECKT*0.5, PIPE, ln);
+  // the legs, standing outboard with every edge round
+  for(const sgn of [-1, 1]){
     const x0 = sgn > 0 ? S.Lx/2 + JOINT : -(S.Lx/2 + JOINT + LEGT);
-    s += '<rect x="'+X(x0)+'" y="'+Y(S.H)+'" width="'+LEGT.toFixed(2)+'" height="'+S.H.toFixed(2)+
-         '" rx="'+(RLEG + PIPE)+'" '+ln+'/>';
+    s += box(x0, 0, x0 + LEGT, S.H, RLEG + PIPE, ln);
+    // the bore you look straight into from the front
+    s += box(x0 + PIPE*2, PIPE*2, x0 + LEGT - PIPE*2, S.H - PIPE*2, 0.5, hair);
   }
-  // the leg's bore, which you look straight into from the front
-  for(const sgn of [-1,1]){
-    const x0 = (sgn > 0 ? S.Lx/2 + JOINT : -(S.Lx/2 + JOINT + LEGT)) + PIPE*2;
-    s += '<rect x="'+X(x0)+'" y="'+Y(S.H - PIPE*2)+'" width="'+(LEGT - PIPE*4).toFixed(2)+
-         '" height="'+(S.H - PIPE*4).toFixed(2)+'" rx="0.5" '+th+'/>';
-  }
-  // the two deck tubes, seen on their long side, end to end
-  for(const zc of [zTop(), zShelf()]){
-    s += '<rect x="'+X(-S.Lx/2)+'" y="'+Y(zc + DECKT*0.5)+'" width="'+S.Lx.toFixed(2)+
-         '" height="'+DECKT.toFixed(2)+'" rx="'+PIPE+'" '+ln+'/>';
-  }
-  // the figures
-  const dim = (x1,y1,x2,y2,label,off,vert) => {
-    let d = '<g '+th+'>';
-    d += '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'"/>';
-    const a = 9;
+
+  /* the figures */
+  const dim = (x1, y1, x2, y2, label, tx2, ty, vert) => {
+    const a = 11;
+    let d = '<g stroke="' + pal.dim + '" stroke-width="1.4" fill="' + pal.dim + '">';
+    d += '<line x1="' + x1.toFixed(2) + '" y1="' + y1.toFixed(2) + '" x2="' + x2.toFixed(2) +
+         '" y2="' + y2.toFixed(2) + '"/>';
     if(vert){
-      d += '<path d="M'+x1+' '+y1+' l-'+a/2+' '+a+' h'+a+' z" fill="#000"/>';
-      d += '<path d="M'+x2+' '+y2+' l-'+a/2+' -'+a+' h'+a+' z" fill="#000"/>';
+      d += '<path d="M' + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' l' + (-a/2) + ' ' + a + ' h' + a + ' z" stroke="none"/>';
+      d += '<path d="M' + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' l' + (-a/2) + ' ' + (-a) + ' h' + a + ' z" stroke="none"/>';
     } else {
-      d += '<path d="M'+x1+' '+y1+' l'+a+' -'+a/2+' v'+a+' z" fill="#000"/>';
-      d += '<path d="M'+x2+' '+y2+' l-'+a+' -'+a/2+' v'+a+' z" fill="#000"/>';
+      d += '<path d="M' + x1.toFixed(2) + ' ' + y1.toFixed(2) + ' l' + a + ' ' + (-a/2) + ' v' + a + ' z" stroke="none"/>';
+      d += '<path d="M' + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' l' + (-a) + ' ' + (-a/2) + ' v' + a + ' z" stroke="none"/>';
     }
     d += '</g>';
-    d += '<text '+tx+' x="'+off[0]+'" y="'+off[1]+'"'+(vert?' transform="rotate(-90 '+off[0]+' '+off[1]+')"':'')+' text-anchor="middle">'+label+'</text>';
+    d += text(tx2, ty, label, 27, pal.text,
+              ' text-anchor="middle"' + (vert ? ' transform="rotate(-90 ' + tx2.toFixed(1) + ' ' + ty.toFixed(1) + ')"' : ''));
     return d;
   };
-  const lx = (M - 60).toFixed(2), rx = (M + S.Lx + 60).toFixed(2);
-  s += dim(lx, Y(S.H), lx, Y(0), inch(S.H) + ' in', [(+lx - 10).toFixed(2), (M + S.H/2).toFixed(2)], true);
-  s += dim(rx, Y(zShelf()), rx, Y(0), inch(zShelf()) + ' in', [(+rx + 26).toFixed(2), (M + S.H - zShelf()/2).toFixed(2)], true);
-  const by = (M + S.H + 70).toFixed(2);
-  s += dim(X(-S.Lx/2), by, X(S.Lx/2), by, inch(S.Lx) + ' in', [X(0), (+by + 30).toFixed(2)], false);
-  s += '<text '+tx+' x="'+M+'" y="'+(M-70)+'">MALLEABLE CT1 &#183; front elevation &#183; sheet ' +
-       inch(S.Lx) + ' &#215; ' + inch(S.Ly) + ' in, ' + inch(OA) + ' in over the legs &#183; mm ' +
-       Math.round(S.H) + ' / ' + Math.round(S.Lx) + ' / ' + Math.round(S.Ly) + '</text>';
+  const wl = EX(-OA/2 - DIMG), wr = EX(OA/2 + DIMG), wb = EY(-DIMG);
+  s += dim(wl, EY(S.H), wl, EY(0), inch(S.H) + ' in', wl - 16, (EY(S.H)+EY(0))/2, true);
+  s += dim(wr, EY(zShelf()), wr, EY(0), inch(zShelf()) + ' in', wr + 34, (EY(zShelf())+EY(0))/2, true);
+  s += dim(EX(-S.Lx/2), wb, EX(S.Lx/2), wb, inch(S.Lx) + ' in', EX(0), wb + 42, false);
+  s += text(cellL.x + cellL.w/2, cellL.y + cellL.h - 24, 'FRONT ELEVATION', 19, pal.faint,
+            ' letter-spacing="5" text-anchor="middle"');
+
+  /* ── 3 · the isometric ───────────────────────────────────────────
+     True isometric, 30 degrees each way, drawn back to front: the far
+     leg, the shelf, the top, the near leg. Three tones - the room
+     overhead on the top face, and the two sides falling away from the
+     light, which is where the left one is. */
+  const C30 = Math.cos(Math.PI/6);
+  const iu = (x, y) => (x - y)*C30;
+  const iv = (x, y, z) => (x + y)*0.5 - z;
+  const X0 = -OA/2, X1 = OA/2, Y0 = -S.Ly/2, Y1 = S.Ly/2, Z1 = S.H;
+  const gz = Math.max(S.H, OA)*0.14;     // how far the figures stand off
+  const bx = [X0, X1], byy = [Y0, Y1 + gz*1.4], bz = [-gz*1.4, Z1];
+  let ie = [1e9, 1e9, -1e9, -1e9];
+  for(const x of bx) for(const y of byy) for(const z of bz){
+    const u = iu(x,y), v = iv(x,y,z);
+    ie = [Math.min(ie[0],u), Math.min(ie[1],v), Math.max(ie[2],u), Math.max(ie[3],v)];
+  }
+  const jf = fit(ie, { x:cellR.x, y:cellR.y, w:cellR.w, h:cellR.h - LBL }, 50);
+  const PU = (x,y) => jf.ox + jf.k*iu(x,y);
+  const PV = (x,y,z) => jf.oy + jf.k*iv(x,y,z);
+  const poly = (pts, fill) => '<path d="M' + pts.map(p => PU(p[0],p[1]).toFixed(2) + ' ' +
+      PV(p[0],p[1],p[2]).toFixed(2)).join(' L') + ' Z" fill="' + fill + '" stroke="' + pal.line +
+      '" stroke-width="1.1" stroke-linejoin="round"/>';
+  /* +y lands on the left of the picture and +x on the right, so the
+     left face takes the lighter of the two sides. */
+  const isoBox = (x0,y0,z0, x1,y1,z1) =>
+    poly([[x0,y1,z0],[x1,y1,z0],[x1,y1,z1],[x0,y1,z1]], pal.side) +   // left
+    poly([[x1,y0,z0],[x1,y1,z0],[x1,y1,z1],[x1,y0,z1]], pal.end) +    // right
+    poly([[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]], pal.top);     // top
+  const ld = legD/2, dy = S.Ly/2, zt = zTop(), zs = zShelf();
+  // far leg, shelf, top, near leg
+  s += isoBox(-(S.Lx/2 + JOINT + LEGT), -ld, 0, -(S.Lx/2 + JOINT), ld, S.H);
+  s += isoBox(-S.Lx/2, -dy, zs - DECKT/2, S.Lx/2, dy, zs + DECKT/2);
+  s += isoBox(-S.Lx/2, -dy, zt - DECKT/2, S.Lx/2, dy, zt + DECKT/2);
+  s += isoBox(S.Lx/2 + JOINT, -ld, 0, S.Lx/2 + JOINT + LEGT, ld, S.H);
+
+  /* The figures lie down with the axis they measure - one standing
+     upright on an isometric reads as a label, not as a dimension. The
+     x line runs off at thirty degrees, the y line at thirty the other
+     way, and height is the one direction that is still vertical. */
+  const iline = (p, q, w, op) =>
+    '<line x1="' + PU(p[0],p[1]).toFixed(2) + '" y1="' + PV(p[0],p[1],p[2]).toFixed(2) +
+    '" x2="' + PU(q[0],q[1]).toFixed(2) + '" y2="' + PV(q[0],q[1],q[2]).toFixed(2) +
+    '" stroke="' + pal.dim + '" stroke-width="' + w + '"' + (op || '') + '/>';
+  const itick = (p, d) => {
+    const t = 8, x = PU(p[0],p[1]), y = PV(p[0],p[1],p[2]);
+    return '<line x1="' + (x - d[0]*t).toFixed(2) + '" y1="' + (y - d[1]*t).toFixed(2) +
+           '" x2="' + (x + d[0]*t).toFixed(2) + '" y2="' + (y + d[1]*t).toFixed(2) +
+           '" stroke="' + pal.dim + '" stroke-width="1.8"/>';
+  };
+  const idim = (a, b, wa, wb, label, rot, d) => {
+    let o = iline(wa, a, 1, ' opacity="0.55"') + iline(wb, b, 1, ' opacity="0.55"');
+    o += iline(a, b, 1.4) + itick(a, d) + itick(b, d);
+    const mx = (PU(a[0],a[1]) + PU(b[0],b[1]))/2, my = (PV(a[0],a[1],a[2]) + PV(b[0],b[1],b[2]))/2;
+    o += text(mx, my, label, 23, pal.text, ' dy="-13" text-anchor="middle" transform="rotate(' +
+              rot + ' ' + mx.toFixed(1) + ' ' + my.toFixed(1) + ')"');
+    return o;
+  };
+  const K = 0.866025;
+  // over the legs, along x, below the part
+  s += idim([X0, Y1, -gz], [X1, Y1, -gz], [X0, Y1, 0], [X1, Y1, 0],
+            inch(OA) + ' in', 30, [-0.5, K]);
+  // the depth, along y, meeting it at the near corner
+  s += idim([X1, Y0, -gz], [X1, Y1, -gz], [X1, Y0, 0], [X1, Y1, 0],
+            inch(S.Ly) + ' in', -30, [-0.5, -K]);
+  // and the height, which is the one line that stays upright
+  s += idim([X0, Y1 + gz, 0], [X0, Y1 + gz, Z1], [X0, Y1, 0], [X0, Y1, Z1],
+            inch(S.H) + ' in', -90, [1, 0]);
+
+  s += text(cellR.x + cellR.w/2, cellR.y + cellR.h - 24, 'ISOMETRIC', 19, pal.faint,
+            ' letter-spacing="5" text-anchor="middle"');
+
+  /* ── the footer ── */
+  s += text(M, H - 50, Math.round(S.H) + ' &#215; ' + Math.round(S.Lx) + ' &#215; ' + Math.round(S.Ly) +
+            ' mm &#183; ' + layers() + ' layers at ' + LAYER.toFixed(1) + ' mm &#183; ' + esc(name),
+            22, pal.dim);
+  s += text(W - M, H - 50, 'noahtaylor.co', 22, pal.faint, ' text-anchor="end"');
   s += '</svg>';
   return s;
 }
 function saveSVG(){
-  download('malleable-ct1-elevation.svg', new Blob([elevationSVG()], { type:'image/svg+xml' }));
-  say('Elevation out');
+  download("malleable-ct1-sheet.svg", new Blob([elevationSVG()], { type:'image/svg+xml' }));
+  say('Sheet out');
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1400,7 +1643,7 @@ function buildPanel(){
 
   const s3 = sect('Out'); s3.classList.add('wide');
   const g2 = el('div','grid2');
-  button(g2,'Elevation', saveSVG);
+  button(g2,'Sheet', saveSVG);
   button(g2,'PNG', savePNG);
   s3.appendChild(g2);
   s3.appendChild(el('p','hint','Read off the reference toolpath. A ' + (PIPE*2) +

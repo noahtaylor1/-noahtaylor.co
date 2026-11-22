@@ -2,15 +2,17 @@
    THE FINISH, AND WHAT IT DOES TO THE REST OF THE PAGE
 
    One list of colours for the whole site, kept where every page can
-   read it, and a muted wash of whichever one is chosen laid over the
-   chrome. The pigment itself only ever lands on the object; the page
-   around it takes the same hue at a fraction of the saturation, so
-   the plate still reads as paper and ink rather than as a poster.
+   read it. A pigment is a thing in a room, so choosing one puts the
+   whole site in that room: a deep, nearly black wash of the same hue
+   over every surface, with the type and the rules sitting on it in a
+   pale one. The pigment itself still only ever lands on the object -
+   it is the only thing on the page at full strength.
 
    Two schemes, because the site runs in two: the dark pages that take
-   style.css, and the light plates the configurators are drawn on.
-   Both sets of names are written every time - a page simply ignores
-   the ones it does not use.
+   style.css, and the plates the configurators are drawn on, which are
+   paper until a finish is chosen and the same dark ground after. Both
+   sets of names are written every time - a page simply ignores the
+   ones it does not use, and Raw takes every one of them back off.
    ════════════════════════════════════════════════════════════════════ */
 (function(){
 'use strict';
@@ -62,35 +64,43 @@ function hex(h, s, l){
   var c = toRGB(h,s,l);
   return '#' + hex2(c[0]) + hex2(c[1]) + hex2(c[2]);
 }
-/* Past a point more saturation in the pigment makes no difference to
-   a wash this pale, so it is clamped before anything is taken off it. */
+/* Past a point more saturation makes no difference at these depths, so
+   it is clamped before anything is taken off it. */
 var sat = function(s, k){ return Math.min(s, 72)*k; };
 
-/* every name both stylesheets know, given the pigment's hue and a
-   small part of its saturation - enough that the page is plainly
-   wearing the colour, never so much that it competes with the object */
+/* Every name both stylesheets know, given the pigment's hue and a part
+   of its saturation. The two schemes land in the same place now: the
+   plates stop being paper and take the same dark ground the rest of
+   the site is already on, so moving between them is one room. */
 function vars(h, s){
-  var ink = toRGB(h, sat(s, 0.62), 12);
+  var ink = toRGB(h, sat(s, 0.18), 93);
   var a = function(x){ return 'rgba(' + ink[0] + ',' + ink[1] + ',' + ink[2] + ',' + x + ')'; };
   var inkHex = '#' + hex2(ink[0]) + hex2(ink[1]) + hex2(ink[2]);
-  var dark = toRGB(h, sat(s, 0.64), 6);
+  var dark = toRGB(h, sat(s, 0.70), 6.5);
+  var darkHex = '#' + hex2(dark[0]) + hex2(dark[1]) + hex2(dark[2]);
   var scrim = function(x){ return 'rgba(' + dark[0] + ',' + dark[1] + ',' + dark[2] + ',' + x + ')'; };
   return {
-    /* the light plate - the configurators */
-    '--paper':    hex(h, sat(s, 0.68), 94.6),
-    '--ink':      inkHex,
-    '--chrome':   hex(h, sat(s, 0.60), 96.6),
-    '--chrome-2': hex(h, sat(s, 0.72), 91.0),
-    '--chrome-3': hex(h, sat(s, 0.78), 86.2),
-    '--rule':      a('.16'),
-    '--rule-soft': a('.08'),
-    '--t1':        a('.92'),
-    '--t2':        a('.56'),
+    /* the plates - the configurators */
+    '--paper':    hex(h, sat(s, 0.62), 11.0),   // the stage the object stands on
+    '--ink':      inkHex,                       // and every mark made on it
+    '--chrome':   darkHex,
+    '--chrome-2': hex(h, sat(s, 0.66), 11.5),
+    '--chrome-3': hex(h, sat(s, 0.72), 16.5),
+    '--rule':      a('.18'),
+    '--rule-soft': a('.09'),
+    '--t1':        a('.94'),
+    '--t2':        a('.58'),
     '--t3':        a('.34'),
-    '--guide':     a('.78'),
+    '--guide':     a('.82'),
     '--sel':       inkHex,
+    /* What the shader is handed, which is not the same pair: the page
+       wants ink to be the mark, the render wants it to be the far end
+       of the light. Keeping them apart is the whole reason a plate can
+       go dark without the shadow under the table coming out pale. */
+    '--render-paper': hex(h, sat(s, 0.55), 10.5),
+    '--render-ink':   hex(h, sat(s, 0.90),  1.8),
     /* the dark pages - style.css */
-    '--bg':     '#' + hex2(dark[0]) + hex2(dark[1]) + hex2(dark[2]),
+    '--bg':     darkHex,
     '--bg-2':   hex(h, sat(s, 0.60), 11.5),
     '--panel':  hex(h, sat(s, 0.62),  8.0),
     '--border': hex(h, sat(s, 0.52), 20.0),
@@ -100,7 +110,9 @@ function vars(h, s){
     '--text-3': hex(h, sat(s, 0.22), 60.0),
     '--muted':  hex(h, sat(s, 0.22), 48.0),
     '--scrim':      scrim('.86'),
-    '--scrim-soft': scrim('.5')
+    '--scrim-soft': scrim('.5'),
+    /* the scrollbars and the form controls go with it */
+    'color-scheme': 'dark'
   };
 }
 
