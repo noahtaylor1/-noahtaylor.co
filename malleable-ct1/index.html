@@ -1284,8 +1284,14 @@ function elevationSVG(){
     '<text ' + F + ' x="' + (+x).toFixed(1) + '" y="' + (+y).toFixed(1) + '" font-size="' + size +
     '" fill="' + fill + '"' + (opt || '') + '>' + t + '</text>';
 
+  /* No pixel size on the root, only the box the sheet is drawn in. A
+     viewer handed 2200 by 1650 pixels shows you 2200 by 1650 pixels and
+     leaves you panning around it; handed a ratio, every one of them
+     fits the sheet to the window instead, and Illustrator still opens
+     an artboard the size of the viewBox. */
   let s = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" ' +
-          'viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '">';
+          'viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="100%" ' +
+          'preserveAspectRatio="xMidYMid meet">';
   // the flood
   s += '<rect width="100%" height="100%" fill="' + pal.bg + '"/>';
 
