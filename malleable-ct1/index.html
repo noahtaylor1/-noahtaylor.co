@@ -1677,8 +1677,8 @@ function syncPanel(){
     b.setAttribute('aria-pressed', String(FIN[+b.dataset.i].hex === S.col)));
   const hf = document.getElementById('h-fin');
   if(hf) hf.textContent = S.col
-    ? finName(S.col) + ' throughout, legs and all. The page takes the same colour, muted.'
-    : 'No pigment - the print as it comes off the machine.';
+    ? finName(S.col) + ' throughout, legs and all - and the whole site goes the room it is standing in.'
+    : 'No pigment - the print as it comes off the machine, on paper.';
   const seg = document.getElementById('seg-view');
   if(seg) seg.querySelectorAll('button').forEach(b => {
     const t = b.dataset.tag;
