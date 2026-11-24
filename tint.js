@@ -68,11 +68,71 @@ function hex(h, s, l){
    it is clamped before anything is taken off it. */
 var sat = function(s, k){ return Math.min(s, 72)*k; };
 
+/* How light the pigment actually looks, which is not its hsl lightness:
+   a saturated blue at 31% reads nearly black and a yellow at 71% reads
+   nearly white. Oklab's L is the one number that gets that right, and
+   two things downstream need it - how deep the room goes, and how hard
+   the lamp has to work. */
+function oklab(c){
+  var f = function(u){ u = Math.max(0, Math.min(1, u));
+                       return u <= 0.04045 ? u/12.92 : Math.pow((u + 0.055)/1.055, 2.4); };
+  var r = f(c[0]), g = f(c[1]), b = f(c[2]);
+  var cr = Math.cbrt(0.4122214708*r + 0.5363325363*g + 0.0514459929*b),
+      cg = Math.cbrt(0.2119034982*r + 0.6806995451*g + 0.1073969566*b),
+      cb = Math.cbrt(0.0883024619*r + 0.2817188376*g + 0.6299787005*b);
+  return [0.2104542553*cr + 0.7936177850*cg - 0.0040720468*cb,
+          1.9779984951*cr - 2.4285922050*cg + 0.4505937099*cb,
+          0.0259040371*cr + 0.7827717662*cg - 0.8086757660*cb];
+}
+var okL = function(c){ return oklab(c)[0]; };
+/* how far apart two colours actually look, lightness and hue together */
+function okDE(a, b){
+  var A = oklab(a), B = oklab(b);
+  return Math.sqrt(Math.pow(A[0]-B[0],2) + Math.pow(A[1]-B[1],2) + Math.pow(A[2]-B[2],2))*100;
+}
+var smooth = function(x, a, b){
+  var t = Math.max(0, Math.min(1, (x - a)/(b - a)));
+  return t*t*(3 - 2*t);
+};
+
+/* The exposure the key light needs for this pigment on this stage.
+   A middling face is m*0.732; the floor is the stage's own wash. Open
+   up until the two are plainly apart, but no further: past about a
+   stop the pigment stops looking like itself, and an oxblood table
+   lit until it is unmissable is just a red one. Most of the work is
+   done by the room going deeper, which costs the pigment nothing -
+   only graphite, moss and oxblood need the lamp touched at all. */
+function expose(m, h, s, SL){
+  var paper = toRGB(h, sat(s, 0.55), SL).map(function(v){ return v/255; });
+  var ink   = toRGB(h, sat(s, 0.90), SL*0.17).map(function(v){ return v/255; });
+  var grnd  = [0,1,2].map(function(i){ return paper[i] + (ink[i] - paper[i])*0.115; });
+  var face  = function(f, k){
+    return [0,1,2].map(function(i){
+      return Math.min(1, m[i]*(0.12 + 1.02*f)*k + paper[i]*0.22*(1.0 - f)); });
+  };
+  var lo = 1.0, hi = 2.0, i, mid;
+  for(i=0;i<18;i++){
+    mid = (lo + hi)/2;
+    if(okDE(face(0.60, mid), grnd) < 18.0) lo = mid; else hi = mid;
+  }
+  /* the square-on face at f = 1 is m*1.14, so this is the most the
+     lamp can be opened before the brightest channel runs out of room */
+  var clip = 1.02/Math.max(Math.max(m[0], Math.max(m[1], m[2]))*1.14, 1e-6);
+  return Math.max(1.0, Math.min((lo + hi)/2, clip, 2.0));
+}
+
 /* Every name both stylesheets know, given the pigment's hue and a part
    of its saturation. The two schemes land in the same place now: the
    plates stop being paper and take the same dark ground the rest of
    the site is already on, so moving between them is one room. */
-function vars(h, s){
+function vars(h, s, c0){
+  /* The room is cut to the pigment standing in it. A dark pigment can
+     only be seen in a room darker than it is, so the stage drops; a
+     pale one needs no help and keeps the depth the rest of the site
+     is on. Without this a graphite table came out a shade darker than
+     the floor it stood on, which is to say invisible. */
+  var m = [c0[0]/255, c0[1]/255, c0[2]/255];
+  var SL = 3.8 + 7.0*smooth(okL(m), 0.26, 0.72);
   var ink = toRGB(h, sat(s, 0.18), 93);
   var a = function(x){ return 'rgba(' + ink[0] + ',' + ink[1] + ',' + ink[2] + ',' + x + ')'; };
   var inkHex = '#' + hex2(ink[0]) + hex2(ink[1]) + hex2(ink[2]);
@@ -97,8 +157,14 @@ function vars(h, s){
        wants ink to be the mark, the render wants it to be the far end
        of the light. Keeping them apart is the whole reason a plate can
        go dark without the shadow under the table coming out pale. */
-    '--render-paper': hex(h, sat(s, 0.55), 10.5),
-    '--render-ink':   hex(h, sat(s, 0.90),  1.8),
+    '--render-paper': hex(h, sat(s, 0.55), SL),
+    '--render-ink':   hex(h, sat(s, 0.90), SL*0.17),
+    /* and what the lamp is turned up to: expose for the subject, the
+       way the room would be lit for it. Found by asking how far a
+       typical lit face lands from the floor and opening up until it
+       is clearly apart, which is why a saturated blue stops early -
+       its hue does the separating and it would only clip. */
+    '--render-expose': expose(m, h, s, SL).toFixed(4),
     /* the dark pages - style.css */
     '--bg':     darkHex,
     '--bg-2':   hex(h, sat(s, 0.60), 11.5),
@@ -116,14 +182,14 @@ function vars(h, s){
   };
 }
 
-var NAMES = Object.keys(vars(0, 0));
+var NAMES = Object.keys(vars(0, 0, [128,128,128]));
 
 function apply(tint){
   var root = document.documentElement, i;
   if(!tint){
     for(i=0;i<NAMES.length;i++) root.style.removeProperty(NAMES[i]);
   } else {
-    var c = hsl(tint), v = vars(c[0], c[1]);
+    var c = hsl(tint), v = vars(c[0], c[1], rgb(tint));
     for(i=0;i<NAMES.length;i++) root.style.setProperty(NAMES[i], v[NAMES[i]]);
   }
   bar();
