@@ -246,7 +246,7 @@ const S = {
      the wall and the rim radius all follow from it, and the base is a
      whole number of those layers so the spiral can start flat. */
   beadW:3, beadH:1.5, relief:0.4, wallBeads:1, baseLayers:1, baseGap:2,
-  pitch:1.5/10, shade:4, tone:0.46, ambient:0.22, gap:0.5, fillet:1.5, air:true, stopSink:true, oneWall:true, edges:false, hollow:true, wall:3/10,
+  pitch:1.5/10, shade:7, tone:0.46, ambient:0.22, gap:0.5, fillet:1.5, air:true, stopSink:true, oneWall:true, edges:false, hollow:true, wall:3/10,
   section:false, secX:0,
   grid:false, module:6, snap:false, invert:false,
   steps:100, sliceY:4.5, traceRes:560,
@@ -547,9 +547,11 @@ function sceneJS(x,y,z){
 
 /* ══════════════════════════════════════════════════════════════════
    3 · WEBGL — orthographic sphere tracing
-   No perspective and no lighting model: the form is read from its
-   silhouette and from layer lines at the print pitch, so the result
-   stays a drawing rather than a render.
+   Lit as CT1 is lit, down to the weights: the same soft box, the same
+   card on the front right, the same bounce off the ground and the same
+   finish over it, so a pot and a table are two things in one room
+   rather than two drawings in two styles. The bands this plate used to
+   draw in are still on the Shade slider, one notch below SMOOTH.
    ══════════════════════════════════════════════════════════════════ */
 const cvs = document.getElementById('gl');
 const gl = cvs.getContext('webgl2', { antialias:false, alpha:false, preserveDrawingBuffer:true });
@@ -563,6 +565,7 @@ uniform vec2 uRes;
 uniform vec3 uRight, uUp, uFwd, uTarget;
 uniform float uScale;
 uniform int uCount, uKernel, uSteps, uShade, uSection, uHollow, uEdges;
+const int SMOOTH = 7;            // uShade at the top of its travel - no bands
 uniform float uPitch, uSecX, uWall, uTol, uPress, uSwell, uTone, uBead, uBeadVis, uAmb, uGap, uFillet, uBase;
 uniform int uPersp, uAnyPress, uAir;
 uniform vec3 uCamPos;
@@ -581,9 +584,13 @@ uniform vec4 uMat;
    bearing and its strength both drift across a face - which means the
    bands follow the form instead of sitting flat on each plane. Up is y
    here, so the sky term reads off y. */
-const vec3  LDIR  = vec3(-0.5800, 0.5400, 0.6100);
+/* CT1's rig, in this plate's axes - it is y-up and faces +z where CT1
+   is z-up and faces -y, so the same soft box high on the left and
+   forward, and the same bounce card on the front right, read with two
+   components swapped. One room, three plates. */
+const vec3  LDIR  = vec3(-0.4575,  0.6565, 0.5968);
 const float LDIST = 230.0;
-const vec3  LFILL = vec3( 0.7000, -0.2600, 0.4000);
+const vec3  LFILL = vec3( 0.8000,  0.2800, 0.3000);
 out vec4 outColor;
 bool gNoBead;          // occlusion reads the smooth form, not the ribs
 
@@ -796,6 +803,16 @@ vec3 normalAt(vec3 p, float e){
   return n;
 }
 
+/* CT1's, word for word: the pigment is lit and otherwise left alone,
+   and the ground bounces back into it along the fill, which is where a
+   card would actually throw it. b is how much of the ground a face can
+   see. Raw - alpha 0 - falls through to the room's own tones. */
+vec3 finish(vec4 m, float f, float b){
+  vec3 raw = mix(uPaper, uInk, (1.0 - f)*0.80);
+  vec3 lit = m.rgb*(0.12 + 1.02*f)
+           + uPaper*(b*0.065 + pow(f, 9.0)*0.07);
+  return mix(raw, min(lit, vec3(1.0)), m.a);
+}
 void main(){
   vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
   vec3 ro, rd;
@@ -823,11 +840,7 @@ void main(){
     if(t > 900.0) break;
   }
 
-  /* The two ends the tone runs between. Both are the pigment - one
-     pushed toward the ink, one lifted toward the paper - rather than
-     the pigment scaled, which on a near-black one left the whole ramp
-     inside eight levels and drew the pot as a blob. Lifting toward the
-     paper also cannot clip, so a pale pigment keeps all its bands. */
+  /* the deepest the line work goes, and the lightest a crease lifts to */
   vec3 pInk   = mix(uInk,   mix(uMat.rgb, uInk,   0.55), uMat.a);
   vec3 pPaper = mix(uPaper, mix(uMat.rgb, uPaper, 0.42), uMat.a);
 
@@ -838,10 +851,11 @@ void main(){
     bool needN = uEdges == 1 || uShade > 0;
     if(needN) n = normalAt(pos, px*1.1);
 
-    /* Posterised tone first, so it is the ground the line work sits on:
-       a fixed number of flat steps from one side light, darkened where the
-       form closes in on itself. Banding keeps it a drawing, not a render. */
-    if(uShade > 0 && uTone > 0.001){
+    /* The light, which is CT1's and nothing of this plate's own: the
+       same wrapped key off the soft box, the same card on the front
+       right carrying a quarter of it, the same sky term overhead, the
+       same pedestal under the lot. A pot and a table in one room. */
+    if(uShade > 0){
       vec3 lv = (uTarget + LDIR*LDIST) - pos;
       float ldist = length(lv);
       vec3 lgt = lv/ldist;
@@ -851,11 +865,12 @@ void main(){
       float key  = clamp(dot(n, lgt)*0.44 + 0.56, 0.0, 1.0)*fall;
       float fill = clamp(dot(n, LFILL)*0.40 + 0.60, 0.0, 1.0);
       float sky  = clamp(n.y*0.5 + 0.5, 0.0, 1.0);
-      float f = key*0.66 + fill*0.12 + sky*0.22;
-      f *= mix(1.0, occlusion(pos, n), 0.40);
+      float f = key*0.54 + fill*0.26 + sky*0.16 + 0.03;
+      float oc = mix(1.0, occlusion(pos, n), 0.40);
+      f *= oc;
       /* a matte print catches the room at a grazing angle */
       f += pow(1.0 - clamp(dot(n, -rd), 0.0, 1.0), 3.5)*0.06;
-      f = clamp(f, 0.0, 1.0);
+      f = clamp(0.10 + 0.90*f, 0.0, 1.0);
       /* The beads are lit analytically rather than through the normal, so
          they stay clean at any zoom: crown bright, seam dark, flattening to
          the mean once a bead is smaller than a pixel. */
@@ -863,18 +878,22 @@ void main(){
         float ph = pos.y/uPitch;
         float crown = 0.5 + 0.5*cos(6.2831853*fract(ph));
         crown = mix(crown, 0.5, smoothstep(0.18, 0.5, fwidth(ph)));
-        f *= 0.82 + 0.26*crown;
+        f *= 0.92 + 0.13*crown;          // CT1's touch, not a drawing's
         /* and which side of each crest the lamp is on, which is what
            stops the ribbing reading as corduroy */
         float ty = fract(ph)*2.0 - 1.0;
         float fade = 1.0 - smoothstep(0.16, 0.50, fwidth(ph));
         f = clamp(f + ty*lgt.y*(1.0 - abs(n.y))*fade*0.10, 0.0, 1.0);
       }
-      // an ambient floor, so the deepest tone is shadow and not a void
-      f = uAmb + (1.0 - uAmb)*f;
-      float steps = float(uShade);
-      float q = clamp(floor(f*steps + 0.5)/steps, 0.0, 1.0);
-      col = mix(pInk, pPaper, q*uTone);
+      /* and only then, if it is wanted, the drawing's own step - a fixed
+         number of flat bands off an ambient floor. SMOOTH is the render
+         itself, which is what the other two plates show. */
+      if(uShade < SMOOTH){
+        f = uAmb + (1.0 - uAmb)*f;
+        float steps = float(uShade);
+        f = clamp(floor(f*steps + 0.5)/steps, 0.0, 1.0)*uTone + (1.0 - uTone)*uAmb;
+      }
+      col = finish(uMat, f, fill*oc);
     }
     /* The bead seams. Once they fall below a pixel they resolve to the
        average tone the ribbing would make rather than disappearing, so a
@@ -890,7 +909,7 @@ void main(){
       bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
       // the join between two beads sits in shadow; drawing it toward the
       // paper lit every seam white, which is what made overhangs glare
-      if(!onCut) col = mix(col, pInk, cov*0.38);
+      if(!onCut) col = mix(col, mix(uInk, col*0.44, uMat.a), cov*mix(0.13, 0.34, uMat.a));
     }
     // crease line where the surface folds — the rim, and where forms meet
     if(uEdges == 1){
@@ -2134,8 +2153,9 @@ function buildPanel(){
   slider(s3,'Base pitch',0.6,6,.1, ()=>S.baseGap, v=>{ S.baseGap=v; },
     v=>Math.min(v,S.beadW).toFixed(1)+'mm \u00B7 '+(Math.min(v,S.beadW)*S.beadH).toFixed(2)+'mm\u00B2');
   slider(s3,'Relief',0,1,.05, ()=>S.relief, v=>{S.relief=v;}, v=> v<0.01 ? 'flat' : v.toFixed(2));
-  slider(s3,'Shade',0,6,1, ()=>S.shade, v=>{S.shade=Math.round(v);}, v=> v<1 ? 'flat' : Math.round(v)+' steps');
-  if(S.shade > 0){
+  slider(s3,'Shade',0,7,1, ()=>S.shade, v=>{S.shade=Math.round(v);},
+    v=> v<1 ? 'flat' : v>6 ? 'smooth' : Math.round(v)+' steps');
+  if(S.shade > 0 && S.shade < 7){
     slider(s3,'Tone',0.1,1,.05, ()=>S.tone, v=>{S.tone=v;}, v=>v.toFixed(2));
     slider(s3,'Ambient',0,0.6,.02, ()=>S.ambient, v=>{S.ambient=v;}, v=>v.toFixed(2));
   }
