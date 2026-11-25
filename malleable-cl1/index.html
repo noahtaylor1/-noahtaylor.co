@@ -127,6 +127,18 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
   border-radius:1px;margin:0;flex:none;cursor:pointer;transition:background .14s var(--ease)}
 .chk input:checked{background:var(--ink);border-color:var(--ink);box-shadow:inset 0 0 0 2px var(--chrome)}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+/* THE FINISH. Twelve pigments and the raw print, as a grid of
+   swatches - the same grid, and the same twelve, as the other plates. */
+.swg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.sw{aspect-ratio:1;border:1px solid var(--rule);border-radius:2px;padding:0;background:var(--paper);
+  cursor:pointer;transition:transform .12s var(--ease),box-shadow .12s var(--ease)}
+.sw:hover{transform:scale(1.1)}
+.sw[aria-pressed="true"]{box-shadow:0 0 0 1.5px var(--ink);border-color:var(--ink)}
+.sw:focus-visible{outline:1.5px solid var(--ink);outline-offset:2px}
+/* no pigment, struck through on the diagonal */
+.sw.raw{background:var(--paper);
+  background-image:linear-gradient(to top right,transparent calc(50% - .55px),
+    var(--t3) calc(50% - .55px),var(--t3) calc(50% + .55px),transparent calc(50% + .55px))}
 .txt{width:100%;background:none;border:0;border-bottom:1px solid var(--rule-soft);padding:4px 0;
   font-size:12px;letter-spacing:.06em;min-width:0;transition:border-color .14s var(--ease)}
 .txt:focus{outline:none;border-bottom-color:var(--ink)}
@@ -172,8 +184,8 @@ input[type=range]:focus-visible{outline:1px solid var(--ink);outline-offset:3px}
     <li><a href="/index.html">Concepts</a></li>
     <li><a href="/resume.html">Resume</a></li>
     <li><a href="/lattice/">Lattice</a></li>
-    <li><a href="/malleable/">Malleable</a></li>
-    <li><a href="/malleable-s1/">S1</a></li>
+    <li><a href="/malleable-pl1/">PL1</a></li>
+    <li><a href="/malleable-ct1/">CT1</a></li>
   </ul>
 </nav>
 
@@ -240,6 +252,28 @@ const S = {
   steps:100, sliceY:4.5, traceRes:560,
   cap1:'MALLEABLE CL1', cap2:'coil pots', cap3:'nr.001'
 };
+/* The twelve pigments come from tint.js, which every page on the site
+   loads, so the colour chosen here is the colour the other plates are
+   wearing when you get to them. */
+const FIN = (window.Finish && window.Finish.list) || [{ name:'Raw', hex:null }];
+const finName = h => (FIN.find(c => c.hex === h) || FIN[0]).name;
+const finRGB = h => [parseInt(h.slice(1,3),16)/255, parseInt(h.slice(3,5),16)/255,
+                     parseInt(h.slice(5,7),16)/255, 1];
+const finMat = h => h ? finRGB(h) : [0,0,0,0];
+S.col = window.Finish ? window.Finish.get() : null;
+function setFinish(hex){
+  S.col = hex;
+  if(window.Finish) window.Finish.set(hex);
+  sync();
+  say('Finish \u00b7 ' + finName(hex));
+}
+/* the same choice made on another plate, or in another tab */
+window.addEventListener('finishchange', e => {
+  const c = (e.detail && e.detail.color) || null;
+  if(c === S.col) return;
+  S.col = c; sync();
+});
+
 const A = { k:S.k, scale:S.scale, az:S.az, el:S.el, tx:0, tz:0, ty:5, pitch:S.pitch, secX:0 };
 
 let msgTimer = 0;
@@ -535,6 +569,13 @@ uniform vec3 uCamPos;
 uniform float uK, uPix, uPixA, uStepK;
 uniform sampler2D uData;
 uniform vec3 uInk, uPaper;
+/* The pigment, and nothing else on the plate at full strength. This is
+   a drawing rather than a render, so it is not lit over the top of the
+   line work - it moves the two ends the posterised tone runs between.
+   The part is then drawn in the pigment, the way a coloured pencil
+   drawing is, and the sheet it is drawn on stays paper. Alpha 0 is
+   Raw, which leaves the ends where the stylesheet put them. */
+uniform vec4 uMat;
 /* A soft box high on the left and forward, a couple of metres off (the
    model is in centimetres). It is a place, not a direction, so its
    bearing and its strength both drift across a face - which means the
@@ -782,9 +823,17 @@ void main(){
     if(t > 900.0) break;
   }
 
+  /* The two ends the tone runs between. Both are the pigment - one
+     pushed toward the ink, one lifted toward the paper - rather than
+     the pigment scaled, which on a near-black one left the whole ramp
+     inside eight levels and drew the pot as a blob. Lifting toward the
+     paper also cannot clip, so a pale pigment keeps all its bands. */
+  vec3 pInk   = mix(uInk,   mix(uMat.rgb, uInk,   0.55), uMat.a);
+  vec3 pPaper = mix(uPaper, mix(uMat.rgb, uPaper, 0.42), uMat.a);
+
   vec3 col = uPaper;
   if(hit){
-    col = uInk;
+    col = pInk;
     vec3 n = vec3(0.0);
     bool needN = uEdges == 1 || uShade > 0;
     if(needN) n = normalAt(pos, px*1.1);
@@ -825,7 +874,7 @@ void main(){
       f = uAmb + (1.0 - uAmb)*f;
       float steps = float(uShade);
       float q = clamp(floor(f*steps + 0.5)/steps, 0.0, 1.0);
-      col = mix(uInk, uPaper, q*uTone);
+      col = mix(pInk, pPaper, q*uTone);
     }
     /* The bead seams. Once they fall below a pixel they resolve to the
        average tone the ribbing would make rather than disappearing, so a
@@ -841,16 +890,16 @@ void main(){
       bool onCut = uSection == 1 && abs(pos.z - uSecX) < px*1.5;
       // the join between two beads sits in shadow; drawing it toward the
       // paper lit every seam white, which is what made overhangs glare
-      if(!onCut) col = mix(col, uInk, cov*0.38);
+      if(!onCut) col = mix(col, pInk, cov*0.38);
     }
     // crease line where the surface folds — the rim, and where forms meet
     if(uEdges == 1){
       float cr = length(fwidth(n));
       float facing = abs(dot(n, rd));
       float e = smoothstep(0.45, 1.25, cr)*smoothstep(0.06, 0.28, facing);
-      col = mix(col, uPaper, e*0.9);
+      col = mix(col, pPaper, e*0.9);
     }
-    if(uSection == 1 && abs(pos.z - uSecX) < px*1.5) col = uInk;   // poché the cut face
+    if(uSection == 1 && abs(pos.z - uSecX) < px*1.5) col = pInk;   // poché the cut face
   } else {
     float cov = clamp(minR/0.8, 0.0, 1.0);
     col = mix(uInk, uPaper, cov);
@@ -882,7 +931,7 @@ function initGL(){
   gl.useProgram(prog);
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uCount','uKernel','uSteps',
                   'uShade','uSection','uHollow','uEdges','uPitch','uSecX','uWall','uTol','uPress','uSwell','uTone','uBead','uAmb','uGap','uFillet','uBase',
-                  'uPersp','uAnyPress','uAir','uBeadVis','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper'])
+                  'uPersp','uAnyPress','uAir','uBeadVis','uCamPos','uK','uPix','uPixA','uStepK','uData','uInk','uPaper','uMat'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
   tex = gl.createTexture();
@@ -1001,6 +1050,7 @@ function draw(){
   gl.uniform1f(uni.uStepK, stride);
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
+  gl.uniform4fv(uni.uMat, finMat(S.col));
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -2112,6 +2162,24 @@ function buildPanel(){
     s4.appendChild(inp);
   });
   panel.appendChild(s4);
+
+  const sf = el('div','sect'); sf.appendChild(el('h2',null,'Finish'));
+  const swg = el('div','swg');
+  FIN.forEach(c => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'sw' + (c.hex ? '' : ' raw');
+    b.title = c.name; b.setAttribute('aria-label', c.name);
+    b.setAttribute('aria-pressed', String(c.hex === S.col));
+    if(c.hex) b.style.background = c.hex;
+    b.onclick = () => setFinish(c.hex);
+    swg.appendChild(b);
+  });
+  sf.appendChild(swg);
+  const hfp = el('p','hint', S.col
+    ? finName(S.col) + ' throughout - and the other plates are wearing it too.'
+    : 'No pigment - the print as it comes off the machine, on paper.');
+  sf.appendChild(hfp);
+  panel.appendChild(sf);
 
   const s5 = el('div','sect'); s5.appendChild(el('h2',null,'Presets'));
   const pg = el('div','grid2');
