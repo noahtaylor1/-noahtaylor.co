@@ -387,8 +387,6 @@ uniform int uSteps;
 uniform vec3 uInk, uPaper;
 /* rgb is the pigment, a says whether there is one at all */
 uniform vec4 uMat;
-/* how far the key is opened up for this pigment, worked out in tint.js */
-uniform float uExpose;
 out vec4 outColor;
 const float PI = 3.141592653589793;
 const float PIPE = ` + PIPE.toFixed(2) + `;
@@ -578,13 +576,14 @@ vec3 normalAt(vec3 p, float e){
    the key strikes it square on, which is how a matte print reads. */
 vec3 finish(vec4 m, float f){
   vec3 raw = mix(uPaper, uInk, (1.0 - f)*0.80);
-  /* The key is exposed for the pigment, so a dark one is not left
-     sitting below the floor it stands on. What the key misses is filled
-     by the room itself, which is the only light there is on that side -
-     and it puts the shaded faces a little above the stage rather than
-     under it, so the silhouette holds all the way round. */
-  vec3 lit = m.rgb*(0.12 + 1.02*f)*uExpose
-           + uPaper*(0.22*(1.0 - f) + pow(f, 9.0)*0.07);
+  /* The pigment is lit and otherwise left alone - no exposure, no lift.
+     It reads because the room is on the other side of it in value, not
+     because anything was done to the colour. What the key misses is
+     filled by the room itself, which is what keeps a near-black part
+     from crushing to a flat silhouette: the pale ground bounces into
+     its shaded faces, the way it would in the room. */
+  vec3 lit = m.rgb*(0.12 + 1.02*f)
+           + uPaper*(0.10*(1.0 - f) + pow(f, 9.0)*0.07);
   return mix(raw, min(lit, vec3(1.0)), m.a);
 }
 void main(){
@@ -674,7 +673,7 @@ function initGL(){
   prog = p;
   for(const n of ['uRes','uRight','uUp','uFwd','uTarget','uScale','uPix','uLx','uLy','uH',
                   'uZt','uZs','uPitch','uRelief','uStepK','uSteps','uInk','uPaper',
-                  'uMat','uExpose'])
+                  'uMat'])
     uni[n] = gl.getUniformLocation(prog, n);
   gl.bindVertexArray(gl.createVertexArray());
 }
@@ -835,9 +834,7 @@ function themeColors(){
      part comes out brighter than the floor. When a finish is on, tint.js
      hands us a second pair for exactly that. */
   const pick = (a, b) => { const v = cs.getPropertyValue(a).trim(); return v || cs.getPropertyValue(b); };
-  const ex = parseFloat(cs.getPropertyValue('--render-expose'));
-  return { ink: toRGB(pick('--render-ink', '--ink')), paper: toRGB(pick('--render-paper', '--paper')),
-           expose: isFinite(ex) && ex > 0 ? ex : 1 };
+  return { ink: toRGB(pick('--render-ink', '--ink')), paper: toRGB(pick('--render-paper', '--paper')) };
 }
 function draw(){
   if(!ok) return;
@@ -870,7 +867,6 @@ function draw(){
   gl.uniform3fv(uni.uInk, c.ink);
   gl.uniform3fv(uni.uPaper, c.paper);
   gl.uniform4fv(uni.uMat, finMat(S.col));
-  gl.uniform1f(uni.uExpose, c.expose);
   gl.clearColor(c.paper[0], c.paper[1], c.paper[2], 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -1264,26 +1260,41 @@ function sheetPal(hex){
   const SC = Math.min(S0, 72);             // and a cooled one, for the chrome
   const hsl = (sv, lv) => 'hsl(' + h.toFixed(1) + ',' + Math.max(sv,0).toFixed(1) +
                           '%,' + Math.min(Math.max(lv,0),100).toFixed(1) + '%)';
-  /* Very dark and very light pigments both need pulling toward the
-     middle before they will read as a lit object rather than a hole or
-     a blank, so the faces are spread around a display lightness. The
-     floor sits well above the stage, because the darkest face of the
-     part has to stay clear of the ground even after the spread. */
-  const DL = Math.min(Math.max(l*100, 34), 85);
-  /* and the room goes as deep as the pigment needs, the same way the
-     render's stage does, so the sheet and the plate are one tone */
-  const SL = 3.8 + 7.0*sm(okL(r, g, b), 0.26, 0.72);
+  /* The sheet is the same room as the plate, worked out the same way:
+     the ground goes opposite the part in value, so a dark pigment is
+     drawn dark on a pale sheet and a pale one pale on a dim sheet. */
+  const hsl2rgb = (sv, lv) => {
+    const S = Math.max(sv,0)/100, L = Math.min(Math.max(lv,0),100)/100;
+    const C = (1 - Math.abs(2*L - 1))*S, hh = ((h % 360) + 360) % 360;
+    const X = C*(1 - Math.abs((hh/60) % 2 - 1)), M = L - C/2;
+    const t = hh < 60 ? [C,X,0] : hh < 120 ? [X,C,0] : hh < 180 ? [0,C,X]
+            : hh < 240 ? [0,X,C] : hh < 300 ? [X,0,C] : [C,0,X];
+    return [t[0]+M, t[1]+M, t[2]+M];
+  };
+  const okLhsl = (sv, lv) => okL(...hsl2rgb(sv, lv));
+  const fL    = okL(Math.min(1, r*0.732), Math.min(1, g*0.732), Math.min(1, b*0.732));
+  const light = fL < 0.56;
+  const tgt   = light ? Math.min(Math.max(fL + 0.30, 0.80), 0.88)
+                      : Math.min(Math.max(fL - 0.40, 0.28), 0.42);
+  const RS = SC*0.14;
+  let lo = 0, hi = 100;
+  for(let i=0;i<22;i++){ const mid=(lo+hi)/2; if(okLhsl(RS, mid) < tgt) lo=mid; else hi=mid; }
+  const SL = (lo + hi)/2;                  // the room
+  const ML = light ? 14 : 95;              // and what a mark on it is made in
+  /* the part keeps its own lightness - it is the one thing on the sheet
+     at full strength - and the faces are spread either side of it */
+  const DL = Math.min(Math.max(l*100, 12), 88);
   return {
-    bg:   hsl(SC*0.70, SL*0.62),
-    pool: hsl(SC*0.62, SL*1.24),
+    bg:   hsl(RS, SL),
+    pool: hsl(RS*0.8, light ? SL - 4 : SL + 5),
     part: hsl(S0, DL),
-    top:  hsl(S0*0.94, DL + 10),
+    top:  hsl(S0*0.94, Math.min(DL + 10, 96)),
     side: hsl(S0, DL - 2),
-    end:  hsl(S0*1.00, DL - 12),
-    line: hsl(SC*0.30, Math.min(DL + 34, 93)),
-    dim:  hsl(SC*0.26, 64),
-    text: hsl(SC*0.18, 93),
-    faint:hsl(SC*0.24, 44)
+    end:  hsl(S0*1.00, Math.max(DL - 12, 4)),
+    line: hsl(SC*0.20, ML),
+    dim:  hsl(SC*0.18, light ? 34 : 64),
+    text: hsl(SC*0.16, ML),
+    faint:hsl(SC*0.20, light ? 42 : 48)
   };
 }
 

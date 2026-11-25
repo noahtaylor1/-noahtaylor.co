@@ -85,100 +85,101 @@ function oklab(c){
           0.0259040371*cr + 0.7827717662*cg - 0.8086757660*cb];
 }
 var okL = function(c){ return oklab(c)[0]; };
-/* how far apart two colours actually look, lightness and hue together */
-function okDE(a, b){
-  var A = oklab(a), B = oklab(b);
-  return Math.sqrt(Math.pow(A[0]-B[0],2) + Math.pow(A[1]-B[1],2) + Math.pow(A[2]-B[2],2))*100;
-}
-var smooth = function(x, a, b){
-  var t = Math.max(0, Math.min(1, (x - a)/(b - a)));
-  return t*t*(3 - 2*t);
-};
-
-/* The exposure the key light needs for this pigment on this stage.
-   A middling face is m*0.732; the floor is the stage's own wash. Open
-   up until the two are plainly apart, but no further: past about a
-   stop the pigment stops looking like itself, and an oxblood table
-   lit until it is unmissable is just a red one. Most of the work is
-   done by the room going deeper, which costs the pigment nothing -
-   only graphite, moss and oxblood need the lamp touched at all. */
-function expose(m, h, s, SL){
-  var paper = toRGB(h, sat(s, 0.55), SL).map(function(v){ return v/255; });
-  var ink   = toRGB(h, sat(s, 0.90), SL*0.17).map(function(v){ return v/255; });
-  var grnd  = [0,1,2].map(function(i){ return paper[i] + (ink[i] - paper[i])*0.115; });
-  var face  = function(f, k){
-    return [0,1,2].map(function(i){
-      return Math.min(1, m[i]*(0.12 + 1.02*f)*k + paper[i]*0.22*(1.0 - f)); });
-  };
-  var lo = 1.0, hi = 2.0, i, mid;
-  for(i=0;i<18;i++){
+/* The hsl lightness that lands this hue, at this saturation, on a
+   wanted Oklab lightness. No closed form, so it is simply found. */
+function solveL(h, s, target){
+  var lo = 0, hi = 100, i, mid;
+  for(i=0;i<22;i++){
     mid = (lo + hi)/2;
-    if(okDE(face(0.60, mid), grnd) < 18.0) lo = mid; else hi = mid;
+    if(okL(toRGB(h, s, mid).map(function(v){ return v/255; })) < target) lo = mid;
+    else hi = mid;
   }
-  /* the square-on face at f = 1 is m*1.14, so this is the most the
-     lamp can be opened before the brightest channel runs out of room */
-  var clip = 1.02/Math.max(Math.max(m[0], Math.max(m[1], m[2]))*1.14, 1e-6);
-  return Math.max(1.0, Math.min((lo + hi)/2, clip, 2.0));
+  return (lo + hi)/2;
 }
 
-/* Every name both stylesheets know, given the pigment's hue and a part
-   of its saturation. The two schemes land in the same place now: the
-   plates stop being paper and take the same dark ground the rest of
-   the site is already on, so moving between them is one room. */
+/* ────────────────────────────────────────────────────────────────
+   Every name both stylesheets know, given the pigment.
+
+   The room is placed opposite the thing standing in it. That is the
+   whole of it: a dark pigment gets a pale studio and reads as a dark
+   object in a lit room; a pale one gets a dim room and reads as a
+   pale object in it. Nothing is ever done to the pigment itself -
+   it lands on the object at full strength and is left alone, which
+   is why there is no exposure here any more. The room moving is
+   enough, and it costs the colour nothing.
+
+   Which way it goes is decided on how light a middling lit face
+   actually looks, not on the pigment's own hsl lightness, because a
+   saturated blue at 31% reads nearly black. Eight of the twelve put
+   the site in a pale room; the four pale pigments - bone, ice, acid,
+   amber - dim it instead, because there is no room light enough to
+   show a bone table against.
+   ──────────────────────────────────────────────────────────────── */
 function vars(h, s, c0){
-  /* The room is cut to the pigment standing in it. A dark pigment can
-     only be seen in a room darker than it is, so the stage drops; a
-     pale one needs no help and keeps the depth the rest of the site
-     is on. Without this a graphite table came out a shade darker than
-     the floor it stood on, which is to say invisible. */
   var m = [c0[0]/255, c0[1]/255, c0[2]/255];
-  var SL = 3.8 + 7.0*smooth(okL(m), 0.26, 0.72);
-  var ink = toRGB(h, sat(s, 0.18), 93);
-  var a = function(x){ return 'rgba(' + ink[0] + ',' + ink[1] + ',' + ink[2] + ',' + x + ')'; };
-  var inkHex = '#' + hex2(ink[0]) + hex2(ink[1]) + hex2(ink[2]);
-  var dark = toRGB(h, sat(s, 0.70), 6.5);
-  var darkHex = '#' + hex2(dark[0]) + hex2(dark[1]) + hex2(dark[2]);
-  var scrim = function(x){ return 'rgba(' + dark[0] + ',' + dark[1] + ',' + dark[2] + ',' + x + ')'; };
+  /* a middling lit face, the same one the shader draws */
+  var fL = okL(m.map(function(v){ return Math.min(1, v*0.732); }));
+  var light = fL < 0.56;
+  /* far enough from the face to be plain, and kept inside a band that
+     is still a room rather than a white-out or a hole */
+  var tgt = light ? Math.min(Math.max(fL + 0.30, 0.80), 0.88)
+                  : Math.min(Math.max(fL - 0.40, 0.28), 0.42);
+  /* the room carries only a cast of the pigment, the way a wall does */
+  var RS = sat(s, 0.14);
+  var SL = solveL(h, RS, tgt);
+
+  var room  = hex(h, RS, SL);
+  var markL = light ? 14 : 95;                 // what a mark is made in
+  var mark  = toRGB(h, sat(s, 0.16), markL);
+  var a = function(x){ return 'rgba(' + mark[0] + ',' + mark[1] + ',' + mark[2] + ',' + x + ')'; };
+  var markHex = '#' + hex2(mark[0]) + hex2(mark[1]) + hex2(mark[2]);
+  /* the far end of the light is dark in either room, or the shadow
+     under the part comes out brighter than the floor it falls on */
+  var deep  = hex(h, sat(s, light ? 0.55 : 0.60), light ? 18 : SL*0.26);
+  /* The frosted nav bar and the wash under a card's caption are both
+     the room seen through glass, not a dark overlay - in a lit room a
+     dark one would be a black band across the top of every page. */
+  var sb = toRGB(h, RS, light ? Math.min(SL + 8, 96) : SL*0.55);
+  var scrim = function(x){
+    return 'rgba(' + sb[0] + ',' + sb[1] + ',' + sb[2] + ',' + x + ')'; };
+  var step = function(d){ return hex(h, RS*0.8, Math.min(Math.max(SL + d, 2), 97)); };
+
   return {
     /* the plates - the configurators */
-    '--paper':    hex(h, sat(s, 0.62), 11.0),   // the stage the object stands on
-    '--ink':      inkHex,                       // and every mark made on it
-    '--chrome':   darkHex,
-    '--chrome-2': hex(h, sat(s, 0.66), 11.5),
-    '--chrome-3': hex(h, sat(s, 0.72), 16.5),
-    '--rule':      a('.18'),
-    '--rule-soft': a('.09'),
-    '--t1':        a('.94'),
-    '--t2':        a('.58'),
+    '--paper':    room,                        // the stage the object stands on
+    '--ink':      markHex,                     // and every mark made on it
+    '--chrome':   step(light ?  7 : -2),
+    '--chrome-2': step(light ?  3 :  2),
+    '--chrome-3': step(light ? -3 :  6),
+    '--rule':      a('.16'),
+    '--rule-soft': a('.08'),
+    '--t1':        a(light ? '.92' : '.94'),
+    '--t2':        a(light ? '.56' : '.58'),
     '--t3':        a('.34'),
-    '--guide':     a('.82'),
-    '--sel':       inkHex,
+    '--guide':     a(light ? '.78' : '.82'),
+    '--sel':       markHex,
     /* What the shader is handed, which is not the same pair: the page
-       wants ink to be the mark, the render wants it to be the far end
-       of the light. Keeping them apart is the whole reason a plate can
-       go dark without the shadow under the table coming out pale. */
-    '--render-paper': hex(h, sat(s, 0.55), SL),
-    '--render-ink':   hex(h, sat(s, 0.90), SL*0.17),
-    /* and what the lamp is turned up to: expose for the subject, the
-       way the room would be lit for it. Found by asking how far a
-       typical lit face lands from the floor and opening up until it
-       is clearly apart, which is why a saturated blue stops early -
-       its hue does the separating and it would only clip. */
-    '--render-expose': expose(m, h, s, SL).toFixed(4),
-    /* the dark pages - style.css */
-    '--bg':     darkHex,
-    '--bg-2':   hex(h, sat(s, 0.60), 11.5),
-    '--panel':  hex(h, sat(s, 0.62),  8.0),
-    '--border': hex(h, sat(s, 0.52), 20.0),
-    '--faint':  hex(h, sat(s, 0.46), 29.0),
-    '--text':   hex(h, sat(s, 0.28), 95.5),
-    '--text-2': hex(h, sat(s, 0.24), 84.0),
-    '--text-3': hex(h, sat(s, 0.22), 60.0),
-    '--muted':  hex(h, sat(s, 0.22), 48.0),
+       wants ink to be the mark, which goes pale in a dim room, while
+       the render wants it to be the far end of the light, which never
+       does. Keeping them apart is the whole reason a plate can dim
+       without the shadow under the table coming out pale. */
+    '--render-paper': room,
+    '--render-ink':   deep,
+    '--render-dark':  light ? '0' : '1',
+    /* the rest of the site - style.css */
+    '--bg':     room,
+    '--bg-2':   step(light ? -4 :  3),
+    '--panel':  step(light ?  4 : -2),
+    '--border': hex(h, RS*0.9, light ? SL - 16 : SL + 14),
+    '--faint':  hex(h, RS*0.9, light ? SL - 24 : SL + 20),
+    '--text':   markHex,
+    '--text-2': hex(h, sat(s, 0.15), light ? 22 : 84),
+    '--text-3': hex(h, sat(s, 0.15), light ? 26 : 70),
+    '--muted':  hex(h, sat(s, 0.15), light ? 29 : 66),
     '--scrim':      scrim('.86'),
     '--scrim-soft': scrim('.5'),
     /* the scrollbars and the form controls go with it */
-    'color-scheme': 'dark'
+    'color-scheme': light ? 'light' : 'dark'
   };
 }
 
