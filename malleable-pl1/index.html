@@ -424,11 +424,17 @@ const float PI = 3.141592653589793;
 /* A soft box high on the left and forward, a couple of metres off. It
    is a place, not a direction: its bearing and its strength both drift
    across a face the way they do in a room, and that drift is most of
-   what separates a photograph from a render. The fill is the far wall,
-   the sky term is the room overhead. */
+   what separates a photograph from a render. The fill is a bounce
+   card set front-right, opposite the key and close enough to the
+   camera to reach the faces the key turns away from. It stood behind
+   the part before, which left the one side the key never got to with
+   nothing on it at all, and a side with nothing on it is a silhouette
+   rather than a face. What is wanted there is not a lift but a second
+   gradient, so it is aimed, and a touch harder than a wall would be.
+   The sky term is the room overhead. */
 const vec3  LDIR  = vec3(-0.4575, -0.5968, 0.6565);
 const float LDIST = 2400.0;
-const vec3  LFILL = vec3( 0.7000,  0.4200, 0.2500);
+const vec3  LFILL = vec3( 0.8000, -0.3000, 0.2800);
 bool gSmooth = false;
 
 float rAtZ(float z){ return uR0 + clamp(z, 0.0, uH)*uTan; }
@@ -538,7 +544,7 @@ void main(){
     float key  = clamp(dot(n, lgt)*0.44 + 0.56, 0.0, 1.0)*fall;
     float fill = clamp(dot(n, LFILL)*0.40 + 0.60, 0.0, 1.0);
     float sky  = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
-    float f = key*0.64 + fill*0.12 + sky*0.20 + 0.03;
+    float f = key*0.54 + fill*0.26 + sky*0.16 + 0.03;
     f *= mix(1.0, occlusion(pos, n), 0.40);
     /* a matte print catches the room at a grazing angle */
     f += pow(1.0 - clamp(dot(n, -rd), 0.0, 1.0), 3.5)*0.06;

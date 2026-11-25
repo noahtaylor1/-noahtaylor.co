@@ -397,11 +397,17 @@ const float JOINT = ` + JOINT.toFixed(2) + `;
 /* A soft box high on the left and forward, two and a half metres off.
    It is a place, not a direction: its bearing and its strength both
    drift across a face the way they do in a room, and that drift is
-   most of what separates a photograph from a render. The fill is the
-   far wall, the sky term is the room overhead. */
+   most of what separates a photograph from a render. The fill is a bounce
+   card set front-right, opposite the key and close enough to the
+   camera to reach the faces the key turns away from. It stood behind
+   the part before, which left the one side the key never got to with
+   nothing on it at all, and a side with nothing on it is a silhouette
+   rather than a face. What is wanted there is not a lift but a second
+   gradient, so it is aimed, and a touch harder than a wall would be.
+   The sky term is the room overhead. */
 const vec3  LDIR  = vec3(-0.4575, -0.5968, 0.6565);
 const float LDIST = 2600.0;
-const vec3  LFILL = vec3( 0.7000,  0.4200, 0.2500);
+const vec3  LFILL = vec3( 0.8000, -0.3000, 0.2800);
 bool gSmooth = false;
 
 /* a true radius on a union - it only reaches where both pieces are
@@ -575,16 +581,22 @@ vec3 normalAt(vec3 p, float e){
    ink. With one it is the pigment that is lit: it drops most of the
    way to black in the shade and lifts a little toward the paper where
    the key strikes it square on, which is how a matte print reads. */
-vec3 finish(vec4 m, float f){
+vec3 finish(vec4 m, float f, float b){
   vec3 raw = mix(uPaper, uInk, (1.0 - f)*0.80);
   /* The pigment is lit and otherwise left alone - no exposure, no lift.
-     It reads because the room is on the other side of it in value, not
-     because anything was done to the colour. What the key misses is
-     filled by the room itself, which is what keeps a near-black part
-     from crushing to a flat silhouette: the pale ground bounces into
-     its shaded faces, the way it would in the room. */
+     It reads at all because it is a dark thing on a white ground.
+
+     The ground bounces back into it, and b is how much of the ground
+     a face can see - the fill term, which is a direction. It used to
+     be (1 - f), which is not a direction but the shading read backwards:
+     it put the most bounce on the face that had the least light, and
+     on a white ground the two cancelled almost exactly. A near-black
+     part came out as four faces within two levels of each other - a
+     sticker of the table rather than the table. Carried on the fill it
+     lands where a card would actually throw it, and the faces separate
+     again. */
   vec3 lit = m.rgb*(0.12 + 1.02*f)
-           + uPaper*(0.10*(1.0 - f) + pow(f, 9.0)*0.07);
+           + uPaper*(b*0.065 + pow(f, 9.0)*0.07);
   return mix(raw, min(lit, vec3(1.0)), m.a);
 }
 void main(){
@@ -631,8 +643,9 @@ void main(){
     float key  = clamp(dot(n, lgt)*0.44 + 0.56, 0.0, 1.0)*fall;
     float fill = clamp(dot(n, LFILL)*0.40 + 0.60, 0.0, 1.0);
     float sky  = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
-    float f = key*0.64 + fill*0.12 + sky*0.20 + 0.03;
-    f *= mix(1.0, occlusion(pos, n), 0.40);
+    float f = key*0.54 + fill*0.26 + sky*0.16 + 0.03;
+    float oc = mix(1.0, occlusion(pos, n), 0.40);
+    f *= oc;
     /* a matte print catches the room at a grazing angle */
     f += pow(1.0 - clamp(dot(n, -rd), 0.0, 1.0), 3.5)*0.06;
     f = clamp(0.10 + 0.90*f, 0.0, 1.0);
@@ -645,7 +658,7 @@ void main(){
     if(uPitch > 0.001)
       f = clamp(f + mix(beadCrest(pos.x, n.x, lgt.x),
                         beadCrest(pos.y, n.y, lgt.y), wLeg)*0.10, 0.0, 1.0);
-    col = finish(uMat, f);
+    col = finish(uMat, f, fill*oc);
     float cov = mix(beadLines(pos.x, n.x), beadLines(pos.y, n.y), wLeg);
     /* the ribs are ink on a raw part and the pigment's own shadow on a
        finished one - ink laid over oxblood only reads as dirt */
