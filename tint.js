@@ -100,86 +100,99 @@ function solveL(h, s, target){
 /* ────────────────────────────────────────────────────────────────
    Every name both stylesheets know, given the pigment.
 
-   The room is placed opposite the thing standing in it. That is the
-   whole of it: a dark pigment gets a pale studio and reads as a dark
-   object in a lit room; a pale one gets a dim room and reads as a
-   pale object in it. Nothing is ever done to the pigment itself -
-   it lands on the object at full strength and is left alone, which
-   is why there is no exposure here any more. The room moving is
-   enough, and it costs the colour nothing.
+   The room does not move. All twelve put the site in the same low
+   room, at one depth, carrying nothing of the pigment but a cast of
+   its hue - so choosing a finish changes the temperature of the page
+   and never its key. A page that flips from near-black to near-white
+   between two swatches is not a room, it is a light switch.
 
-   Which way it goes is decided on how light a middling lit face
-   actually looks, not on the pigment's own hsl lightness, because a
-   saturated blue at 31% reads nearly black. Eight of the twelve put
-   the site in a pale room; the four pale pigments - bone, ice, acid,
-   amber - dim it instead, because there is no room light enough to
-   show a bone table against.
+   What moves is the sweep behind the object, which is the only thing
+   that has to separate from it. It is placed opposite the pigment:
+   a dark one gets a lit sweep and reads as a dark object against it,
+   a pale one - bone, ice, acid, amber - gets a dim one and reads as
+   a pale object against that. The sweep lives inside the plate, the
+   way a backdrop lives inside a studio, and the room around it stays
+   where it was. Nothing is ever done to the pigment itself: it lands
+   on the object at full strength and is left alone.
+
+   Which way the sweep goes is decided on how light a middling lit
+   face actually looks, not on the pigment's own hsl lightness,
+   because a saturated blue at 31% reads nearly black.
    ──────────────────────────────────────────────────────────────── */
 function vars(h, s, c0){
   var m = [c0[0]/255, c0[1]/255, c0[2]/255];
   /* a middling lit face, the same one the shader draws */
   var fL = okL(m.map(function(v){ return Math.min(1, v*0.732); }));
-  var light = fL < 0.56;
-  /* far enough from the face to be plain, and kept inside a band that
-     is still a room rather than a white-out or a hole */
-  var tgt = light ? Math.min(Math.max(fL + 0.30, 0.80), 0.88)
-                  : Math.min(Math.max(fL - 0.40, 0.28), 0.42);
+  var lit = fL < 0.56;             // does this pigment want a lit sweep
   /* the room carries only a cast of the pigment, the way a wall does */
   var RS = sat(s, 0.14);
-  var SL = solveL(h, RS, tgt);
+  /* One depth for every pigment. The page has nothing to separate
+     from, so it has no reason to move. */
+  var PL   = solveL(h, RS, 0.28);
+  var room = hex(h, RS, PL);
+  /* Far enough from the lit face to be plain, and no further - the
+     ceiling is only as high as the one mid pigment needs. */
+  var tgt = lit ? Math.min(Math.max(fL + 0.34, 0.52), 0.86)
+                : Math.min(Math.max(fL - 0.34, 0.14), 0.32);
+  var SL    = solveL(h, RS, tgt);
+  var stage = hex(h, RS, SL);
 
-  var room  = hex(h, RS, SL);
-  var markL = light ? 14 : 95;                 // what a mark is made in
-  var mark  = toRGB(h, sat(s, 0.16), markL);
+  /* what a mark is made in: pale on the page, which is always dim,
+     and whichever way the sweep went on the sweep */
+  var mark = toRGB(h, sat(s, 0.16), 95);
   var a = function(x){ return 'rgba(' + mark[0] + ',' + mark[1] + ',' + mark[2] + ',' + x + ')'; };
   var markHex = '#' + hex2(mark[0]) + hex2(mark[1]) + hex2(mark[2]);
-  /* the far end of the light is dark in either room, or the shadow
-     under the part comes out brighter than the floor it falls on */
-  var deep  = hex(h, sat(s, light ? 0.55 : 0.60), light ? 18 : SL*0.26);
-  /* The frosted nav bar and the wash under a card's caption are both
-     the room seen through glass, not a dark overlay - in a lit room a
-     dark one would be a black band across the top of every page. */
-  var sb = toRGB(h, RS, light ? Math.min(SL + 8, 96) : SL*0.55);
+  /* the far end of the light, which is dark against either sweep, or
+     the shadow under the part comes out brighter than the floor */
+  var deep = hex(h, sat(s, lit ? 0.55 : 0.60), lit ? 18 : SL*0.26);
+  /* The frosted nav bar and the wash under a card's caption are the
+     room seen through glass, not a dark overlay laid over it. */
+  var sb = toRGB(h, RS, PL*0.55);
   var scrim = function(x){
     return 'rgba(' + sb[0] + ',' + sb[1] + ',' + sb[2] + ',' + x + ')'; };
-  var step = function(d){ return hex(h, RS*0.8, Math.min(Math.max(SL + d, 2), 97)); };
+  var step = function(d){ return hex(h, RS*0.8, Math.min(Math.max(PL + d, 2), 97)); };
+  /* and the same thing for the sweep, which the hint sits on */
+  var rm = toRGB(h, sat(s, 0.16), lit ? 14 : 95);
+  var renderMark = '#' + hex2(rm[0]) + hex2(rm[1]) + hex2(rm[2]);
 
   return {
     /* the plates - the configurators */
-    '--paper':    room,                        // the stage the object stands on
-    '--ink':      markHex,                     // and every mark made on it
-    '--chrome':   step(light ?  7 : -2),
-    '--chrome-2': step(light ?  3 :  2),
-    '--chrome-3': step(light ? -3 :  6),
+    '--paper':    room,                        // the room the plate is in
+    '--ink':      markHex,                     // and every mark made in it
+    '--chrome':   step(-2),
+    '--chrome-2': step(2),
+    '--chrome-3': step(6),
     '--rule':      a('.16'),
     '--rule-soft': a('.08'),
-    '--t1':        a(light ? '.92' : '.94'),
-    '--t2':        a(light ? '.56' : '.58'),
+    '--t1':        a('.94'),
+    '--t2':        a('.58'),
     '--t3':        a('.34'),
-    '--guide':     a(light ? '.78' : '.82'),
+    '--guide':     a('.82'),
     '--sel':       markHex,
-    /* What the shader is handed, which is not the same pair: the page
-       wants ink to be the mark, which goes pale in a dim room, while
-       the render wants it to be the far end of the light, which never
-       does. Keeping them apart is the whole reason a plate can dim
-       without the shadow under the table coming out pale. */
-    '--render-paper': room,
+    /* What the shader is handed, and what is drawn over it. These are
+       not the page's pair: the sweep can be lit while the room around
+       it stays dim, so a mark on the sweep and a mark on the page are
+       made in different colours, and render-ink is the far end of the
+       light rather than either of them. */
+    '--render-paper': stage,
     '--render-ink':   deep,
-    '--render-dark':  light ? '0' : '1',
+    '--render-mark':  renderMark,
+    '--render-t3':    'rgba(' + rm[0] + ',' + rm[1] + ',' + rm[2] + ',.4)',
+    '--render-dark':  lit ? '0' : '1',
     /* the rest of the site - style.css */
     '--bg':     room,
-    '--bg-2':   step(light ? -4 :  3),
-    '--panel':  step(light ?  4 : -2),
-    '--border': hex(h, RS*0.9, light ? SL - 16 : SL + 14),
-    '--faint':  hex(h, RS*0.9, light ? SL - 24 : SL + 20),
+    '--bg-2':   step(3),
+    '--panel':  step(-2),
+    '--border': hex(h, RS*0.9, PL + 14),
+    '--faint':  hex(h, RS*0.9, PL + 20),
     '--text':   markHex,
-    '--text-2': hex(h, sat(s, 0.15), light ? 22 : 84),
-    '--text-3': hex(h, sat(s, 0.15), light ? 26 : 70),
-    '--muted':  hex(h, sat(s, 0.15), light ? 29 : 66),
+    '--text-2': hex(h, sat(s, 0.15), 84),
+    '--text-3': hex(h, sat(s, 0.15), 70),
+    '--muted':  hex(h, sat(s, 0.15), 66),
     '--scrim':      scrim('.86'),
     '--scrim-soft': scrim('.5'),
     /* the scrollbars and the form controls go with it */
-    'color-scheme': light ? 'light' : 'dark'
+    'color-scheme': 'dark'
   };
 }
 
