@@ -1,18 +1,18 @@
 /* ════════════════════════════════════════════════════════════════════
    THE FINISH, AND WHAT IT DOES TO THE REST OF THE PAGE
 
-   One list of colours for the whole site, kept where every page can
-   read it. A pigment is a thing in a room, so choosing one puts the
-   whole site in that room: a deep, nearly black wash of the same hue
-   over every surface, with the type and the rules sitting on it in a
-   pale one. The pigment itself still only ever lands on the object -
-   it is the only thing on the page at full strength.
+   As it stands: nothing. A pigment lands on the object and the page
+   is left exactly as it was - white on the plates, which is what the
+   object is being judged against. That is the whole of the current
+   behaviour, and the switch for it is ROOM, down by apply().
 
-   Two schemes, because the site runs in two: the dark pages that take
-   style.css, and the plates the configurators are drawn on, which are
-   paper until a finish is chosen and the same dark ground after. Both
-   sets of names are written every time - a page simply ignores the
-   ones it does not use, and Raw takes every one of them back off.
+   The rest of this file is what happens when that switch is on: one
+   list of colours for the whole site, derived from the pigment, kept
+   where every page can read it. Two sets of names, because the site
+   runs in two schemes - the dark pages that take style.css, and the
+   plates the configurators are drawn on. Both sets are written every
+   time; a page ignores the ones it does not use, and Raw - like ROOM
+   being off - takes every one of them back off.
    ════════════════════════════════════════════════════════════════════ */
 (function(){
 'use strict';
@@ -198,9 +198,26 @@ function vars(h, s, c0){
 
 var NAMES = Object.keys(vars(0, 0, [128,128,128]));
 
+/* ────────────────────────────────────────────────────────────────
+   THE ROOM, FOR NOW: OFF
+
+   A finish colours the object and nothing else. Every page is left
+   on its own ground - white on the plates, which is what the object
+   is being judged against - and nothing above this line runs.
+
+   All of it still stands, and still works, and is one word away from
+   being back: set this to true. It is switched off rather than taken
+   out because the reasoning in it is sound and the only thing wrong
+   with it was that it was more than was wanted.
+
+   What plain white costs: a pale pigment - bone, ice, acid - has
+   little to separate from on it. That is the trade being made.
+   ──────────────────────────────────────────────────────────────── */
+var ROOM = false;
+
 function apply(tint){
   var root = document.documentElement, i;
-  if(!tint){
+  if(!tint || !ROOM){
     for(i=0;i<NAMES.length;i++) root.style.removeProperty(NAMES[i]);
   } else {
     var c = hsl(tint), v = vars(c[0], c[1], rgb(tint));
